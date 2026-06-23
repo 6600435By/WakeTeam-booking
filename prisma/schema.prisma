@@ -1,0 +1,212 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  timezone  String   @default("Europe/Minsk")
+  currency  String   @default("BYN")
+  createdAt DateTime @default(now())
+  branches  Branch[]
+  members   OrganizationMember[]
+  clients   Client[]
+}
+
+model User {
+  id           String               @id @default(cuid())
+  email        String               @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime             @default(now())
+  memberships  OrganizationMember[]
+}
+
+model OrganizationMember {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  role           String   @default("branch_admin")
+  branchId       String?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, userId])
+}
+
+model Branch {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  address        String?
+  phone          String?
+  description    String?
+  isActive       Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  staff          Staff[]
+  services       Service[]
+  members        OrganizationMember[]
+}
+
+model Staff {
+  id             String    @id @default(cuid())
+  organizationId String
+  branchId       String
+  branch         Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  name           String
+  kind           String    @default("revers")
+  isVisible      Boolean   @default(true)
+  isActive       Boolean   @default(true)
+  sortOrder      Int       @default(0)
+  slotMinutes    Int       @default(10)
+  createdAt      DateTime  @default(now())
+  schedules      StaffSchedule[]
+  breaks         StaffBreak[]
+  services       ServiceStaff[]
+  appointments   Appointment[]
+}
+
+/// weekday: 1 = Monday … 7 = Sunday
+model StaffSchedule {
+  id        String  @id @default(cuid())
+  staffId   String
+  staff     Staff   @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  weekday   Int
+  isWorking Boolean @default(true)
+  timeFrom  String
+  timeTo    String
+
+  @@unique([staffId, weekday])
+}
+
+model StaffBreak {
+  id       String @id @default(cuid())
+  staffId  String
+  staff    Staff  @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  weekday  Int?
+  timeFrom String
+  timeTo   String
+}
+
+model Service {
+  id                String   @id @default(cuid())
+  branchId          String
+  branch            Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  name              String
+  durationMinutes   Int      @default(10)
+  allowedDurations  String   @default("10,30,60")
+  price             Float
+  bookableFrom      String?
+  bookableTo        String?
+  weekdays          String   @default("1,2,3,4,5,6,7")
+  isActive          Boolean  @default(true)
+  isOnlineBookable  Boolean  @default(true)
+  sortOrder         Int      @default(0)
+  staff             ServiceStaff[]
+  appointments      Appointment[]
+}
+
+model ServiceStaff {
+  serviceId String
+  staffId   String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  staff     Staff   @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@id([serviceId, staffId])
+}
+
+model Client {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  firstName      String?
+  lastName       String?
+  phone          String
+  email          String?
+  notes          String?
+  createdAt      DateTime @default(now())
+  appointments   Appointment[]
+
+  @@unique([organizationId, phone])
+}
+
+model Appointment {
+  id              String   @id @default(cuid())
+  publicNumber    Int      @unique
+  organizationId  String
+  branchId        String
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id])
+  staffId         String
+  staff           Staff    @relation(fields: [staffId], references: [id])
+  serviceId       String
+  service         Service  @relation(fields: [serviceId], references: [id])
+  startAt         DateTime
+  endAt           DateTime
+  durationMinutes Int
+  price           Float
+  status          String   @default("booked")
+  cancelReason    String?
+  source          String   @default("widget")
+  comment         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  membershipId              String?
+  membership                Membership? @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+  membershipMinutesDeducted Int         @default(0)
+
+  @@unique([staffId, startAt])
+  @@index([startAt])
+  @@index([organizationId, startAt])
+}
+
+model AppSetting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+}
+
+model Membership {
+  id                    String   @id @default(cuid())
+  organizationId        String
+  externalCode          String
+  category              String?
+  ownerName             String?
+  phone                 String
+  saleDate              DateTime?
+  initialMinutes        Int      @default(0)
+  sheetRemainingMinutes Int      @default(0)
+  localDeductedMinutes  Int      @default(0)
+  comment               String?
+  syncedAt              DateTime @default(now())
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  appointments          Appointment[]
+  transactions          MembershipTransaction[]
+
+  @@unique([organizationId, externalCode])
+  @@index([organizationId, phone])
+}
+
+model MembershipTransaction {
+  id            String     @id @default(cuid())
+  membershipId  String
+  membership    Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  appointmentId String?
+  minutes       Int
+  reason        String
+  createdAt     DateTime   @default(now())
+
+  @@index([membershipId])
+  @@index([appointmentId])
+}
+
