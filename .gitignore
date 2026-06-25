@@ -41,6 +41,10 @@ yarn-error.log*
 /prisma/dev.db-journal
 .npm-cache
 
+# uploaded images (local dev)
+/public/uploads/*
+!/public/uploads/.gitkeep
+
 # vercel
 .vercel
 

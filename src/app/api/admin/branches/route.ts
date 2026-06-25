@@ -13,6 +13,7 @@ const patchSchema = z.object({
   address: z.string().optional(),
   phone: z.string().optional(),
   description: z.string().optional(),
+  photoUrl: z.string().nullable().optional(),
   isActive: z.boolean().optional(),
 });
 

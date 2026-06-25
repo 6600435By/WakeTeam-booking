@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { normalizePhone } from "@/lib/slots/generateSlots";
+import { normalizePhone } from "@/lib/phone";
 import { parseIntField, parseMembershipCsv, parseSaleDate } from "./parse-csv";
 
 export function membershipsCsvUrlFromEnv(): string {

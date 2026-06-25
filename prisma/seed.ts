@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { DEFAULT_WIDGET_SETTINGS } from "../src/lib/widget-settings";
 
 const prisma = new PrismaClient();
 
@@ -14,9 +15,19 @@ type StaffDef = {
   schedule: { weekday: number; from: string; to: string }[];
 };
 
+type PriceRuleDef = {
+  id: string;
+  weekdays: string;
+  timeFrom: string;
+  timeTo: string;
+  price: number;
+  sortOrder: number;
+};
+
 type ServiceDef = {
   id: string;
   name: string;
+  kind: string;
   price: number;
   durationMinutes: number;
   allowedDurations: string;
@@ -25,6 +36,7 @@ type ServiceDef = {
   weekdays: string;
   staffIds: string[];
   sort: number;
+  priceRules?: PriceRuleDef[];
 };
 
 async function upsertStaff(branchId: string, defs: StaffDef[]) {
@@ -76,6 +88,7 @@ async function upsertServices(branchId: string, defs: ServiceDef[]) {
         id: s.id,
         branchId,
         name: s.name,
+        kind: s.kind,
         price: s.price,
         durationMinutes: s.durationMinutes,
         allowedDurations: s.allowedDurations,
@@ -86,6 +99,7 @@ async function upsertServices(branchId: string, defs: ServiceDef[]) {
       },
       update: {
         name: s.name,
+        kind: s.kind,
         price: s.price,
         durationMinutes: s.durationMinutes,
         allowedDurations: s.allowedDurations,
@@ -93,6 +107,8 @@ async function upsertServices(branchId: string, defs: ServiceDef[]) {
         bookableTo: s.to,
         weekdays: s.weekdays,
         sortOrder: s.sort,
+        isActive: true,
+        isOnlineBookable: true,
       },
     });
     await prisma.serviceStaff.deleteMany({ where: { serviceId: s.id } });
@@ -101,17 +117,122 @@ async function upsertServices(branchId: string, defs: ServiceDef[]) {
         data: { serviceId: s.id, staffId },
       });
     }
+    if (s.priceRules) {
+      await prisma.servicePriceRule.deleteMany({ where: { serviceId: s.id } });
+      for (const rule of s.priceRules) {
+        await prisma.servicePriceRule.upsert({
+          where: { id: rule.id },
+          create: {
+            id: rule.id,
+            serviceId: s.id,
+            weekdays: rule.weekdays,
+            timeFrom: rule.timeFrom,
+            timeTo: rule.timeTo,
+            price: rule.price,
+            sortOrder: rule.sortOrder,
+          },
+          update: {
+            weekdays: rule.weekdays,
+            timeFrom: rule.timeFrom,
+            timeTo: rule.timeTo,
+            price: rule.price,
+            sortOrder: rule.sortOrder,
+          },
+        });
+      }
+    }
   }
 }
 
-function wakeRevers(prefix: string, from: string, to: string, weekdays: number[]): StaffDef[] {
-  return [1, 2, 3].map((n) => ({
-    id: `${prefix}-rev${n}`,
-    name: `Реверс №${n} (${from}–${to})`,
-    kind: "revers",
-    sort: n,
-    schedule: weekdays.map((wd) => ({ weekday: wd, from, to })),
-  }));
+function wakeReversIds(branchPrefix: string): string[] {
+  return [`${branchPrefix}-rev1`, `${branchPrefix}-rev2`, `${branchPrefix}-rev3`];
+}
+
+type DayWindow = { from: string; to: string; days: number[] };
+
+function branchWakeRevers(
+  branchPrefix: string,
+  weekday: DayWindow,
+  weekend?: DayWindow,
+): StaffDef[] {
+  return [1, 2, 3].map((n) => {
+    const schedule: { weekday: number; from: string; to: string }[] = [];
+    for (const wd of weekday.days) {
+      schedule.push({ weekday: wd, from: weekday.from, to: weekday.to });
+    }
+    if (weekend) {
+      for (const wd of weekend.days) {
+        schedule.push({ weekday: wd, from: weekend.from, to: weekend.to });
+      }
+    }
+    return {
+      id: `${branchPrefix}-rev${n}`,
+      name: `Реверс №${n}`,
+      kind: "revers",
+      sort: n,
+      schedule,
+    };
+  });
+}
+
+async function migrateLegacyRevers(branchPrefix: string) {
+  for (let n = 1; n <= 3; n++) {
+    const newId = `${branchPrefix}-rev${n}`;
+    for (const band of ["am", "pm", "we"]) {
+      const oldId = `${branchPrefix}-${band}-rev${n}`;
+      await prisma.appointment.updateMany({
+        where: { staffId: oldId },
+        data: { staffId: newId },
+      });
+      await prisma.serviceStaff.deleteMany({ where: { staffId: oldId } });
+      await prisma.staff.updateMany({
+        where: { id: oldId },
+        data: { isActive: false, isVisible: false },
+      });
+    }
+  }
+}
+
+function wakePriceRules(prefix: string): PriceRuleDef[] {
+  return [
+    {
+      id: `${prefix}-rule-am`,
+      weekdays: "1,2,3,4,5",
+      timeFrom: "10:00",
+      timeTo: "16:00",
+      price: 15,
+      sortOrder: 1,
+    },
+    {
+      id: `${prefix}-rule-pm`,
+      weekdays: "1,2,3,4,5",
+      timeFrom: "16:00",
+      timeTo: "21:00",
+      price: 30,
+      sortOrder: 2,
+    },
+    {
+      id: `${prefix}-rule-we`,
+      weekdays: "6,7",
+      timeFrom: "09:00",
+      timeTo: "21:00",
+      price: 30,
+      sortOrder: 3,
+    },
+  ];
+}
+
+async function deactivateLegacyWakeServices(ids: string[], targetId: string) {
+  await prisma.appointment.updateMany({
+    where: { serviceId: { in: ids } },
+    data: { serviceId: targetId },
+  });
+  for (const id of ids) {
+    await prisma.service.updateMany({
+      where: { id },
+      data: { isActive: false, isOnlineBookable: false },
+    });
+  }
 }
 
 function supBoards(prefix: string, count: number, from: string, to: string): StaffDef[] {
@@ -121,6 +242,7 @@ function supBoards(prefix: string, count: number, from: string, to: string): Sta
     name: `Сапборд №${i + 1}`,
     kind: "sup",
     sort: 10 + i,
+    slotMinutes: 60,
     schedule: allDays.map((wd) => ({ weekday: wd, from, to })),
   }));
 }
@@ -165,8 +287,11 @@ async function main() {
       slug: "waketeam",
       timezone: "Europe/Minsk",
       currency: "BYN",
+      widgetSettings: JSON.stringify(DEFAULT_WIDGET_SETTINGS),
     },
-    update: {},
+    update: {
+      widgetSettings: JSON.stringify(DEFAULT_WIDGET_SETTINGS),
+    },
   });
 
   // Главный админ (Раубичи) — видит все филиалы
@@ -193,63 +318,49 @@ async function main() {
   });
 
   const raubichiStaff: StaffDef[] = [
-    ...wakeRevers("rau-am", "10:00", "16:00", [1, 2, 3, 4, 5]),
-    ...wakeRevers("rau-pm", "16:00", "21:00", [1, 2, 3, 4, 5]),
-    ...wakeRevers("rau-we", "09:00", "21:00", [6, 7]),
+    ...branchWakeRevers(
+      "rau",
+      { from: "10:00", to: "21:00", days: [1, 2, 3, 4, 5] },
+      { from: "09:00", to: "21:00", days: [6, 7] },
+    ),
     ...supBoards("rau", 7, "09:00", "21:00"),
   ];
   await upsertStaff(raubichi.id, raubichiStaff);
+  await migrateLegacyRevers("rau");
 
   await upsertServices(raubichi.id, [
     {
-      id: "rau-wake-wd-am",
-      name: "Вейкбординг будний день (10:00–16:00)",
+      id: "rau-wake",
+      name: "Вейкбординг",
+      kind: "wake",
       price: 15,
-      durationMinutes: 10,
-      allowedDurations: "10,30,60",
-      from: "10:00",
-      to: "16:00",
-      weekdays: "1,2,3,4,5",
-      staffIds: ["rau-am-rev1", "rau-am-rev2", "rau-am-rev3"],
-      sort: 1,
-    },
-    {
-      id: "rau-wake-wd-pm",
-      name: "Вейкбординг будний день (16:00–21:00)",
-      price: 30,
-      durationMinutes: 10,
-      allowedDurations: "10,30,60",
-      from: "16:00",
-      to: "21:00",
-      weekdays: "1,2,3,4,5",
-      staffIds: ["rau-pm-rev1", "rau-pm-rev2", "rau-pm-rev3"],
-      sort: 2,
-    },
-    {
-      id: "rau-wake-we",
-      name: "Вейкбординг выходной день (09:00–21:00)",
-      price: 30,
       durationMinutes: 10,
       allowedDurations: "10,30,60",
       from: "09:00",
       to: "21:00",
-      weekdays: "6,7",
-      staffIds: ["rau-we-rev1", "rau-we-rev2", "rau-we-rev3"],
-      sort: 3,
+      weekdays: "1,2,3,4,5,6,7",
+      staffIds: wakeReversIds("rau"),
+      sort: 1,
+      priceRules: wakePriceRules("rau"),
     },
     {
       id: "rau-sup",
-      name: "Катание на сапборде (09:00–21:00)",
+      name: "Сапборд",
+      kind: "sup",
       price: 20,
-      durationMinutes: 30,
-      allowedDurations: "30,60",
+      durationMinutes: 60,
+      allowedDurations: "60",
       from: "09:00",
       to: "21:00",
       weekdays: "1,2,3,4,5,6,7",
       staffIds: Array.from({ length: 7 }, (_, i) => `rau-sup${i + 1}`),
-      sort: 4,
+      sort: 2,
     },
   ]);
+  await deactivateLegacyWakeServices(
+    ["rau-wake-wd-am", "rau-wake-wd-pm", "rau-wake-we"],
+    "rau-wake",
+  );
 
   // --- Друзья ---
   const druzya = await prisma.branch.upsert({
@@ -267,50 +378,60 @@ async function main() {
   });
 
   const druzyaStaff: StaffDef[] = [
-    ...wakeRevers("dru-am", "10:00", "16:00", [1, 2, 3, 4, 5]),
-    ...wakeRevers("dru-pm", "16:00", "21:00", [1, 2, 3, 4, 5]),
-    ...wakeRevers("dru-we", "10:00", "21:00", [6, 7]),
+    ...branchWakeRevers("dru", {
+      from: "10:00",
+      to: "21:00",
+      days: [1, 2, 3, 4, 5, 6, 7],
+    }),
   ];
   await upsertStaff(druzya.id, druzyaStaff);
+  await migrateLegacyRevers("dru");
 
   await upsertServices(druzya.id, [
     {
-      id: "dru-wake-wd-am",
-      name: "Вейкбординг будний день (10:00–16:00)",
+      id: "dru-wake",
+      name: "Вейкбординг",
+      kind: "wake",
       price: 15,
       durationMinutes: 10,
       allowedDurations: "10,30,60",
       from: "10:00",
-      to: "16:00",
-      weekdays: "1,2,3,4,5",
-      staffIds: ["dru-am-rev1", "dru-am-rev2", "dru-am-rev3"],
+      to: "21:00",
+      weekdays: "1,2,3,4,5,6,7",
+      staffIds: wakeReversIds("dru"),
       sort: 1,
-    },
-    {
-      id: "dru-wake-wd-pm",
-      name: "Вейкбординг будний день (16:00–21:00)",
-      price: 30,
-      durationMinutes: 10,
-      allowedDurations: "10,30,60",
-      from: "16:00",
-      to: "21:00",
-      weekdays: "1,2,3,4,5",
-      staffIds: ["dru-pm-rev1", "dru-pm-rev2", "dru-pm-rev3"],
-      sort: 2,
-    },
-    {
-      id: "dru-wake-we",
-      name: "Вейкбординг выходной день (10:00–21:00)",
-      price: 30,
-      durationMinutes: 10,
-      allowedDurations: "10,30,60",
-      from: "10:00",
-      to: "21:00",
-      weekdays: "6,7",
-      staffIds: ["dru-we-rev1", "dru-we-rev2", "dru-we-rev3"],
-      sort: 3,
+      priceRules: [
+        {
+          id: "dru-rule-am",
+          weekdays: "1,2,3,4,5",
+          timeFrom: "10:00",
+          timeTo: "16:00",
+          price: 15,
+          sortOrder: 1,
+        },
+        {
+          id: "dru-rule-pm",
+          weekdays: "1,2,3,4,5",
+          timeFrom: "16:00",
+          timeTo: "21:00",
+          price: 30,
+          sortOrder: 2,
+        },
+        {
+          id: "dru-rule-we",
+          weekdays: "6,7",
+          timeFrom: "10:00",
+          timeTo: "21:00",
+          price: 30,
+          sortOrder: 3,
+        },
+      ],
     },
   ]);
+  await deactivateLegacyWakeServices(
+    ["dru-wake-wd-am", "dru-wake-wd-pm", "dru-wake-we"],
+    "dru-wake",
+  );
 
   // --- Стайки ---
   const stayki = await prisma.branch.upsert({
@@ -328,63 +449,74 @@ async function main() {
   });
 
   const staykiStaff: StaffDef[] = [
-    ...wakeRevers("sta-am", "09:00", "16:00", [1, 2, 3, 4, 5]),
-    ...wakeRevers("sta-pm", "16:00", "20:00", [1, 2, 3, 4, 5]),
-    ...wakeRevers("sta-we", "09:00", "20:00", [6, 7]),
+    ...branchWakeRevers("sta", {
+      from: "09:00",
+      to: "20:00",
+      days: [1, 2, 3, 4, 5, 6, 7],
+    }),
     ...supBoards("sta", 5, "09:00", "21:00"),
   ];
   await upsertStaff(stayki.id, staykiStaff);
+  await migrateLegacyRevers("sta");
 
   await upsertServices(stayki.id, [
     {
-      id: "sta-wake-wd-am",
-      name: "Вейкбординг будний день (09:00–16:00)",
+      id: "sta-wake",
+      name: "Вейкбординг",
+      kind: "wake",
       price: 15,
       durationMinutes: 10,
       allowedDurations: "10,30,60",
       from: "09:00",
-      to: "16:00",
-      weekdays: "1,2,3,4,5",
-      staffIds: ["sta-am-rev1", "sta-am-rev2", "sta-am-rev3"],
+      to: "20:00",
+      weekdays: "1,2,3,4,5,6,7",
+      staffIds: wakeReversIds("sta"),
       sort: 1,
-    },
-    {
-      id: "sta-wake-wd-pm",
-      name: "Вейкбординг будний день (16:00–20:00)",
-      price: 30,
-      durationMinutes: 10,
-      allowedDurations: "10,30,60",
-      from: "16:00",
-      to: "20:00",
-      weekdays: "1,2,3,4,5",
-      staffIds: ["sta-pm-rev1", "sta-pm-rev2", "sta-pm-rev3"],
-      sort: 2,
-    },
-    {
-      id: "sta-wake-we",
-      name: "Вейкбординг выходной день (09:00–20:00)",
-      price: 30,
-      durationMinutes: 10,
-      allowedDurations: "10,30,60",
-      from: "09:00",
-      to: "20:00",
-      weekdays: "6,7",
-      staffIds: ["sta-we-rev1", "sta-we-rev2", "sta-we-rev3"],
-      sort: 3,
+      priceRules: [
+        {
+          id: "sta-rule-am",
+          weekdays: "1,2,3,4,5",
+          timeFrom: "09:00",
+          timeTo: "16:00",
+          price: 15,
+          sortOrder: 1,
+        },
+        {
+          id: "sta-rule-pm",
+          weekdays: "1,2,3,4,5",
+          timeFrom: "16:00",
+          timeTo: "20:00",
+          price: 30,
+          sortOrder: 2,
+        },
+        {
+          id: "sta-rule-we",
+          weekdays: "6,7",
+          timeFrom: "09:00",
+          timeTo: "20:00",
+          price: 30,
+          sortOrder: 3,
+        },
+      ],
     },
     {
       id: "sta-sup",
-      name: "Катание на сапборде (09:00–21:00)",
+      name: "Сапборд",
+      kind: "sup",
       price: 20,
-      durationMinutes: 30,
-      allowedDurations: "30,60",
+      durationMinutes: 60,
+      allowedDurations: "60",
       from: "09:00",
       to: "21:00",
       weekdays: "1,2,3,4,5,6,7",
       staffIds: Array.from({ length: 5 }, (_, i) => `sta-sup${i + 1}`),
-      sort: 4,
+      sort: 2,
     },
   ]);
+  await deactivateLegacyWakeServices(
+    ["sta-wake-wd-am", "sta-wake-wd-pm", "sta-wake-we"],
+    "sta-wake",
+  );
 
   // Админы филиалов — только свой филиал
   await upsertAdmin(

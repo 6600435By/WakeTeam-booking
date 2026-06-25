@@ -1,8 +1,13 @@
 import { parseTimeOnDate, TZ } from "@/lib/time";
 import { formatInTimeZone } from "date-fns-tz";
 
-export const GRID_SLOT_MINUTES = 15;
+export const JOURNAL_GRID_STEPS = [5, 10, 15] as const;
+export type JournalGridStep = (typeof JOURNAL_GRID_STEPS)[number];
+export const DEFAULT_GRID_SLOT_MINUTES: JournalGridStep = 15;
 export const SLOT_HEIGHT_PX = 22;
+
+/** @deprecated use DEFAULT_GRID_SLOT_MINUTES */
+export const GRID_SLOT_MINUTES = DEFAULT_GRID_SLOT_MINUTES;
 
 export function timeToMinutes(t: string): number {
   const [h, m] = t.split(":").map(Number);
@@ -34,15 +39,16 @@ export function getAppointmentLayout(
   bounds: { start: number; end: number },
   startAt: string,
   endAt: string,
+  slotMinutes: number = DEFAULT_GRID_SLOT_MINUTES,
 ): { top: number; height: number } | null {
   const topMin = minutesFromIso(dateStr, startAt);
   const endMin = minutesFromIso(dateStr, endAt);
   if (topMin === null || endMin === null || endMin <= topMin) return null;
 
   const top =
-    ((topMin - bounds.start) / GRID_SLOT_MINUTES) * SLOT_HEIGHT_PX;
+    ((topMin - bounds.start) / slotMinutes) * SLOT_HEIGHT_PX;
   const height = Math.max(
-    ((endMin - topMin) / GRID_SLOT_MINUTES) * SLOT_HEIGHT_PX,
+    ((endMin - topMin) / slotMinutes) * SLOT_HEIGHT_PX,
     SLOT_HEIGHT_PX,
   );
   if (!Number.isFinite(top) || !Number.isFinite(height)) return null;
@@ -82,6 +88,7 @@ export function getGridBounds(
   weekday: number,
   appointments: { startAt: string; endAt: string }[] = [],
   dateStr?: string,
+  slotMinutes: number = DEFAULT_GRID_SLOT_MINUTES,
 ): { start: number; end: number } {
   let start = 24 * 60;
   let end = 0;
@@ -109,22 +116,30 @@ export function getGridBounds(
     return { start: 9 * 60, end: 21 * 60 };
   }
 
-  start = Math.floor(start / GRID_SLOT_MINUTES) * GRID_SLOT_MINUTES;
-  end = Math.ceil(end / GRID_SLOT_MINUTES) * GRID_SLOT_MINUTES;
+  start = Math.floor(start / slotMinutes) * slotMinutes;
+  end = Math.ceil(end / slotMinutes) * slotMinutes;
   return { start, end };
 }
 
-export function generateTimeLabels(start: number, end: number): number[] {
+export function generateTimeLabels(
+  start: number,
+  end: number,
+  slotMinutes: number = DEFAULT_GRID_SLOT_MINUTES,
+): number[] {
   const labels: number[] = [];
-  for (let m = start; m < end; m += GRID_SLOT_MINUTES) {
+  for (let m = start; m < end; m += slotMinutes) {
     labels.push(m);
   }
   return labels;
 }
 
-export function formatMinutesLabel(minutes: number): string {
-  const m = minutes % 60;
-  if (m !== 0) return "";
+export function formatMinutesLabel(
+  minutes: number,
+  slotMinutes: number = DEFAULT_GRID_SLOT_MINUTES,
+): string {
+  const labelEvery =
+    slotMinutes <= 5 ? 15 : slotMinutes <= 10 ? 30 : 60;
+  if (minutes % labelEvery !== 0) return "";
   return minutesToTime(minutes);
 }
 

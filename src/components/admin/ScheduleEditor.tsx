@@ -19,7 +19,13 @@ const WEEKDAYS = [
   { n: 7, label: "Вс" },
 ];
 
-export function ScheduleEditor({ staffId }: { staffId: string }) {
+export function ScheduleEditor({
+  staffId,
+  embedded = false,
+}: {
+  staffId: string;
+  embedded?: boolean;
+}) {
   const [schedules, setSchedules] = useState<ScheduleRow[]>([]);
   const [staffName, setStaffName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -62,9 +68,15 @@ export function ScheduleEditor({ staffId }: { staffId: string }) {
   }
 
   return (
-    <div className="rounded-lg bg-white p-4 shadow ring-1 ring-slate-200">
-      <h2 className="font-semibold text-slate-900">{staffName}</h2>
-      <div className="mt-4 space-y-2">
+    <div
+      className={
+        embedded
+          ? "mt-2"
+          : "rounded-lg bg-white p-4 shadow ring-1 ring-slate-200"
+      }
+    >
+      {!embedded && <h2 className="font-semibold text-slate-900">{staffName}</h2>}
+      <div className={embedded ? "mt-0 space-y-2" : "mt-4 space-y-2"}>
         {WEEKDAYS.map((w, i) => (
           <div key={w.n} className="flex flex-wrap items-center gap-2 text-sm">
             <label className="flex w-16 items-center gap-1">

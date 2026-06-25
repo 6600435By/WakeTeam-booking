@@ -7,6 +7,12 @@ import {
   todayDatetimeLocalValue,
   toDatetimeLocalValue,
 } from "@/lib/time";
+import { normalizeAdminDuration } from "@/lib/admin-duration";
+import { isSearchablePhone } from "@/lib/phone";
+
+function unlockReadOnlyInput(e: React.FocusEvent<HTMLInputElement>) {
+  e.currentTarget.readOnly = false;
+}
 
 type Branch = { id: string; name: string };
 type Service = {
@@ -24,6 +30,13 @@ type MembershipOption = {
   category: string | null;
   ownerName: string | null;
   effectiveRemainingMinutes: number;
+};
+
+type ClientSuggestion = {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  phone: string;
 };
 
 type Props = {
@@ -68,6 +81,7 @@ export function AppointmentModal({
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [durationMinutes, setDurationMinutes] = useState(30);
+  const [durationInput, setDurationInput] = useState("30");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
@@ -80,6 +94,13 @@ export function AppointmentModal({
   const [membershipId, setMembershipId] = useState<string>("");
   const [membershipOptions, setMembershipOptions] = useState<MembershipOption[]>([]);
   const [membershipsLoading, setMembershipsLoading] = useState(false);
+  const [manualMembershipCode, setManualMembershipCode] = useState("");
+  const [manualMembershipError, setManualMembershipError] = useState("");
+  const [manualMembershipLoading, setManualMembershipLoading] = useState(false);
+  const [clientLookupStatus, setClientLookupStatus] = useState<
+    "idle" | "loading" | "found" | "new" | "ambiguous"
+  >("idle");
+  const [clientSuggestions, setClientSuggestions] = useState<ClientSuggestion[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -99,6 +120,7 @@ export function AppointmentModal({
       setTime(t);
     }
     setDurationMinutes(initial?.durationMinutes ?? 30);
+    setDurationInput(String(initial?.durationMinutes ?? 30));
     setFirstName(initial?.firstName ?? "");
     setLastName(initial?.lastName ?? "");
     setPhone(initial?.phone ?? "");
@@ -109,6 +131,10 @@ export function AppointmentModal({
     setCancelReason("");
     setMembershipId(initial?.membershipId ?? "");
     setMembershipOptions([]);
+    setManualMembershipCode("");
+    setManualMembershipError("");
+    setClientLookupStatus("idle");
+    setClientSuggestions([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync when modal opens or record changes
   }, [
     open,
@@ -136,16 +162,111 @@ export function AppointmentModal({
   useEffect(() => {
     if (!branchId || !open) return;
     setServicesLoading(true);
-    fetch(`/api/public/services?branchId=${branchId}`)
+    fetch(`/api/admin/services?branchId=${branchId}`)
       .then((r) => r.json())
-      .then((d) => setServices(d.services ?? []))
+      .then((d) => {
+        const mapped: Service[] = (d.services ?? []).map(
+          (s: {
+            id: string;
+            name: string;
+            durationMinutes: number;
+            allowedDurations: string;
+            price: number;
+            staff: { staff: { id: string; name: string } }[];
+          }) => ({
+            id: s.id,
+            name: s.name,
+            durationMinutes: s.durationMinutes,
+            allowedDurations: s.allowedDurations,
+            price: s.price,
+            staff: s.staff.map((x) => x.staff),
+          }),
+        );
+        setServices(mapped);
+      })
       .finally(() => setServicesLoading(false));
   }, [branchId, open]);
 
   useEffect(() => {
     if (!open) return;
+    if (!isSearchablePhone(phone)) {
+      setClientLookupStatus("idle");
+      setClientSuggestions([]);
+      return;
+    }
+    const t = setTimeout(() => {
+      setClientLookupStatus("loading");
+      fetch(`/api/admin/clients/lookup?phone=${encodeURIComponent(phone)}`)
+        .then((r) => r.json())
+        .then((data) => {
+          const list: ClientSuggestion[] = data.clients ?? [];
+          if (data.client) {
+            setFirstName(data.client.firstName ?? "");
+            setLastName(data.client.lastName ?? "");
+            setClientLookupStatus("found");
+            setClientSuggestions(data.multiple ? list : []);
+          } else if (list.length > 1) {
+            setClientLookupStatus("ambiguous");
+            setClientSuggestions(list);
+          } else {
+            setClientLookupStatus("new");
+            setClientSuggestions([]);
+          }
+        })
+        .catch(() => {
+          setClientLookupStatus("idle");
+          setClientSuggestions([]);
+        });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [open, phone]);
+
+  function applyClientSuggestion(c: ClientSuggestion) {
+    setPhone(c.phone);
+    setFirstName(c.firstName ?? "");
+    setLastName(c.lastName ?? "");
+    setClientLookupStatus("found");
+    setClientSuggestions([]);
+  }
+
+  useEffect(() => {
+    if (!open || servicesLoading || services.length === 0) return;
+    if (!initial?.staffId || staffId !== initial.staffId) return;
+    if (serviceId) return;
+
+    const candidates = services.filter((s) =>
+      s.staff.some((st) => st.id === initial.staffId),
+    );
+    if (candidates.length === 0) return;
+
+    const preferred = initial.durationMinutes;
+    const match =
+      (preferred != null
+        ? candidates.find((s) => s.durationMinutes === preferred) ??
+          candidates.find((s) =>
+            s.allowedDurations
+              .split(",")
+              .map((x) => parseInt(x.trim(), 10))
+              .filter((n) => !Number.isNaN(n))
+              .includes(preferred),
+          )
+        : undefined) ?? candidates[0];
+
+    setServiceId(match.id);
+  }, [
+    open,
+    services,
+    servicesLoading,
+    initial?.staffId,
+    initial?.durationMinutes,
+    staffId,
+    serviceId,
+  ]);
+
+  useEffect(() => {
+    if (!open) return;
     const trimmed = phone.replace(/\s/g, "");
-    if (trimmed.length < 6) {
+    if (!isSearchablePhone(trimmed)) {
       setMembershipOptions([]);
       return;
     }
@@ -184,6 +305,10 @@ export function AppointmentModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- phone drives lookup
   }, [open, phone, initial?.membershipId]);
 
+  useEffect(() => {
+    const selected = membershipOptions.find((m) => m.id === membershipId);
+    if (selected) setManualMembershipCode(selected.externalCode);
+  }, [membershipId, membershipOptions]);
 
   const staffOptions: Staff[] = useMemo(() => {
     const fromService =
@@ -196,7 +321,59 @@ export function AppointmentModal({
 
   const selectedMembership = membershipOptions.find((m) => m.id === membershipId);
 
+  async function applyManualMembershipCode() {
+    const code = manualMembershipCode.trim();
+    if (!code) {
+      setManualMembershipError("Введите номер абонемента");
+      return;
+    }
+    setManualMembershipLoading(true);
+    setManualMembershipError("");
+    try {
+      const res = await fetch(
+        `/api/admin/memberships?code=${encodeURIComponent(code)}`,
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error ?? "Абонемент не найден");
+      }
+      const found: MembershipOption = {
+        id: data.membership.id,
+        externalCode: data.membership.externalCode,
+        category: data.membership.category,
+        ownerName: data.membership.ownerName,
+        effectiveRemainingMinutes: data.membership.effectiveRemainingMinutes,
+      };
+      setMembershipOptions((prev) => {
+        if (prev.some((m) => m.id === found.id)) return prev;
+        return [found, ...prev];
+      });
+      setMembershipId(found.id);
+      setManualMembershipCode(found.externalCode);
+    } catch (err) {
+      setManualMembershipError(
+        err instanceof Error ? err.message : "Абонемент не найден",
+      );
+    } finally {
+      setManualMembershipLoading(false);
+    }
+  }
+
   if (!open) return null;
+
+  function normalizeDurationInput(value: number): number {
+    return normalizeAdminDuration(value);
+  }
+
+  function commitDurationInput(raw = durationInput): number {
+    const parsed = parseInt(raw, 10);
+    const normalized = normalizeDurationInput(
+      Number.isNaN(parsed) ? durationMinutes : parsed,
+    );
+    setDurationMinutes(normalized);
+    setDurationInput(String(normalized));
+    return normalized;
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -207,6 +384,7 @@ export function AppointmentModal({
     setLoading(true);
     setError("");
     const isoStart = fromDatetimeLocalValue(`${date}T${time}`);
+    const duration = commitDurationInput();
     try {
       const url = appointmentId
         ? `/api/admin/appointments/${appointmentId}`
@@ -219,7 +397,7 @@ export function AppointmentModal({
           serviceId,
           staffId,
           startAt: isoStart,
-          durationMinutes,
+          durationMinutes: duration,
           firstName,
           lastName,
           phone,
@@ -274,7 +452,7 @@ export function AppointmentModal({
         <h2 className="text-lg font-bold text-slate-900">
           {appointmentId ? "Редактировать запись" : "Новая запись"}
         </h2>
-        <form onSubmit={handleSubmit} className="mt-4 space-y-3">
+        <form onSubmit={handleSubmit} className="mt-4 space-y-3" autoComplete="off">
           <select
             value={branchId}
             onChange={(e) => {
@@ -329,39 +507,130 @@ export function AppointmentModal({
               </option>
             ))}
           </select>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-xs text-slate-500">Дата</label>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className={inputClass}
-                required
-              />
+          <fieldset className="space-y-3 border-0 p-0" aria-label="Дата и длительность">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs text-slate-500" htmlFor="wt-booking-date">
+                  Дата
+                </label>
+                <input
+                  id="wt-booking-date"
+                  name="wt-booking-date"
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  className={inputClass}
+                  autoComplete="off"
+                  readOnly
+                  onFocus={unlockReadOnlyInput}
+                  required
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-500" htmlFor="wt-booking-time">
+                  Время
+                </label>
+                <input
+                  id="wt-booking-time"
+                  name="wt-booking-time"
+                  type="time"
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                  className={inputClass}
+                  step={300}
+                  autoComplete="off"
+                  readOnly
+                  onFocus={unlockReadOnlyInput}
+                  required
+                />
+              </div>
             </div>
             <div>
-              <label className="mb-1 block text-xs text-slate-500">Время</label>
+              <label className="mb-1 block text-xs text-slate-500" htmlFor="wt-booking-duration">
+                Длительность, мин
+              </label>
               <input
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
+                id="wt-booking-duration"
+                name="wt-booking-duration"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                autoComplete="new-password"
+                data-lpignore="true"
+                data-1p-ignore
+                value={durationInput}
+                readOnly
+                onFocus={unlockReadOnlyInput}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === "" || /^\d+$/.test(raw)) {
+                    setDurationInput(raw);
+                  }
+                }}
+                onBlur={() => {
+                  if (durationInput === "") {
+                    commitDurationInput(String(durationMinutes));
+                  } else {
+                    commitDurationInput();
+                  }
+                }}
                 className={inputClass}
-                step={600}
-                required
               />
             </div>
+          </fieldset>
+          <div>
+            <label className="mb-1 block text-xs text-slate-500" htmlFor="client-phone">
+              Телефон
+            </label>
+            <input
+              id="client-phone"
+              placeholder="+375 …"
+              name="client-phone"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className={inputClass}
+              required
+            />
+            {clientLookupStatus === "loading" && (
+              <p className="mt-1 text-xs text-slate-400">Поиск клиента…</p>
+            )}
+            {clientLookupStatus === "found" && (
+              <p className="mt-1 text-xs text-lime-700">Клиент найден в базе</p>
+            )}
+            {clientLookupStatus === "ambiguous" && clientSuggestions.length > 0 && (
+              <div className="mt-2 space-y-1 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                <p className="text-xs text-slate-500">Выберите клиента:</p>
+                {clientSuggestions.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => applyClientSuggestion(c)}
+                    className="block w-full rounded-md px-2 py-1.5 text-left text-sm text-slate-800 hover:bg-white"
+                  >
+                    <span className="font-medium">{c.phone}</span>
+                    {[c.firstName, c.lastName].filter(Boolean).length > 0 && (
+                      <span className="text-slate-600">
+                        {" "}
+                        — {[c.firstName, c.lastName].filter(Boolean).join(" ")}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+            {clientLookupStatus === "new" && (
+              <p className="mt-1 text-xs text-slate-500">
+                Новый клиент — укажите имя вручную
+              </p>
+            )}
           </div>
           <input
-            type="number"
-            value={durationMinutes}
-            onChange={(e) => setDurationMinutes(parseInt(e.target.value, 10) || 10)}
-            className={inputClass}
-            min={10}
-            step={10}
-          />
-          <input
             placeholder="Имя"
+            name="client-given-name"
+            autoComplete="given-name"
             value={firstName}
             onChange={(e) => setFirstName(e.target.value)}
             className={inputClass}
@@ -369,19 +638,11 @@ export function AppointmentModal({
           />
           <input
             placeholder="Фамилия"
+            name="client-family-name"
+            autoComplete="family-name"
             value={lastName}
             onChange={(e) => setLastName(e.target.value)}
             className={inputClass}
-          />
-          <input
-            placeholder="Телефон"
-            type="tel"
-            inputMode="tel"
-            autoComplete="tel"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            className={inputClass}
-            required
           />
           <div>
             <label className="mb-1 block text-xs text-slate-500">Абонемент</label>
@@ -389,14 +650,10 @@ export function AppointmentModal({
               value={membershipId}
               onChange={(e) => setMembershipId(e.target.value)}
               className={inputClass}
-              disabled={membershipsLoading || membershipOptions.length === 0}
+              disabled={membershipsLoading}
             >
               <option value="">
-                {membershipsLoading
-                  ? "Абонементы…"
-                  : membershipOptions.length === 0
-                    ? "Нет абонементов по телефону"
-                    : "Без абонемента"}
+                {membershipsLoading ? "Абонементы…" : "Без абонемента"}
               </option>
               {membershipOptions.map((m) => (
                 <option key={m.id} value={m.id}>
@@ -407,6 +664,40 @@ export function AppointmentModal({
                 </option>
               ))}
             </select>
+            <div className="mt-2 flex gap-2">
+              <input
+                type="text"
+                placeholder="Номер вручную (Q2, E01…)"
+                value={manualMembershipCode}
+                onChange={(e) => {
+                  setManualMembershipCode(e.target.value);
+                  setManualMembershipError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void applyManualMembershipCode();
+                  }
+                }}
+                className={`${inputClass} min-w-0 flex-1`}
+              />
+              <button
+                type="button"
+                onClick={() => void applyManualMembershipCode()}
+                disabled={manualMembershipLoading || !manualMembershipCode.trim()}
+                className="shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                {manualMembershipLoading ? "…" : "Найти"}
+              </button>
+            </div>
+            {membershipOptions.length === 0 && !membershipsLoading && isSearchablePhone(phone) && (
+              <p className="mt-1 text-xs text-slate-500">
+                По телефону ничего не найдено — введите номер абонемента вручную.
+              </p>
+            )}
+            {manualMembershipError && (
+              <p className="mt-1 text-xs text-red-600">{manualMembershipError}</p>
+            )}
             {selectedMembership && (
               <p className="mt-1 text-xs text-slate-600">
                 Остаток:{" "}

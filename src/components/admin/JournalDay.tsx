@@ -2,15 +2,30 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppointmentModal } from "./AppointmentModal";
+import { ClientPhoneSearch, type ClientLookupAppointment } from "./ClientPhoneSearch";
 import { JournalGrid } from "./JournalGrid";
+import {
+  JournalGridStepPicker,
+  loadJournalGridStep,
+  saveJournalGridStep,
+} from "./JournalGridStepPicker";
+import { JournalResourceToggle } from "./JournalResourceToggle";
+import {
+  loadJournalResourceKind,
+  matchesResourceKind,
+  saveJournalResourceKind,
+  type JournalResourceKind,
+} from "@/lib/journal-resources";
 import { StatusBadge, StatusLegend } from "./StatusBadge";
 import { cancelReasonLabel, JOURNAL_HIDDEN_STATUSES } from "@/lib/appointment-status";
 import { periodToday, periodWeek } from "@/lib/date-ranges";
 import { formatDateKey, formatTimeMinsk, weekdayMinsk } from "@/lib/time";
+import type { JournalGridStep } from "@/lib/calendar-grid";
 
 type StaffRow = {
   id: string;
   name: string;
+  kind: string;
   branchId: string;
   schedules: { weekday: number; timeFrom: string; timeTo: string; isWorking: boolean }[];
 };
@@ -89,6 +104,30 @@ export function JournalDay() {
   const [editAppt, setEditAppt] = useState<Appointment | null>(null);
   const [modalInitial, setModalInitial] = useState<ModalInitial>({});
   const [isSuperAdmin, setIsSuperAdmin] = useState(true);
+  const [gridStep, setGridStep] = useState<JournalGridStep>(15);
+  const [resourceKind, setResourceKind] = useState<JournalResourceKind>("all");
+
+  useEffect(() => {
+    setGridStep(loadJournalGridStep());
+  }, []);
+
+  useEffect(() => {
+    if (!branchId) {
+      setResourceKind("all");
+      return;
+    }
+    setResourceKind(loadJournalResourceKind(branchId));
+  }, [branchId]);
+
+  function handleResourceKindChange(kind: JournalResourceKind) {
+    setResourceKind(kind);
+    if (branchId) saveJournalResourceKind(branchId, kind);
+  }
+
+  function handleGridStepChange(step: JournalGridStep) {
+    setGridStep(step);
+    saveJournalGridStep(step);
+  }
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent ?? false;
@@ -167,12 +206,29 @@ export function JournalDay() {
 
   const wd = weekdayMinsk(date);
 
+  const staffKindById = useMemo(
+    () => new Map(staff.map((s) => [s.id, s.kind])),
+    [staff],
+  );
+
   const sortedAppointments = useMemo(
     () =>
-      [...appointments].sort(
-        (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
+      [...appointments]
+        .filter((a) =>
+          matchesResourceKind(staffKindById.get(a.staff.id) ?? "", resourceKind),
+        )
+        .sort(
+          (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
+        ),
+    [appointments, resourceKind, staffKindById],
+  );
+
+  const filteredListRecords = useMemo(
+    () =>
+      listRecords.filter((a) =>
+        matchesResourceKind(staffKindById.get(a.staff.id) ?? "", resourceKind),
       ),
-    [appointments],
+    [listRecords, resourceKind, staffKindById],
   );
 
   function openNew(initial: ModalInitial = {}) {
@@ -186,6 +242,12 @@ export function JournalDay() {
 
   function openEdit(appt: Appointment) {
     setEditAppt(appt);
+    setModalInitial({});
+    setModalOpen(true);
+  }
+
+  function openEditFromSearch(appt: ClientLookupAppointment) {
+    setEditAppt(appt as Appointment);
     setModalInitial({});
     setModalOpen(true);
   }
@@ -259,6 +321,10 @@ export function JournalDay() {
               ))
             )}
           </select>
+          <ClientPhoneSearch
+            branchId={branchId || undefined}
+            onOpenAppointment={openEditFromSearch}
+          />
           <button
             type="button"
             onClick={() => openNew()}
@@ -269,7 +335,23 @@ export function JournalDay() {
         </div>
       </div>
 
-      <p className="mt-2 text-sm text-slate-600">{formatDateTitle(date)}</p>
+      <div className="mt-2 hidden items-center justify-between gap-3 md:flex">
+        <p className="text-sm text-slate-600">{formatDateTitle(date)}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <JournalResourceToggle
+            value={resourceKind}
+            onChange={handleResourceKindChange}
+          />
+          <JournalGridStepPicker value={gridStep} onChange={handleGridStepChange} />
+        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 md:hidden">
+        <p className="text-sm text-slate-600">{formatDateTitle(date)}</p>
+        <JournalResourceToggle
+          value={resourceKind}
+          onChange={handleResourceKindChange}
+        />
+      </div>
       <p className="mt-1 hidden text-xs text-slate-400 md:block">
         Клик по свободному слоту — новая запись. Удерживайте запись и перетащите для смены времени.
       </p>
@@ -347,7 +429,9 @@ export function JournalDay() {
               weekday={wd}
               branchId={branchId}
               staff={staff}
-              appointments={appointments}
+              resourceKind={resourceKind}
+              appointments={sortedAppointments}
+              gridStep={gridStep}
               onSlotClick={openNew}
               onAppointmentClick={openEdit}
               onMoved={() => {
@@ -422,12 +506,12 @@ export function JournalDay() {
 
         {listLoading ? (
           <p className="mt-4 text-sm text-slate-500">Загрузка…</p>
-        ) : listRecords.length === 0 ? (
+        ) : filteredListRecords.length === 0 ? (
           <p className="mt-4 text-sm text-slate-400">Нет записей за выбранный период</p>
         ) : (
           <>
             <div className="mt-4 space-y-2 md:hidden">
-              {listRecords.map((a) => {
+              {filteredListRecords.map((a) => {
                 const name =
                   [a.client.firstName, a.client.lastName].filter(Boolean).join(" ") ||
                   a.client.phone;
@@ -482,7 +566,7 @@ export function JournalDay() {
                   </tr>
                 </thead>
                 <tbody>
-                  {listRecords.map((a) => {
+                  {filteredListRecords.map((a) => {
                     const hidden = isHiddenFromJournal(a.status);
                     return (
                       <tr

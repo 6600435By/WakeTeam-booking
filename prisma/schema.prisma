@@ -8,15 +8,16 @@ datasource db {
 }
 
 model Organization {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
-  timezone  String   @default("Europe/Minsk")
-  currency  String   @default("BYN")
-  createdAt DateTime @default(now())
-  branches  Branch[]
-  members   OrganizationMember[]
-  clients   Client[]
+  id             String   @id @default(cuid())
+  name           String
+  slug           String   @unique
+  timezone       String   @default("Europe/Minsk")
+  currency       String   @default("BYN")
+  widgetSettings String?
+  createdAt      DateTime @default(now())
+  branches       Branch[]
+  members        OrganizationMember[]
+  clients        Client[]
 }
 
 model User {
@@ -49,6 +50,7 @@ model Branch {
   address        String?
   phone          String?
   description    String?
+  photoUrl       String?
   isActive       Boolean  @default(true)
   sortOrder      Int      @default(0)
   createdAt      DateTime @default(now())
@@ -64,6 +66,8 @@ model Staff {
   branch         Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
   name           String
   kind           String    @default("revers")
+  description    String?
+  photoUrl       String?
   isVisible      Boolean   @default(true)
   isActive       Boolean   @default(true)
   sortOrder      Int       @default(0)
@@ -102,6 +106,8 @@ model Service {
   branchId          String
   branch            Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
   name              String
+  description       String?
+  kind              String   @default("wake")
   durationMinutes   Int      @default(10)
   allowedDurations  String   @default("10,30,60")
   price             Float
@@ -113,6 +119,18 @@ model Service {
   sortOrder         Int      @default(0)
   staff             ServiceStaff[]
   appointments      Appointment[]
+  priceRules        ServicePriceRule[]
+}
+
+model ServicePriceRule {
+  id        String  @id @default(cuid())
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  weekdays  String
+  timeFrom  String
+  timeTo    String
+  price     Float
+  sortOrder Int     @default(0)
 }
 
 model ServiceStaff {
@@ -158,6 +176,7 @@ model Appointment {
   cancelReason    String?
   source          String   @default("widget")
   comment         String?
+  bookingGroupId  String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   membershipId              String?

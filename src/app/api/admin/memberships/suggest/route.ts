@@ -1,21 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleAdminError, requireAdminContext } from "@/lib/admin-access";
-import { prisma } from "@/lib/db";
+import { findMembershipsByPhone } from "@/lib/memberships/by-phone";
 import { toMembershipDto } from "@/lib/memberships/effective";
-import { normalizePhone } from "@/lib/slots/generateSlots";
+import { isSearchablePhone } from "@/lib/phone";
 
 export async function GET(req: NextRequest) {
   try {
     const ctx = await requireAdminContext();
     const phoneRaw = req.nextUrl.searchParams.get("phone");
-    if (!phoneRaw?.trim()) {
+    if (!phoneRaw?.trim() || !isSearchablePhone(phoneRaw.trim())) {
       return NextResponse.json({ suggestion: null });
     }
-    const phone = normalizePhone(phoneRaw.trim());
-    const memberships = await prisma.membership.findMany({
-      where: { organizationId: ctx.organizationId, phone },
-      orderBy: [{ saleDate: "desc" }, { syncedAt: "desc" }],
-    });
+
+    const memberships = await findMembershipsByPhone(
+      ctx.organizationId,
+      phoneRaw.trim(),
+    );
     const withEffective = memberships.map(toMembershipDto);
     const suggestion =
       withEffective.find((m) => m.effectiveRemainingMinutes > 0) ?? null;

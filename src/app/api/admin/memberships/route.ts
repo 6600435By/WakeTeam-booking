@@ -1,25 +1,57 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleAdminError, requireAdminContext } from "@/lib/admin-access";
+import {
+  findMembershipsByCode,
+  findMembershipsByPhone,
+  searchMemberships,
+} from "@/lib/memberships/by-phone";
 import { prisma } from "@/lib/db";
 import { toMembershipDto } from "@/lib/memberships/effective";
-import { normalizePhone } from "@/lib/slots/generateSlots";
 
 export async function GET(req: NextRequest) {
   try {
     const ctx = await requireAdminContext();
+    const qRaw = req.nextUrl.searchParams.get("q");
     const phoneRaw = req.nextUrl.searchParams.get("phone");
+    const codeRaw = req.nextUrl.searchParams.get("code");
     const includeId = req.nextUrl.searchParams.get("includeId");
-    const where = { organizationId: ctx.organizationId } as { organizationId: string; phone?: string };
-    if (phoneRaw?.trim()) {
-      where.phone = normalizePhone(phoneRaw.trim());
+
+    if (codeRaw?.trim()) {
+      const found = await findMembershipsByCode(
+        ctx.organizationId,
+        codeRaw.trim(),
+      );
+      if (found.length === 0) {
+        return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 });
+      }
+      const membership = found[0];
+      return NextResponse.json({
+        memberships: found.map(toMembershipDto),
+        membership: toMembershipDto(membership),
+      });
     }
-    const memberships = await prisma.membership.findMany({
-      where,
-      orderBy: [{ saleDate: "desc" }, { syncedAt: "desc" }],
-      take: phoneRaw?.trim() ? undefined : 200,
-    });
+
+    let memberships;
+    let hideEmptyForPhone = false;
+
+    if (qRaw?.trim()) {
+      memberships = await searchMemberships(ctx.organizationId, qRaw.trim());
+    } else if (phoneRaw?.trim()) {
+      memberships = await findMembershipsByPhone(
+        ctx.organizationId,
+        phoneRaw.trim(),
+      );
+      hideEmptyForPhone = true;
+    } else {
+      memberships = await prisma.membership.findMany({
+        where: { organizationId: ctx.organizationId },
+        orderBy: [{ saleDate: "desc" }, { syncedAt: "desc" }],
+        take: 200,
+      });
+    }
+
     let dtos = memberships.map(toMembershipDto);
-    if (phoneRaw?.trim()) {
+    if (hideEmptyForPhone) {
       dtos = dtos.filter((m) => m.effectiveRemainingMinutes > 0);
     }
     if (includeId && !dtos.some((m) => m.id === includeId)) {

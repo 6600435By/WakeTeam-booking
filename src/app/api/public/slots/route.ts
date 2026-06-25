@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDaySlots } from "@/lib/slots/generateSlots";
+import { getDaySlots, getSupDaySlots } from "@/lib/slots/generateSlots";
+import { prisma } from "@/lib/db";
 
 export async function GET(req: NextRequest) {
   const serviceId = req.nextUrl.searchParams.get("serviceId");
@@ -7,9 +8,29 @@ export async function GET(req: NextRequest) {
   const date = req.nextUrl.searchParams.get("date");
   const duration = req.nextUrl.searchParams.get("durationMinutes");
 
-  if (!serviceId || !staffId || !date) {
+  if (!serviceId || !date) {
     return NextResponse.json(
-      { error: "serviceId, staffId, date required" },
+      { error: "serviceId, date required" },
+      { status: 400 },
+    );
+  }
+
+  const service = await prisma.service.findUnique({
+    where: { id: serviceId },
+    select: { kind: true },
+  });
+  if (!service) {
+    return NextResponse.json({ error: "Service not found" }, { status: 404 });
+  }
+
+  if (service.kind === "sup") {
+    const result = await getSupDaySlots({ serviceId, date });
+    return NextResponse.json(result);
+  }
+
+  if (!staffId) {
+    return NextResponse.json(
+      { error: "staffId required for wake service" },
       { status: 400 },
     );
   }

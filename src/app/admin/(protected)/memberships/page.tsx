@@ -19,16 +19,17 @@ type Membership = {
 
 export default function MembershipsPage() {
   const [memberships, setMemberships] = useState<Membership[]>([]);
-  const [phoneFilter, setPhoneFilter] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
 
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
 
-  const load = useCallback((phone?: string) => {
+  const load = useCallback((query?: string) => {
     setLoading(true);
-    const q = phone?.trim() ? `?phone=${encodeURIComponent(phone.trim())}` : "";
+    const trimmed = query?.trim();
+    const q = trimmed ? `?q=${encodeURIComponent(trimmed)}` : "";
     fetch(`/api/admin/memberships${q}`)
       .then((r) => r.json())
       .then((d) => setMemberships(d.memberships ?? []))
@@ -62,7 +63,7 @@ export default function MembershipsPage() {
         `Синхронизация: новых ${data.imported ?? 0}, обновлено ${data.updated ?? 0}, пропущено ${data.skipped ?? 0}`,
       );
       if (data.lastSyncedAt) setLastSyncedAt(data.lastSyncedAt);
-      load(phoneFilter);
+      load(searchQuery);
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Ошибка");
     } finally {
@@ -72,7 +73,7 @@ export default function MembershipsPage() {
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
-    load(phoneFilter);
+    load(searchQuery);
   }
 
   return (
@@ -91,11 +92,13 @@ export default function MembershipsPage() {
 
       <form onSubmit={handleSearch} className="mt-4 flex flex-wrap gap-2">
         <input
-          type="tel"
-          placeholder="Фильтр по телефону"
-          value={phoneFilter}
-          onChange={(e) => setPhoneFilter(e.target.value)}
-          className="min-w-[200px] flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          type="search"
+          inputMode="search"
+          autoComplete="off"
+          placeholder="Телефон или номер абонемента (Q2, E01…)"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="min-w-[240px] flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
         />
         <button
           type="submit"
@@ -106,7 +109,7 @@ export default function MembershipsPage() {
         <button
           type="button"
           onClick={() => {
-            setPhoneFilter("");
+            setSearchQuery("");
             load();
           }}
           className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-500"
@@ -114,6 +117,9 @@ export default function MembershipsPage() {
           Сбросить
         </button>
       </form>
+      <p className="mt-1 text-xs text-slate-400">
+        Телефон: полный номер или последние 7 цифр (6600435, 80296600435…)
+      </p>
 
       {lastSyncedAt && (
         <p className="mt-2 text-xs text-slate-500">

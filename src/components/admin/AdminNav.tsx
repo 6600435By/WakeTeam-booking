@@ -11,7 +11,7 @@ const links = [
   { href: "/admin/clients", label: "Клиенты", short: "Клиенты" },
   { href: "/admin/memberships", label: "Абонементы", short: "Абон." },
   { href: "/admin/branches", label: "Филиалы", short: "Филиал" },
-  { href: "/admin/services", label: "Услуги", short: "Услуги" },
+  { href: "/admin/widget", label: "Виджет", short: "Виджет" },
 ];
 
 type AdminInfo = {
@@ -76,19 +76,25 @@ export function AdminNav() {
           </div>
 
           <div className="hidden items-center gap-4 md:flex md:flex-wrap">
-            {links.map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                className={
-                  pathname.startsWith(l.href)
-                    ? "font-medium text-lime-700"
-                    : "text-slate-600 hover:text-slate-900"
-                }
-              >
-                {l.label}
-              </Link>
-            ))}
+            {links.map((l) => {
+              const active =
+                l.href === "/admin/widget"
+                  ? pathname === "/admin/widget"
+                  : pathname.startsWith(l.href);
+              return (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  className={
+                    active
+                      ? "font-medium text-lime-700"
+                      : "text-slate-600 hover:text-slate-900"
+                  }
+                >
+                  {l.label}
+                </Link>
+              );
+            })}
             <Link
               href="/book/waketeam"
               className="text-slate-500 hover:text-slate-800"
@@ -134,7 +140,10 @@ export function AdminNav() {
       >
         <div className="grid grid-cols-6">
           {links.map((l) => {
-            const active = pathname.startsWith(l.href);
+            const active =
+              l.href === "/admin/widget"
+                ? pathname === "/admin/widget"
+                : pathname.startsWith(l.href);
             return (
               <Link
                 key={l.href}
