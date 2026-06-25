@@ -212,3 +212,75 @@ export function getAppointmentOverlapSegments(
   }
   return merged;
 }
+
+export type ConsecutiveAppointmentGroup<
+  T extends {
+    id: string;
+    startAt: string;
+    endAt: string;
+    durationMinutes: number;
+    status: string;
+    client: { phone: string };
+  },
+> = {
+  id: string;
+  startAt: string;
+  endAt: string;
+  durationMinutes: number;
+  appointments: T[];
+};
+
+function appointmentsConsecutive(
+  prev: { endAt: string },
+  next: { startAt: string },
+): boolean {
+  return new Date(prev.endAt).getTime() === new Date(next.startAt).getTime();
+}
+
+/** Объединяет подряд идущие записи одного клиента в один блок для журнала. */
+export function groupConsecutiveClientAppointments<
+  T extends {
+    id: string;
+    startAt: string;
+    endAt: string;
+    durationMinutes: number;
+    status: string;
+    client: { phone: string };
+  },
+>(appointments: T[]): ConsecutiveAppointmentGroup<T>[] {
+  if (!appointments.length) return [];
+
+  const sorted = [...appointments].sort(
+    (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
+  );
+
+  const groups: ConsecutiveAppointmentGroup<T>[] = [];
+  let current: ConsecutiveAppointmentGroup<T> | null = null;
+
+  for (const appt of sorted) {
+    if (
+      current &&
+      current.appointments[0].status === appt.status &&
+      current.appointments[0].client.phone === appt.client.phone &&
+      appointmentsConsecutive(
+        current.appointments[current.appointments.length - 1],
+        appt,
+      )
+    ) {
+      current.appointments.push(appt);
+      current.endAt = appt.endAt;
+      current.durationMinutes += appt.durationMinutes;
+    } else {
+      current = {
+        id: appt.id,
+        startAt: appt.startAt,
+        endAt: appt.endAt,
+        durationMinutes: appt.durationMinutes,
+        appointments: [appt],
+      };
+      groups.push(current);
+    }
+  }
+
+  return groups;
+}

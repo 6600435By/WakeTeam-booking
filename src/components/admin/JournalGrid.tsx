@@ -10,6 +10,7 @@ import {
   getGridBounds,
   getOverlapRegions,
   getStaffRule,
+  groupConsecutiveClientAppointments,
   isoAtMinutes,
   isStaffWorkingAt,
   minutesFromIso,
@@ -635,6 +636,7 @@ export function JournalGrid({
                 (a, b) =>
                   new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
               );
+            const colBlocks = groupConsecutiveClientAppointments(colAppts);
             const overlapRegions = getOverlapRegions(date, colAppts);
             const isDropColumn = drag?.staffId === s.id;
 
@@ -761,12 +763,13 @@ export function JournalGrid({
                     />
                   ))}
 
-                  {colAppts.map((a) => {
+                  {colBlocks.map((block) => {
+                    const a = block.appointments[0];
                     const layout = getAppointmentLayout(
                       date,
                       bounds,
-                      a.startAt,
-                      a.endAt,
+                      block.startAt,
+                      block.endAt,
                       gridStep,
                     );
                     if (!layout) return null;
@@ -777,14 +780,14 @@ export function JournalGrid({
                     const isPending = pointerStart?.appt.id === a.id;
                     const overlapSegments = getAppointmentOverlapSegments(
                       date,
-                      a.startAt,
-                      a.endAt,
-                      colAppts.filter((o) => o.id !== a.id),
+                      block.startAt,
+                      block.endAt,
+                      colAppts.filter((o) => !block.appointments.some((g) => g.id === o.id)),
                     );
-                    const myStartMin = minutesFromIso(date, a.startAt);
+                    const myStartMin = minutesFromIso(date, block.startAt);
                     const myDuration = isResizing
                       ? resize.durationMinutes
-                      : a.durationMinutes;
+                      : block.durationMinutes;
                     const blockHeight = isResizing ? resize.height : layout.height;
                     const blockEndMin =
                       myStartMin !== null ? myStartMin + myDuration : null;
@@ -850,7 +853,7 @@ export function JournalGrid({
                             className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClass(a.status)}`}
                           />
                           <span className="font-semibold">
-                            {formatTimeMinsk(a.startAt)} –{" "}
+                            {formatTimeMinsk(block.startAt)} –{" "}
                             {blockEndMin !== null ? minutesToTime(blockEndMin) : ""}
                           </span>
                         </div>

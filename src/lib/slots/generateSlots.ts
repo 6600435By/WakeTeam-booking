@@ -9,6 +9,7 @@ import {
 } from "@/lib/service-pricing";
 import {
   addMinutes,
+  filterPastSlotsForToday,
   formatDateKey,
   overlaps,
   parseTimeOnDate,
@@ -188,8 +189,9 @@ export async function getDaySlots(params: {
     }
   }
 
-  const allSlots = [...slotStarts.values()].sort((a, b) =>
-    a.startAt.localeCompare(b.startAt),
+  const allSlots = filterPastSlotsForToday(
+    params.date,
+    [...slotStarts.values()].sort((a, b) => a.startAt.localeCompare(b.startAt)),
   );
 
   if (!params.durationMinutes) {
@@ -324,7 +326,10 @@ export async function getSupDaySlots(params: {
     })
     .filter((s) => s.availableBoards > 0);
 
-  return { slots, allowedDurations: [SUP_DURATION_MINUTES] };
+  return {
+    slots: filterPastSlotsForToday(params.date, slots),
+    allowedDurations: [SUP_DURATION_MINUTES],
+  };
 }
 
 export async function countSupAvailableBoards(
@@ -389,13 +394,19 @@ export async function nextPublicNumber(): Promise<number> {
 
 export { normalizePhone } from "@/lib/phone";
 
+export type BookingSlotInput = {
+  startAt: string;
+  quantity?: number;
+};
+
 export type CreateBookingInput = {
   organizationId: string;
   serviceId: string;
   staffId?: string;
-  startAt: string;
+  startAt?: string;
   durationMinutes?: number;
   quantity?: number;
+  slots?: BookingSlotInput[];
   phone: string;
   firstName: string;
   lastName?: string;
@@ -429,15 +440,24 @@ function serviceWithRulesDto(service: {
 export async function createBooking(
   input: CreateBookingInput,
   opts?: { skipSlotCheck?: boolean },
-): Promise<{ id: string; publicNumber: number; price: number }> {
+): Promise<{ id: string; publicNumber: number; price: number; count?: number }> {
   const service = await loadServiceWithRules(input.serviceId);
+
+  if (input.slots?.length) {
+    return createBatchBooking(input, service, opts);
+  }
+
   const isSup = service.kind === "sup";
 
   if (isSup) {
-    return createSupBooking(input, service, opts);
+    if (!input.startAt) throw new Error("INVALID_SLOT");
+    return createSupBooking(input as CreateBookingInput & { startAt: string }, service, opts);
   }
 
   if (!input.staffId) throw new Error("STAFF_REQUIRED");
+  if (!input.startAt) throw new Error("INVALID_SLOT");
+
+  const startAtStr = input.startAt;
 
   const allowed = parseDurations(service.allowedDurations);
   const duration =
@@ -506,7 +526,7 @@ export async function createBooking(
 }
 
 async function createSupBooking(
-  input: CreateBookingInput,
+  input: CreateBookingInput & { startAt: string },
   service: Awaited<ReturnType<typeof loadServiceWithRules>>,
   opts?: { skipSlotCheck?: boolean },
 ) {
@@ -585,6 +605,162 @@ async function createSupBooking(
       ),
     );
     return { id: created[0].id, publicNumber, price: totalPrice };
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      throw new Error("SLOT_UNAVAILABLE");
+    }
+    throw e;
+  }
+}
+
+const WAKE_CELL_MINUTES = 10;
+
+async function createBatchBooking(
+  input: CreateBookingInput,
+  service: Awaited<ReturnType<typeof loadServiceWithRules>>,
+  opts?: { skipSlotCheck?: boolean },
+): Promise<{ id: string; publicNumber: number; price: number; count: number }> {
+  const slots = input.slots!;
+  const isSup = service.kind === "sup";
+  const cellMinutes = isSup ? SUP_DURATION_MINUTES : WAKE_CELL_MINUTES;
+
+  if (!isSup && !input.staffId) throw new Error("STAFF_REQUIRED");
+
+  const client = await upsertClientByPhone({
+    organizationId: input.organizationId,
+    phone: input.phone,
+    firstName: input.firstName,
+    lastName: input.lastName,
+    email: input.email,
+  });
+
+  const publicNumber = await nextPublicNumber();
+  const bookingGroupId = slots.length > 1 ? randomUUID() : undefined;
+  const serviceDto = serviceWithRulesDto(service);
+  const sorted = [...slots].sort(
+    (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
+  );
+
+  let totalPrice = 0;
+  const rows: {
+    staffId: string;
+    startAt: Date;
+    endAt: Date;
+    durationMinutes: number;
+    price: number;
+  }[] = [];
+
+  for (const slot of sorted) {
+    const startAt = new Date(slot.startAt);
+    const endAt = addMinutes(startAt, cellMinutes);
+    const quantity = slot.quantity ?? 1;
+
+    if (isSup) {
+      if (!opts?.skipSlotCheck) {
+        const available = await countSupAvailableBoards(
+          service.id,
+          startAt,
+          cellMinutes,
+        );
+        if (available < quantity) throw new Error("SLOT_UNAVAILABLE");
+      }
+
+      const boards = await prisma.staff.findMany({
+        where: {
+          isActive: true,
+          isVisible: true,
+          services: { some: { serviceId: service.id } },
+        },
+        orderBy: { sortOrder: "asc" },
+      });
+
+      const dayStart = parseTimeOnDate(formatDateKey(startAt), "00:00");
+      const dayEnd = parseTimeOnDate(formatDateKey(startAt), "23:59");
+      const appointments = await prisma.appointment.findMany({
+        where: {
+          staffId: { in: boards.map((b) => b.id) },
+          startAt: { gte: dayStart, lte: dayEnd },
+          status: { in: ACTIVE_APPOINTMENT_STATUSES },
+        },
+        select: { staffId: true, startAt: true, endAt: true },
+      });
+
+      const freeBoards = boards.filter((b) =>
+        staffFreeForInterval(b.id, startAt, endAt, appointments),
+      );
+      if (freeBoards.length < quantity) throw new Error("SLOT_UNAVAILABLE");
+
+      const unitPrice = resolveServicePrice(serviceDto, startAt, cellMinutes);
+      const slotTotal = Math.round(unitPrice * quantity * 100) / 100;
+      totalPrice += slotTotal;
+
+      freeBoards.slice(0, quantity).forEach((board, i) => {
+        rows.push({
+          staffId: board.id,
+          startAt,
+          endAt,
+          durationMinutes: cellMinutes,
+          price: i === 0 ? slotTotal : 0,
+        });
+      });
+    } else {
+      if (!opts?.skipSlotCheck) {
+        const dateStr = formatDateKey(startAt);
+        const available = await getAvailableSlots({
+          serviceId: input.serviceId,
+          staffId: input.staffId,
+          date: dateStr,
+          durationMinutes: WAKE_CELL_MINUTES,
+        });
+        const ok = available.some(
+          (s) =>
+            s.staffId === input.staffId &&
+            new Date(s.startAt).getTime() === startAt.getTime(),
+        );
+        if (!ok) throw new Error("SLOT_UNAVAILABLE");
+      }
+
+      const price = resolveServicePrice(serviceDto, startAt, cellMinutes);
+      totalPrice += price;
+      rows.push({
+        staffId: input.staffId!,
+        startAt,
+        endAt,
+        durationMinutes: cellMinutes,
+        price,
+      });
+    }
+  }
+
+  try {
+    const created = await prisma.$transaction(
+      rows.map((row) =>
+        prisma.appointment.create({
+          data: {
+            publicNumber,
+            organizationId: input.organizationId,
+            branchId: service.branchId,
+            clientId: client.id,
+            staffId: row.staffId,
+            serviceId: service.id,
+            startAt: row.startAt,
+            endAt: row.endAt,
+            durationMinutes: row.durationMinutes,
+            price: row.price,
+            status: "booked",
+            source: input.source,
+            comment: input.comment,
+            bookingGroupId,
+          },
+        }),
+      ),
+    );
+    return {
+      id: created[0].id,
+      publicNumber,
+      price: Math.round(totalPrice * 100) / 100,
+      count: sorted.length,
+    };
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
       throw new Error("SLOT_UNAVAILABLE");

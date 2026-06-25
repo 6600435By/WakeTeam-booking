@@ -56,3 +56,18 @@ export function fromDatetimeLocalValue(value: string): string {
 export function todayDatetimeLocalValue(): string {
   return formatInTimeZone(new Date(), TZ, "yyyy-MM-dd'T'HH:mm");
 }
+
+export function todayDateKeyMinsk(): string {
+  return formatDateKey(new Date());
+}
+
+/** Слоты на сегодня: оставляет только те, что ещё не начались (Europe/Minsk). */
+export function filterPastSlotsForToday<T extends { startAt: string }>(
+  dateStr: string,
+  slots: T[],
+  now: Date = new Date(),
+): T[] {
+  if (dateStr !== formatDateKey(now)) return slots;
+  const nowMs = now.getTime();
+  return slots.filter((s) => new Date(s.startAt).getTime() > nowMs);
+}
