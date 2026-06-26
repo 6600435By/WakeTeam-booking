@@ -1,66 +1,82 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useActionState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { loginAction, type LoginState } from "./actions";
 
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
-  const [email, setEmail] = useState("admin@waketeam.by");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
-    if (res.ok) {
-      const from = searchParams.get("from") || "/admin/journal";
-      router.push(from);
-      router.refresh();
-    } else {
-      const data = await res.json();
-      setError(data.error ?? "Ошибка входа");
-    }
-    setLoading(false);
-  }
+  const from = searchParams.get("from") || "/admin/journal";
+  const [state, formAction, isPending] = useActionState<LoginState, FormData>(
+    loginAction,
+    null,
+  );
 
   return (
-    <main className="mx-auto flex min-h-[60vh] max-w-md flex-col justify-center px-4 py-8">
-      <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">Вход в админку</h1>
-      <p className="mt-2 text-sm text-slate-500">WakeTeam Booking CRM</p>
-      <form onSubmit={handleSubmit} className="mt-8 space-y-4">
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="Email"
-          className="w-full rounded-lg border border-slate-300 px-3 py-3 text-base"
-          required
-        />
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Пароль"
-          className="w-full rounded-lg border border-slate-300 px-3 py-3 text-base"
-          required
-        />
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-lg bg-lime-600 py-3 font-semibold text-white hover:bg-lime-700 disabled:opacity-50"
-        >
-          {loading ? "Вход…" : "Войти"}
-        </button>
-      </form>
+    <main className="mx-auto flex min-h-[100dvh] max-w-md flex-col justify-center px-4 py-8 pb-[max(2rem,env(safe-area-inset-bottom))]">
+      <Card>
+        <CardHeader>
+          <CardTitle>Вход в админку</CardTitle>
+          <CardDescription>WakeTeam Booking CRM</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form action={formAction} className="space-y-4" autoComplete="on">
+            <input type="hidden" name="from" value={from} />
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                name="email"
+                type="email"
+                inputMode="email"
+                autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                defaultValue="admin@waketeam.by"
+                placeholder="admin@waketeam.by"
+                className="min-h-[44px] text-base"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">Пароль</Label>
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                className="min-h-[44px] text-base"
+                required
+              />
+            </div>
+            {state?.error && (
+              <Alert variant="destructive">
+                <AlertDescription>{state.error}</AlertDescription>
+              </Alert>
+            )}
+            <Button
+              type="submit"
+              className="min-h-[44px] w-full"
+              size="lg"
+              disabled={isPending}
+            >
+              {isPending ? "Вход…" : "Войти"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </main>
   );
 }

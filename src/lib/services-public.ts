@@ -35,6 +35,7 @@ export async function getPublicServices(branchId: string) {
               id: true,
               name: true,
               kind: true,
+              description: true,
               photoUrl: true,
               sortOrder: true,
               isActive: true,
@@ -72,10 +73,11 @@ export async function getPublicServices(branchId: string) {
       bookableTo: s.bookableTo,
       weekdays: s.weekdays,
       maxBoards: s.kind === "sup" ? staff.length : undefined,
-      staff: staff.map(({ id, name, kind, photoUrl }) => ({
+      staff: staff.map(({ id, name, kind, description, photoUrl }) => ({
         id,
         name,
         kind,
+        description,
         photoUrl,
       })),
     };

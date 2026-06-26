@@ -4,7 +4,7 @@ import { formatInTimeZone } from "date-fns-tz";
 export const JOURNAL_GRID_STEPS = [5, 10, 15] as const;
 export type JournalGridStep = (typeof JOURNAL_GRID_STEPS)[number];
 export const DEFAULT_GRID_SLOT_MINUTES: JournalGridStep = 15;
-export const SLOT_HEIGHT_PX = 22;
+export const SLOT_HEIGHT_PX = 34;
 
 /** @deprecated use DEFAULT_GRID_SLOT_MINUTES */
 export const GRID_SLOT_MINUTES = DEFAULT_GRID_SLOT_MINUTES;
@@ -40,16 +40,17 @@ export function getAppointmentLayout(
   startAt: string,
   endAt: string,
   slotMinutes: number = DEFAULT_GRID_SLOT_MINUTES,
+  slotHeightPx: number = SLOT_HEIGHT_PX,
 ): { top: number; height: number } | null {
   const topMin = minutesFromIso(dateStr, startAt);
   const endMin = minutesFromIso(dateStr, endAt);
   if (topMin === null || endMin === null || endMin <= topMin) return null;
 
   const top =
-    ((topMin - bounds.start) / slotMinutes) * SLOT_HEIGHT_PX;
+    ((topMin - bounds.start) / slotMinutes) * slotHeightPx;
   const height = Math.max(
-    ((endMin - topMin) / slotMinutes) * SLOT_HEIGHT_PX,
-    SLOT_HEIGHT_PX,
+    ((endMin - topMin) / slotMinutes) * slotHeightPx,
+    slotHeightPx,
   );
   if (!Number.isFinite(top) || !Number.isFinite(height)) return null;
   return { top, height };
@@ -230,6 +231,12 @@ export type ConsecutiveAppointmentGroup<
   appointments: T[];
 };
 
+function spanDurationMinutes(startAt: string, endAt: string): number {
+  return Math.round(
+    (new Date(endAt).getTime() - new Date(startAt).getTime()) / 60_000,
+  );
+}
+
 function appointmentsConsecutive(
   prev: { endAt: string },
   next: { startAt: string },
@@ -237,7 +244,29 @@ function appointmentsConsecutive(
   return new Date(prev.endAt).getTime() === new Date(next.startAt).getTime();
 }
 
-/** Объединяет подряд идущие записи одного клиента в один блок для журнала. */
+function touchesOrOverlaps(
+  prev: { endAt: string },
+  next: { startAt: string },
+): boolean {
+  return new Date(next.startAt).getTime() < new Date(prev.endAt).getTime();
+}
+
+function mergeAppointmentIntoGroup<
+  T extends {
+    id: string;
+    startAt: string;
+    endAt: string;
+    durationMinutes: number;
+  },
+>(current: ConsecutiveAppointmentGroup<T>, appt: T) {
+  current.appointments.push(appt);
+  if (new Date(appt.endAt).getTime() > new Date(current.endAt).getTime()) {
+    current.endAt = appt.endAt;
+  }
+  current.durationMinutes = spanDurationMinutes(current.startAt, current.endAt);
+}
+
+/** Объединяет подряд идущие и пересекающиеся записи одного клиента в один блок. */
 export function groupConsecutiveClientAppointments<
   T extends {
     id: string;
@@ -258,18 +287,18 @@ export function groupConsecutiveClientAppointments<
   let current: ConsecutiveAppointmentGroup<T> | null = null;
 
   for (const appt of sorted) {
-    if (
+    const last = current?.appointments[current.appointments.length - 1];
+    const sameClientGroup =
       current &&
       current.appointments[0].status === appt.status &&
-      current.appointments[0].client.phone === appt.client.phone &&
-      appointmentsConsecutive(
-        current.appointments[current.appointments.length - 1],
-        appt,
-      )
+      current.appointments[0].client.phone === appt.client.phone;
+
+    if (
+      sameClientGroup &&
+      last &&
+      (appointmentsConsecutive(last, appt) || touchesOrOverlaps(last, appt))
     ) {
-      current.appointments.push(appt);
-      current.endAt = appt.endAt;
-      current.durationMinutes += appt.durationMinutes;
+      mergeAppointmentIntoGroup(current, appt);
     } else {
       current = {
         id: appt.id,

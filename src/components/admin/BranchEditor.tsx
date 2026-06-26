@@ -92,6 +92,8 @@ export function BranchEditor({ branchId }: Props) {
   const [expandedStaff, setExpandedStaff] = useState<string | null>(null);
   const [serviceMsg, setServiceMsg] = useState<Record<string, string>>({});
   const [staffMsg, setStaffMsg] = useState<Record<string, string>>({});
+  const [addMsg, setAddMsg] = useState("");
+  const [adding, setAdding] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -243,6 +245,50 @@ export function BranchEditor({ branchId }: Props) {
     });
   }
 
+  async function addStaff(kind: "revers" | "sup") {
+    setAdding(true);
+    setAddMsg("");
+    const res = await fetch("/api/admin/staff", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ branchId, kind }),
+    });
+    const data = await res.json();
+    setAdding(false);
+    if (!res.ok) {
+      setAddMsg(data.error ?? "Не удалось добавить ресурс");
+      return;
+    }
+    setAddMsg(kind === "revers" ? "Реверс добавлен" : "Сапборд добавлен");
+    load();
+    if (data.staff?.id) setExpandedStaff(data.staff.id);
+  }
+
+  async function addService(kind: "wake" | "sup") {
+    setAdding(true);
+    setAddMsg("");
+    const res = await fetch("/api/admin/services", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ branchId, kind }),
+    });
+    const data = await res.json();
+    setAdding(false);
+    if (!res.ok) {
+      setAddMsg(typeof data.error === "string" ? data.error : "Не удалось добавить услугу");
+      return;
+    }
+    setAddMsg(kind === "wake" ? "Услуга вейка добавлена" : "Услуга сапов добавлена");
+    load();
+  }
+
+  const hasWakeService = branch?.services.some(
+    (s) => s.kind === "wake" && s.isActive,
+  );
+  const hasSupService = branch?.services.some(
+    (s) => s.kind === "sup" && s.isActive,
+  );
+
   if (loading) return <p className="text-slate-500">Загрузка…</p>;
   if (error || !branch) {
     return (
@@ -320,6 +366,29 @@ export function BranchEditor({ branchId }: Props) {
         <p className="mt-1 text-xs text-slate-500">
           Настройки услуг влияют на виджет и журнал записей
         </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {!hasWakeService && (
+            <button
+              type="button"
+              disabled={adding}
+              onClick={() => void addService("wake")}
+              className="rounded-lg border border-lime-600 px-3 py-1.5 text-sm text-lime-800 hover:bg-lime-50 disabled:opacity-50"
+            >
+              + Вейкбординг
+            </button>
+          )}
+          {!hasSupService && (
+            <button
+              type="button"
+              disabled={adding}
+              onClick={() => void addService("sup")}
+              className="rounded-lg border border-lime-600 px-3 py-1.5 text-sm text-lime-800 hover:bg-lime-50 disabled:opacity-50"
+            >
+              + Сапборд
+            </button>
+          )}
+        </div>
+        {addMsg && <p className="mt-2 text-xs text-slate-600">{addMsg}</p>}
         <div className="mt-4 space-y-4">
           {branch.services.map((service) => {
             const wd = parseWeekdays(service.weekdays);
@@ -567,123 +636,181 @@ export function BranchEditor({ branchId }: Props) {
       </section>
 
       <section>
-        <h2 className="text-lg font-semibold text-slate-900">Ресурсы</h2>
+        <h2 className="text-lg font-semibold text-slate-900">Реверсы</h2>
         <p className="mt-1 text-xs text-slate-500">
-          Реверсы и сапборды — колонки в журнале и слоты для записи
+          Название, подпись и фото показываются в виджете на шаге «Реверс»
         </p>
         <div className="mt-4 space-y-3">
-          {branch.staff.map((st) => {
-            const open = expandedStaff === st.id;
-            return (
-              <div
+          {branch.staff
+            .filter((st) => st.kind === "revers")
+            .map((st) => (
+              <StaffResourceEditor
                 key={st.id}
-                className="rounded-xl border border-slate-200 bg-white shadow-sm"
-              >
-                <button
-                  type="button"
-                  onClick={() => setExpandedStaff(open ? null : st.id)}
-                  className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
-                >
-                  <span className="font-medium text-slate-900">{st.name}</span>
-                  <span className="text-xs text-slate-400">
-                    {st.kind === "sup" ? "Сапборд" : "Реверс"} ·{" "}
-                    {open ? "▲" : "▼"}
-                  </span>
-                </button>
-                {open && (
-                  <div className="border-t border-slate-100 px-4 pb-4 pt-2">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <label className="block sm:col-span-2">
-                        <span className="mb-1 block text-xs text-slate-500">
-                          Название
-                        </span>
-                        <input
-                          className={inputClass}
-                          value={st.name}
-                          onChange={(e) =>
-                            updateStaff(st.id, { name: e.target.value })
-                          }
-                        />
-                      </label>
-                      <label className="block sm:col-span-2">
-                        <span className="mb-1 block text-xs text-slate-500">
-                          Описание
-                        </span>
-                        <textarea
-                          className={`${inputClass} min-h-[60px]`}
-                          value={st.description ?? ""}
-                          onChange={(e) =>
-                            updateStaff(st.id, { description: e.target.value })
-                          }
-                        />
-                      </label>
-                      <label className="block sm:col-span-2">
-                        <PhotoUploadField
-                          label="Фото ресурса"
-                          kind="staff"
-                          value={st.photoUrl}
-                          onChange={(url) => updateStaff(st.id, { photoUrl: url })}
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="mb-1 block text-xs text-slate-500">Тип</span>
-                        <select
-                          className={inputClass}
-                          value={st.kind}
-                          onChange={(e) =>
-                            updateStaff(st.id, { kind: e.target.value })
-                          }
-                        >
-                          <option value="revers">Реверс</option>
-                          <option value="sup">Сапборд</option>
-                        </select>
-                      </label>
-                      <div className="flex flex-col gap-2 justify-end">
-                        <label className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={st.isActive}
-                            onChange={(e) =>
-                              updateStaff(st.id, { isActive: e.target.checked })
-                            }
-                          />
-                          Активен
-                        </label>
-                        <label className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={st.isVisible}
-                            onChange={(e) =>
-                              updateStaff(st.id, { isVisible: e.target.checked })
-                            }
-                          />
-                          В виджете
-                        </label>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void saveStaffMeta(st)}
-                      className="mt-3 rounded-lg border border-lime-600 px-3 py-1.5 text-sm text-lime-800 hover:bg-lime-50"
-                    >
-                      Сохранить ресурс
-                    </button>
-                    {staffMsg[st.id] && (
-                      <p className="mt-1 text-xs text-slate-500">{staffMsg[st.id]}</p>
-                    )}
-                    <div className="mt-4">
-                      <h3 className="text-sm font-medium text-slate-700">
-                        Расписание работы
-                      </h3>
-                      <ScheduleEditor staffId={st.id} embedded />
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                staff={st}
+                open={expandedStaff === st.id}
+                onToggle={() =>
+                  setExpandedStaff(expandedStaff === st.id ? null : st.id)
+                }
+                descriptionLabel="Подпись в виджете"
+                photoLabel="Фото реверса"
+                onUpdate={(patch) => updateStaff(st.id, patch)}
+                onSave={() => void saveStaffMeta(st)}
+                saveMessage={staffMsg[st.id]}
+              />
+            ))}
+          <button
+            type="button"
+            disabled={adding}
+            onClick={() => void addStaff("revers")}
+            className="w-full rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-600 hover:border-lime-500 hover:text-lime-800 disabled:opacity-50"
+          >
+            + Добавить реверс
+          </button>
         </div>
       </section>
+
+      <section>
+        <h2 className="text-lg font-semibold text-slate-900">Сапборды</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          Колонки в журнале и слоты для записи на сапы
+        </p>
+        <div className="mt-4 space-y-3">
+          {branch.staff
+            .filter((st) => st.kind === "sup")
+            .map((st) => (
+              <StaffResourceEditor
+                key={st.id}
+                staff={st}
+                open={expandedStaff === st.id}
+                onToggle={() =>
+                  setExpandedStaff(expandedStaff === st.id ? null : st.id)
+                }
+                descriptionLabel="Описание"
+                photoLabel="Фото"
+                onUpdate={(patch) => updateStaff(st.id, patch)}
+                onSave={() => void saveStaffMeta(st)}
+                saveMessage={staffMsg[st.id]}
+              />
+            ))}
+          <button
+            type="button"
+            disabled={adding}
+            onClick={() => void addStaff("sup")}
+            className="w-full rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-600 hover:border-lime-500 hover:text-lime-800 disabled:opacity-50"
+          >
+            + Добавить сапборд
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function StaffResourceEditor({
+  staff,
+  open,
+  onToggle,
+  descriptionLabel,
+  photoLabel,
+  onUpdate,
+  onSave,
+  saveMessage,
+}: {
+  staff: StaffRow;
+  open: boolean;
+  onToggle: () => void;
+  descriptionLabel: string;
+  photoLabel: string;
+  onUpdate: (patch: Partial<StaffRow>) => void;
+  onSave: () => void;
+  saveMessage?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
+      >
+        <span className="flex min-w-0 flex-1 items-center gap-2">
+          <span
+            className={`font-medium ${staff.isActive && staff.isVisible ? "text-slate-900" : "text-slate-400"}`}
+          >
+            {staff.name}
+          </span>
+          {(!staff.isActive || !staff.isVisible) && (
+            <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
+              скрыт
+            </span>
+          )}
+        </span>
+        <span className="text-xs text-slate-400">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="border-t border-slate-100 px-4 pb-4 pt-2">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block sm:col-span-2">
+              <span className="mb-1 block text-xs text-slate-500">Название</span>
+              <input
+                className={inputClass}
+                value={staff.name}
+                onChange={(e) => onUpdate({ name: e.target.value })}
+              />
+            </label>
+            <label className="block sm:col-span-2">
+              <span className="mb-1 block text-xs text-slate-500">
+                {descriptionLabel}
+              </span>
+              <textarea
+                className={`${inputClass} min-h-[72px]`}
+                placeholder="Например: Фигуры — два кикера M, стол 16 м"
+                value={staff.description ?? ""}
+                onChange={(e) => onUpdate({ description: e.target.value })}
+              />
+            </label>
+            <label className="block sm:col-span-2">
+              <PhotoUploadField
+                label={photoLabel}
+                kind="staff"
+                value={staff.photoUrl}
+                onChange={(url) => onUpdate({ photoUrl: url })}
+              />
+            </label>
+            <div className="flex flex-col gap-2 justify-end sm:col-span-2 sm:flex-row sm:items-center">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={staff.isActive}
+                  onChange={(e) => onUpdate({ isActive: e.target.checked })}
+                />
+                Активен
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={staff.isVisible}
+                  onChange={(e) => onUpdate({ isVisible: e.target.checked })}
+                />
+                В виджете
+              </label>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onSave}
+            className="mt-3 rounded-lg border border-lime-600 px-3 py-1.5 text-sm text-lime-800 hover:bg-lime-50"
+          >
+            Сохранить
+          </button>
+          {saveMessage && (
+            <p className="mt-1 text-xs text-slate-500">{saveMessage}</p>
+          )}
+          <div className="mt-4">
+            <h3 className="text-sm font-medium text-slate-700">Расписание работы</h3>
+            <ScheduleEditor staffId={staff.id} embedded />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

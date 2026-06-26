@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { APPOINTMENT_STATUS_OPTIONS, CANCEL_REASON_OPTIONS, type CancelReason } from "@/lib/appointment-status";
 import {
   fromDatetimeLocalValue,
@@ -9,6 +9,17 @@ import {
 } from "@/lib/time";
 import { normalizeAdminDuration } from "@/lib/admin-duration";
 import { isSearchablePhone } from "@/lib/phone";
+import { resolveServicePrice, type ServicePriceRuleDto } from "@/lib/service-pricing";
+import {
+  deleteGroupAppointments,
+  saveAppointmentEdit,
+  type GroupApptRef,
+} from "@/lib/admin/appointment-group-client";
+import { adminFetch } from "@/lib/admin-fetch";
+import {
+  BookingWidget,
+  type WidgetPrefill,
+} from "@/components/widget/BookingWidget";
 
 function unlockReadOnlyInput(e: React.FocusEvent<HTMLInputElement>) {
   e.currentTarget.readOnly = false;
@@ -18,9 +29,11 @@ type Branch = { id: string; name: string };
 type Service = {
   id: string;
   name: string;
+  kind: string;
   durationMinutes: number;
   allowedDurations: string;
   price: number;
+  priceRules: ServicePriceRuleDto[];
   staff: { id: string; name: string }[];
 };
 type Staff = { id: string; name: string };
@@ -45,6 +58,8 @@ type Props = {
   onSaved: () => void;
   branches: Branch[];
   appointmentId?: string;
+  appointmentGroup?: GroupApptRef[];
+  totalPrice?: number;
   initial?: {
     branchId?: string;
     serviceId?: string;
@@ -62,7 +77,9 @@ type Props = {
 };
 
 const inputClass =
-  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-sans text-sm text-slate-900";
+  "w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-900";
+
+const labelClass = "mb-0.5 block text-[11px] text-slate-500";
 
 export function AppointmentModal({
   open,
@@ -70,6 +87,8 @@ export function AppointmentModal({
   onSaved,
   branches,
   appointmentId,
+  appointmentGroup,
+  totalPrice,
   initial,
 }: Props) {
   const [branchId, setBranchId] = useState("");
@@ -101,9 +120,41 @@ export function AppointmentModal({
     "idle" | "loading" | "found" | "new" | "ambiguous"
   >("idle");
   const [clientSuggestions, setClientSuggestions] = useState<ClientSuggestion[]>([]);
+  const [price, setPrice] = useState(0);
+  const [priceInput, setPriceInput] = useState("0");
+  const priceTouchedRef = useRef(false);
+  const skipAutoPriceRef = useRef(true);
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [widgetSlug, setWidgetSlug] = useState("waketeam");
+
+  function setQuotedPrice(value: number) {
+    const rounded = Math.round(value * 100) / 100;
+    setPrice(rounded);
+    setPriceInput(String(rounded));
+  }
 
   useEffect(() => {
     if (!open) return;
+    adminFetch("/api/admin/widget-settings")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.slug) setWidgetSlug(d.slug);
+      })
+      .catch(() => {});
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setCopyOpen(false);
+    priceTouchedRef.current = false;
+    skipAutoPriceRef.current = Boolean(appointmentId && (totalPrice ?? 0) > 0);
+    const initialPrice = totalPrice ?? 0;
+    if (initialPrice > 0) {
+      setQuotedPrice(initialPrice);
+    } else {
+      setPrice(0);
+      setPriceInput("0");
+    }
     setBranchId(initial?.branchId ?? branches[0]?.id ?? "");
     setServiceId(initial?.serviceId ?? "");
     setStaffId(initial?.staffId ?? "");
@@ -151,34 +202,66 @@ export function AppointmentModal({
     initial?.status,
     initial?.comment,
     initial?.membershipId,
+    totalPrice,
     branches[0]?.id,
   ]);
 
   useEffect(() => {
+    if (!open || priceTouchedRef.current) return;
+    if (!serviceId || !date || !time) return;
+    if (skipAutoPriceRef.current) {
+      skipAutoPriceRef.current = false;
+      return;
+    }
+    const service = services.find((s) => s.id === serviceId);
+    if (!service) return;
+    const parsedDuration = parseInt(durationInput, 10);
+    const duration = Number.isNaN(parsedDuration)
+      ? durationMinutes
+      : parsedDuration;
+    const iso = fromDatetimeLocalValue(`${date}T${time}`);
+    if (!iso) return;
+    setQuotedPrice(resolveServicePrice(service, new Date(iso), duration));
+  }, [
+    open,
+    serviceId,
+    staffId,
+    date,
+    time,
+    durationInput,
+    durationMinutes,
+    services,
+  ]);
+
+  useEffect(() => {
     if (!open) return;
-    fetch("/api/admin/memberships/sync?ifStale=1", { method: "POST" }).catch(() => {});
+    adminFetch("/api/admin/memberships/sync?ifStale=1", { method: "POST" }).catch(() => {});
   }, [open]);
 
   useEffect(() => {
     if (!branchId || !open) return;
     setServicesLoading(true);
-    fetch(`/api/admin/services?branchId=${branchId}`)
+    adminFetch(`/api/admin/services?branchId=${branchId}`)
       .then((r) => r.json())
       .then((d) => {
         const mapped: Service[] = (d.services ?? []).map(
           (s: {
             id: string;
             name: string;
+            kind: string;
             durationMinutes: number;
             allowedDurations: string;
             price: number;
+            priceRules: ServicePriceRuleDto[];
             staff: { staff: { id: string; name: string } }[];
           }) => ({
             id: s.id,
             name: s.name,
+            kind: s.kind,
             durationMinutes: s.durationMinutes,
             allowedDurations: s.allowedDurations,
             price: s.price,
+            priceRules: s.priceRules ?? [],
             staff: s.staff.map((x) => x.staff),
           }),
         );
@@ -196,7 +279,7 @@ export function AppointmentModal({
     }
     const t = setTimeout(() => {
       setClientLookupStatus("loading");
-      fetch(`/api/admin/clients/lookup?phone=${encodeURIComponent(phone)}`)
+      adminFetch(`/api/admin/clients/lookup?phone=${encodeURIComponent(phone)}`)
         .then((r) => r.json())
         .then((data) => {
           const list: ClientSuggestion[] = data.clients ?? [];
@@ -277,10 +360,10 @@ export function AppointmentModal({
           ? `&includeId=${encodeURIComponent(initial.membershipId)}`
           : "";
       Promise.all([
-        fetch(
+        adminFetch(
           `/api/admin/memberships?phone=${encodeURIComponent(phone)}${include}`,
         ).then((r) => r.json()),
-        fetch(`/api/admin/memberships/suggest?phone=${encodeURIComponent(phone)}`).then(
+        adminFetch(`/api/admin/memberships/suggest?phone=${encodeURIComponent(phone)}`).then(
           (r) => r.json(),
         ),
       ])
@@ -330,7 +413,7 @@ export function AppointmentModal({
     setManualMembershipLoading(true);
     setManualMembershipError("");
     try {
-      const res = await fetch(
+      const res = await adminFetch(
         `/api/admin/memberships?code=${encodeURIComponent(code)}`,
       );
       const data = await res.json();
@@ -361,6 +444,25 @@ export function AppointmentModal({
 
   if (!open) return null;
 
+  function buildCopyPrefill(): WidgetPrefill | null {
+    const svc = services.find((s) => s.id === serviceId);
+    if (!branchId || !serviceId || !staffId || !phone.trim() || !firstName.trim()) {
+      return null;
+    }
+    return {
+      branchId,
+      serviceId,
+      staffId,
+      activityKind: svc?.kind === "sup" ? "sup" : "wake",
+      firstName: firstName.trim(),
+      lastName: lastName.trim() || undefined,
+      phone: phone.trim(),
+      comment: comment.trim() || undefined,
+    };
+  }
+
+  const copyPrefill = buildCopyPrefill();
+
   function normalizeDurationInput(value: number): number {
     return normalizeAdminDuration(value);
   }
@@ -385,12 +487,33 @@ export function AppointmentModal({
     setError("");
     const isoStart = fromDatetimeLocalValue(`${date}T${time}`);
     const duration = commitDurationInput();
+    const priceValue = Math.round((parseFloat(priceInput) || price) * 100) / 100;
     try {
+      if (appointmentId && appointmentGroup && appointmentGroup.length > 1) {
+        await saveAppointmentEdit({
+          group: appointmentGroup,
+          isoStart,
+          newStaffId: staffId,
+          newServiceId: serviceId,
+          newDuration: duration,
+          totalPrice: priceValue,
+          firstName,
+          lastName,
+          phone,
+          status,
+          comment,
+          membershipId: membershipId || null,
+        });
+        onSaved();
+        onClose();
+        return;
+      }
+
       const url = appointmentId
         ? `/api/admin/appointments/${appointmentId}`
         : "/api/admin/appointments";
       const method = appointmentId ? "PATCH" : "POST";
-      const res = await fetch(url, {
+      const res = await adminFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -404,6 +527,7 @@ export function AppointmentModal({
           status,
           comment,
           membershipId: membershipId || null,
+          price: priceValue,
         }),
       });
       const data = await res.json();
@@ -425,7 +549,14 @@ export function AppointmentModal({
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`/api/admin/appointments/${appointmentId}`, {
+      if (appointmentGroup && appointmentGroup.length > 1) {
+        await deleteGroupAppointments(appointmentGroup);
+        onSaved();
+        onClose();
+        return;
+      }
+
+      const res = await adminFetch(`/api/admin/appointments/${appointmentId}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason: cancelReason }),
@@ -442,112 +573,132 @@ export function AppointmentModal({
   }
 
   return (
+    <>
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 font-sans sm:items-center sm:p-4"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl sm:max-h-[90vh] sm:max-w-lg sm:rounded-xl sm:p-6">
-        <h2 className="text-lg font-bold text-slate-900">
-          {appointmentId ? "Редактировать запись" : "Новая запись"}
-        </h2>
-        <form onSubmit={handleSubmit} className="mt-4 space-y-3" autoComplete="off">
-          <select
-            value={branchId}
-            onChange={(e) => {
-              setBranchId(e.target.value);
-              setServiceId("");
-              setStaffId("");
-              setStaffName("");
-            }}
-            className={inputClass}
-            required
+      <div className="w-full rounded-t-2xl bg-white p-4 shadow-xl sm:max-w-md sm:rounded-xl">
+        <div className="relative pr-8">
+          <h2 className="text-base font-bold text-slate-900">
+            {appointmentId ? "Редактировать запись" : "Новая запись"}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute right-0 top-0 flex h-7 w-7 items-center justify-center rounded-md text-xl leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Закрыть"
           >
-            <option value="">Филиал</option>
-            {branches.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
-          <select
-            value={serviceId}
-            onChange={(e) => {
-              setServiceId(e.target.value);
-              setStaffId("");
-              setStaffName("");
-            }}
-            className={inputClass}
-            required
-            disabled={servicesLoading}
-          >
-            <option value="">{servicesLoading ? "Загрузка…" : "Услуга"}</option>
-            {services.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-          <select
-            value={staffId}
-            onChange={(e) => {
-              setStaffId(e.target.value);
-              const picked = staffOptions.find((s) => s.id === e.target.value);
-              setStaffName(picked?.name ?? "");
-            }}
-            className={inputClass}
-            required
-            disabled={!serviceId || servicesLoading}
-          >
-            <option value="">Реверс / сапборд</option>
-            {staffOptions.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-          <fieldset className="space-y-3 border-0 p-0" aria-label="Дата и длительность">
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs text-slate-500" htmlFor="wt-booking-date">
-                  Дата
-                </label>
-                <input
-                  id="wt-booking-date"
-                  name="wt-booking-date"
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className={inputClass}
-                  autoComplete="off"
-                  readOnly
-                  onFocus={unlockReadOnlyInput}
-                  required
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-slate-500" htmlFor="wt-booking-time">
-                  Время
-                </label>
-                <input
-                  id="wt-booking-time"
-                  name="wt-booking-time"
-                  type="time"
-                  value={time}
-                  onChange={(e) => setTime(e.target.value)}
-                  className={inputClass}
-                  step={300}
-                  autoComplete="off"
-                  readOnly
-                  onFocus={unlockReadOnlyInput}
-                  required
-                />
-              </div>
+            ×
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="mt-3 space-y-2" autoComplete="off">
+          <div>
+            <label className={labelClass}>Филиал</label>
+            <select
+              value={branchId}
+              onChange={(e) => {
+                setBranchId(e.target.value);
+                setServiceId("");
+                setStaffId("");
+                setStaffName("");
+              }}
+              className={inputClass}
+              required
+            >
+              <option value="">Филиал</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className={labelClass}>Услуга</label>
+              <select
+                value={serviceId}
+                onChange={(e) => {
+                  setServiceId(e.target.value);
+                  setStaffId("");
+                  setStaffName("");
+                }}
+                className={inputClass}
+                required
+                disabled={servicesLoading}
+              >
+                <option value="">{servicesLoading ? "…" : "Услуга"}</option>
+                {services.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs text-slate-500" htmlFor="wt-booking-duration">
-                Длительность, мин
+              <label className={labelClass}>Реверс / сап</label>
+              <select
+                value={staffId}
+                onChange={(e) => {
+                  setStaffId(e.target.value);
+                  const picked = staffOptions.find((s) => s.id === e.target.value);
+                  setStaffName(picked?.name ?? "");
+                }}
+                className={inputClass}
+                required
+                disabled={!serviceId || servicesLoading}
+              >
+                <option value="">Выберите</option>
+                {staffOptions.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div>
+              <label className={labelClass} htmlFor="wt-booking-date">
+                Дата
+              </label>
+              <input
+                id="wt-booking-date"
+                name="wt-booking-date"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className={inputClass}
+                autoComplete="off"
+                readOnly
+                onFocus={unlockReadOnlyInput}
+                required
+              />
+            </div>
+            <div>
+              <label className={labelClass} htmlFor="wt-booking-time">
+                Время
+              </label>
+              <input
+                id="wt-booking-time"
+                name="wt-booking-time"
+                type="time"
+                value={time}
+                onChange={(e) => setTime(e.target.value)}
+                className={inputClass}
+                step={300}
+                autoComplete="off"
+                readOnly
+                onFocus={unlockReadOnlyInput}
+                required
+              />
+            </div>
+            <div>
+              <label className={labelClass} htmlFor="wt-booking-duration">
+                Мин
               </label>
               <input
                 id="wt-booking-duration"
@@ -577,9 +728,40 @@ export function AppointmentModal({
                 className={inputClass}
               />
             </div>
-          </fieldset>
+            <div>
+              <label className={labelClass} htmlFor="wt-booking-price">
+                Стоимость, Br
+              </label>
+              <input
+                id="wt-booking-price"
+                name="wt-booking-price"
+                type="text"
+                inputMode="decimal"
+                value={priceInput}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(",", ".");
+                  if (raw === "" || /^\d*\.?\d{0,2}$/.test(raw)) {
+                    priceTouchedRef.current = true;
+                    setPriceInput(raw);
+                    const parsed = parseFloat(raw);
+                    if (!Number.isNaN(parsed)) setPrice(parsed);
+                  }
+                }}
+                onBlur={() => {
+                  const parsed = parseFloat(priceInput);
+                  if (!Number.isNaN(parsed)) {
+                    setQuotedPrice(parsed);
+                  } else {
+                    setPriceInput(String(price));
+                  }
+                }}
+                className={inputClass}
+                required
+              />
+            </div>
+          </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-500" htmlFor="client-phone">
+            <label className={labelClass} htmlFor="client-phone">
               Телефон
             </label>
             <input
@@ -595,57 +777,60 @@ export function AppointmentModal({
               required
             />
             {clientLookupStatus === "loading" && (
-              <p className="mt-1 text-xs text-slate-400">Поиск клиента…</p>
+              <p className="mt-0.5 text-[10px] text-slate-400">Поиск…</p>
             )}
             {clientLookupStatus === "found" && (
-              <p className="mt-1 text-xs text-lime-700">Клиент найден в базе</p>
-            )}
-            {clientLookupStatus === "ambiguous" && clientSuggestions.length > 0 && (
-              <div className="mt-2 space-y-1 rounded-lg border border-slate-200 bg-slate-50 p-2">
-                <p className="text-xs text-slate-500">Выберите клиента:</p>
-                {clientSuggestions.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => applyClientSuggestion(c)}
-                    className="block w-full rounded-md px-2 py-1.5 text-left text-sm text-slate-800 hover:bg-white"
-                  >
-                    <span className="font-medium">{c.phone}</span>
-                    {[c.firstName, c.lastName].filter(Boolean).length > 0 && (
-                      <span className="text-slate-600">
-                        {" "}
-                        — {[c.firstName, c.lastName].filter(Boolean).join(" ")}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
+              <p className="mt-0.5 text-[10px] text-lime-700">Клиент найден</p>
             )}
             {clientLookupStatus === "new" && (
-              <p className="mt-1 text-xs text-slate-500">
-                Новый клиент — укажите имя вручную
-              </p>
+              <p className="mt-0.5 text-[10px] text-slate-500">Новый клиент</p>
             )}
           </div>
-          <input
-            placeholder="Имя"
-            name="client-given-name"
-            autoComplete="given-name"
-            value={firstName}
-            onChange={(e) => setFirstName(e.target.value)}
-            className={inputClass}
-            required
-          />
-          <input
-            placeholder="Фамилия"
-            name="client-family-name"
-            autoComplete="family-name"
-            value={lastName}
-            onChange={(e) => setLastName(e.target.value)}
-            className={inputClass}
-          />
           <div>
-            <label className="mb-1 block text-xs text-slate-500">Абонемент</label>
+            <label className={labelClass}>Клиент</label>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                placeholder="Имя"
+                name="client-given-name"
+                autoComplete="given-name"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className={inputClass}
+                required
+              />
+              <input
+                placeholder="Фамилия"
+                name="client-family-name"
+                autoComplete="family-name"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+          </div>
+          {clientLookupStatus === "ambiguous" && clientSuggestions.length > 0 && (
+            <div className="space-y-1 rounded-md border border-slate-200 bg-slate-50 p-1.5">
+              <p className="text-[10px] text-slate-500">Выберите клиента:</p>
+              {clientSuggestions.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => applyClientSuggestion(c)}
+                  className="block w-full rounded px-2 py-1 text-left text-xs text-slate-800 hover:bg-white"
+                >
+                  <span className="font-medium">{c.phone}</span>
+                  {[c.firstName, c.lastName].filter(Boolean).length > 0 && (
+                    <span className="text-slate-600">
+                      {" "}
+                      — {[c.firstName, c.lastName].filter(Boolean).join(" ")}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+          <div>
+            <label className={labelClass}>Абонемент</label>
             <select
               value={membershipId}
               onChange={(e) => setMembershipId(e.target.value)}
@@ -664,10 +849,10 @@ export function AppointmentModal({
                 </option>
               ))}
             </select>
-            <div className="mt-2 flex gap-2">
+            <div className="mt-1 flex gap-1.5">
               <input
                 type="text"
-                placeholder="Номер вручную (Q2, E01…)"
+                placeholder="Номер вручную"
                 value={manualMembershipCode}
                 onChange={(e) => {
                   setManualMembershipCode(e.target.value);
@@ -685,82 +870,76 @@ export function AppointmentModal({
                 type="button"
                 onClick={() => void applyManualMembershipCode()}
                 disabled={manualMembershipLoading || !manualMembershipCode.trim()}
-                className="shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
                 {manualMembershipLoading ? "…" : "Найти"}
               </button>
             </div>
-            {membershipOptions.length === 0 && !membershipsLoading && isSearchablePhone(phone) && (
-              <p className="mt-1 text-xs text-slate-500">
-                По телефону ничего не найдено — введите номер абонемента вручную.
-              </p>
-            )}
             {manualMembershipError && (
-              <p className="mt-1 text-xs text-red-600">{manualMembershipError}</p>
+              <p className="mt-0.5 text-[10px] text-red-600">{manualMembershipError}</p>
             )}
             {selectedMembership && (
-              <p className="mt-1 text-xs text-slate-600">
-                Остаток:{" "}
-                <span className="font-medium text-slate-900">
-                  {selectedMembership.effectiveRemainingMinutes} мин
-                </span>
+              <p className="mt-0.5 text-[10px] text-slate-600">
+                Остаток: {selectedMembership.effectiveRemainingMinutes} мин
               </p>
             )}
           </div>
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            className={inputClass}
-          >
-            {APPOINTMENT_STATUS_OPTIONS.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
+          <div>
+            <label className={labelClass}>Статус</label>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className={inputClass}
+            >
+              {APPOINTMENT_STATUS_OPTIONS.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </div>
           <textarea
             placeholder="Комментарий"
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             className={inputClass}
-            rows={2}
+            rows={1}
           />
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <div className="flex flex-wrap gap-2">
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          <div className={`grid gap-2 ${appointmentId ? "grid-cols-2" : "grid-cols-1"}`}>
+            {appointmentId && (
+              <button
+                type="button"
+                disabled={!copyPrefill || loading}
+                onClick={() => copyPrefill && setCopyOpen(true)}
+                className="rounded-md border border-slate-300 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Копировать запись
+              </button>
+            )}
             <button
               type="submit"
               disabled={loading}
-              className="flex-1 rounded-lg bg-lime-600 py-2 text-sm font-medium text-white hover:bg-lime-700 disabled:opacity-50"
+              className="rounded-md bg-lime-600 py-2 text-sm font-medium text-white hover:bg-lime-700 disabled:opacity-50"
             >
               {loading ? "…" : "Сохранить"}
             </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700"
-            >
-              Закрыть
-            </button>
           </div>
           {appointmentId && (
-            <div className="border-t border-slate-200 pt-3">
+            <div className="border-t border-slate-200 pt-2">
               {!deleteOpen ? (
                 <button
                   type="button"
                   onClick={() => setDeleteOpen(true)}
-                  className="w-full rounded-lg border border-red-300 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                  className="w-full rounded-md border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
                 >
                   Удалить запись
                 </button>
               ) : (
-                <div className="space-y-2 rounded-lg border border-red-200 bg-red-50/50 p-3">
-                  <p className="text-sm font-medium text-red-800">
+                <div className="space-y-1.5 rounded-md border border-red-200 bg-red-50/50 p-2">
+                  <p className="text-xs font-medium text-red-800">
                     Удалить запись из журнала?
                   </p>
-                  <p className="text-xs text-red-700">
-                    Слот освободится. Запись останется в истории со статусом «Удалена».
-                  </p>
-                  <label className="block text-xs text-slate-600">Причина удаления</label>
                   <select
                     value={cancelReason}
                     onChange={(e) =>
@@ -769,21 +948,21 @@ export function AppointmentModal({
                     className={inputClass}
                     required
                   >
-                    <option value="">Выберите причину…</option>
+                    <option value="">Причина…</option>
                     {CANCEL_REASON_OPTIONS.map((r) => (
                       <option key={r.value} value={r.value}>
                         {r.label}
                       </option>
                     ))}
                   </select>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex gap-2">
                     <button
                       type="button"
                       disabled={loading || !cancelReason}
                       onClick={handleDelete}
-                      className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                      className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
                     >
-                      {loading ? "…" : "Подтвердить удаление"}
+                      {loading ? "…" : "Удалить"}
                     </button>
                     <button
                       type="button"
@@ -791,7 +970,7 @@ export function AppointmentModal({
                         setDeleteOpen(false);
                         setCancelReason("");
                       }}
-                      className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700"
+                      className="rounded-md border border-slate-300 px-3 py-1.5 text-xs text-slate-700"
                     >
                       Назад
                     </button>
@@ -803,5 +982,33 @@ export function AppointmentModal({
         </form>
       </div>
     </div>
+    {copyOpen && copyPrefill && (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-3 sm:p-4">
+        <div className="relative flex max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+          <button
+            type="button"
+            onClick={() => setCopyOpen(false)}
+            className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full text-xl leading-none text-slate-500 hover:bg-slate-100"
+            aria-label="Закрыть"
+          >
+            ×
+          </button>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <BookingWidget
+              key={`copy-${appointmentId}`}
+              slug={widgetSlug}
+              prefill={copyPrefill}
+              copyMode
+              onCopyBookingDone={() => {
+                setCopyOpen(false);
+                onSaved();
+                onClose();
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

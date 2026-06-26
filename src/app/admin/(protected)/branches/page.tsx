@@ -1,29 +1,19 @@
-"use client";
-
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { redirect } from "next/navigation";
+import { branchListWhere, getAdminContext } from "@/lib/admin-access";
+import { prisma } from "@/lib/db";
 
-type Branch = {
-  id: string;
-  name: string;
-  address: string | null;
-  phone: string | null;
-  description: string | null;
-  photoUrl: string | null;
-  isActive: boolean;
-  _count: { staff: number; services: number };
-};
+export default async function BranchesPage() {
+  const ctx = await getAdminContext();
+  if (!ctx) {
+    redirect("/admin/login?from=/admin/branches");
+  }
 
-export default function BranchesPage() {
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch("/api/admin/branches")
-      .then((r) => r.json())
-      .then((d) => setBranches(d.branches ?? []))
-      .finally(() => setLoading(false));
-  }, []);
+  const branches = await prisma.branch.findMany({
+    where: branchListWhere(ctx),
+    orderBy: { sortOrder: "asc" },
+    include: { _count: { select: { staff: true, services: true } } },
+  });
 
   return (
     <div>
@@ -31,8 +21,8 @@ export default function BranchesPage() {
       <p className="mt-1 text-sm text-slate-500">
         Услуги, ресурсы и расписание настраиваются внутри каждого филиала
       </p>
-      {loading ? (
-        <p className="mt-4 text-slate-500">Загрузка…</p>
+      {branches.length === 0 ? (
+        <p className="mt-4 text-slate-500">Филиалы не найдены</p>
       ) : (
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           {branches.map((b) => (

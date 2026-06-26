@@ -13,16 +13,16 @@ export const WIDGET_PHOTO_LAYOUT: Record<
   }
 > = {
   branch: {
-    aspectRatio: 10 / 3,
+    aspectRatio: 20 / 3,
     exportWidth: 1000,
     exportHeight: 300,
     sampleTitle: "Название филиала",
     sampleSubtitle: "Описание филиала",
   },
   staff: {
-    aspectRatio: 4 / 1,
+    aspectRatio: 20 / 3,
     exportWidth: 1000,
-    exportHeight: 250,
+    exportHeight: 300,
     sampleTitle: "Реверс №1",
     sampleSubtitle: "",
   },

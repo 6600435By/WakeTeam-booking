@@ -17,18 +17,28 @@ export function StatusBadge({ status }: { status: string }) {
   );
 }
 
-export function StatusLegend() {
+export function StatusLegend({ compact = false }: { compact?: boolean }) {
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+    <div
+      className={
+        compact
+          ? "flex max-w-[50%] flex-wrap justify-end gap-x-2 gap-y-1 text-[10px] text-slate-500"
+          : "mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-600"
+      }
+    >
       {APPOINTMENT_STATUS_OPTIONS.map((s) => (
         <span
           key={s.value}
-          className="mr-2 inline-flex items-center gap-1.5 whitespace-nowrap"
+          className={
+            compact
+              ? "inline-flex items-center gap-1 whitespace-nowrap"
+              : "mr-2 inline-flex items-center gap-1.5 whitespace-nowrap"
+          }
         >
           <span
-            className={`inline-block h-2 w-2 shrink-0 rounded-full ${s.dot}`}
+            className={`inline-block shrink-0 rounded-full ${compact ? "h-1.5 w-1.5" : "h-2 w-2"} ${s.dot}`}
           />
-          {s.label}
+          {compact ? s.label.slice(0, 4) : s.label}
         </span>
       ))}
     </div>

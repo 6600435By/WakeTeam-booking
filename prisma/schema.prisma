@@ -159,7 +159,7 @@ model Client {
 
 model Appointment {
   id              String   @id @default(cuid())
-  publicNumber    Int      @unique
+  publicNumber    Int?     @unique
   organizationId  String
   branchId        String
   clientId        String

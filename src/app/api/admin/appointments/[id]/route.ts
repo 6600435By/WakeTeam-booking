@@ -26,6 +26,7 @@ const patchSchema = z.object({
   firstName: z.string().optional(),
   lastName: z.string().optional(),
   phone: z.string().optional(),
+  price: z.number().nonnegative().optional(),
 });
 
 export async function GET(

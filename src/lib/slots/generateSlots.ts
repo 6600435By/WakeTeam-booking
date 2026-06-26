@@ -516,13 +516,30 @@ export async function createBooking(
         comment: input.comment,
       },
     });
-    return { id: appt.id, publicNumber: appt.publicNumber, price };
+    return { id: appt.id, publicNumber, price };
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
       throw new Error("SLOT_UNAVAILABLE");
     }
     throw e;
   }
+}
+
+async function isWakeCellFree(params: {
+  serviceId: string;
+  staffId: string;
+  startAt: Date;
+}): Promise<boolean> {
+  const dateStr = formatDateKey(params.startAt);
+  const { slots } = await getDaySlots({
+    serviceId: params.serviceId,
+    staffId: params.staffId,
+    date: dateStr,
+  });
+  const t = params.startAt.getTime();
+  return slots.some(
+    (s) => new Date(s.startAt).getTime() === t && s.status === "free",
+  );
 }
 
 async function createSupBooking(
@@ -586,7 +603,7 @@ async function createSupBooking(
       selected.map((board, i) =>
         prisma.appointment.create({
           data: {
-            publicNumber,
+            publicNumber: i === 0 ? publicNumber : null,
             organizationId: input.organizationId,
             branchId: service.branchId,
             clientId: client.id,
@@ -705,18 +722,11 @@ async function createBatchBooking(
       });
     } else {
       if (!opts?.skipSlotCheck) {
-        const dateStr = formatDateKey(startAt);
-        const available = await getAvailableSlots({
+        const ok = await isWakeCellFree({
           serviceId: input.serviceId,
-          staffId: input.staffId,
-          date: dateStr,
-          durationMinutes: WAKE_CELL_MINUTES,
+          staffId: input.staffId!,
+          startAt,
         });
-        const ok = available.some(
-          (s) =>
-            s.staffId === input.staffId &&
-            new Date(s.startAt).getTime() === startAt.getTime(),
-        );
         if (!ok) throw new Error("SLOT_UNAVAILABLE");
       }
 
@@ -734,10 +744,10 @@ async function createBatchBooking(
 
   try {
     const created = await prisma.$transaction(
-      rows.map((row) =>
+      rows.map((row, i) =>
         prisma.appointment.create({
           data: {
-            publicNumber,
+            publicNumber: i === 0 ? publicNumber : null,
             organizationId: input.organizationId,
             branchId: service.branchId,
             clientId: client.id,
@@ -822,6 +832,7 @@ export async function updateAppointment(
     firstName?: string;
     lastName?: string;
     phone?: string;
+    price?: number;
   },
   opts?: { skipSlotCheck?: boolean },
 ) {
@@ -890,7 +901,9 @@ export async function updateAppointment(
     if (!ok && !sameSlot) throw new Error("SLOT_UNAVAILABLE");
   }
 
-  const price = resolveServicePrice(serviceWithRulesDto(service), startAt, duration);
+  const price =
+    data.price ??
+    resolveServicePrice(serviceWithRulesDto(service), startAt, duration);
 
   try {
     return await prisma.appointment.update({

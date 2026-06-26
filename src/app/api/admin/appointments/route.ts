@@ -36,6 +36,7 @@ const createSchema = z.object({
   comment: z.string().optional(),
   status: z.string().optional(),
   membershipId: z.string().nullable().optional(),
+  price: z.number().nonnegative().optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -93,6 +94,13 @@ export async function POST(req: NextRequest) {
       },
       { skipSlotCheck: true },
     );
+
+    if (body.price != null) {
+      await prisma.appointment.update({
+        where: { id: result.id },
+        data: { price: body.price },
+      });
+    }
 
     if (membershipId) {
       await setAppointmentMembership(result.id, membershipId);

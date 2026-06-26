@@ -37,10 +37,14 @@ export function WidgetPhotoCard({
           <div className="absolute inset-0 bg-gradient-to-br from-slate-700 to-slate-900" />
         )}
         <div className="absolute inset-0 bg-black/45" />
-        <div className="absolute inset-0 flex flex-col justify-end p-4">
-          <span className="text-lg font-bold text-white drop-shadow-md">{title}</span>
+        <div className="absolute inset-0 flex flex-col justify-end p-2.5">
+          <span className="text-base font-bold leading-tight text-white drop-shadow-md">
+            {title}
+          </span>
           {subtitle ? (
-            <span className="mt-1 line-clamp-2 text-sm text-white/90">{subtitle}</span>
+            <span className="mt-0.5 line-clamp-2 text-xs leading-snug text-white/90">
+              {subtitle}
+            </span>
           ) : null}
         </div>
       </div>

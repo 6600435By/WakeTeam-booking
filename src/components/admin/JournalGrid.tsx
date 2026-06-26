@@ -15,7 +15,6 @@ import {
   isStaffWorkingAt,
   minutesFromIso,
   minutesToTime,
-  SLOT_HEIGHT_PX,
   type JournalGridStep,
 } from "@/lib/calendar-grid";
 import { formatTimeMinsk } from "@/lib/time";
@@ -30,8 +29,21 @@ import {
   staffMatchesResourceFilter,
   type JournalResourceKind,
 } from "@/lib/journal-resources";
+import {
+  moveGroupAppointments,
+  resizeGroupAppointments,
+  type GroupApptRef,
+} from "@/lib/admin/appointment-group-client";
+import { useAdminViewport } from "./AdminViewportContext";
+import { cn } from "@/lib/utils";
+import { journalStaffDisplayName } from "@/lib/journal-staff-label";
+import {
+  getJournalSlotHeightPx,
+  type JournalGridScale,
+} from "@/lib/journal-grid-scale";
 
 const DRAG_THRESHOLD_PX = 6;
+const HEADER_HEIGHT_PX = 28;
 
 type StaffRow = {
   id: string;
@@ -72,6 +84,7 @@ type ModalInitial = {
 
 type DragState = {
   appt: Appointment;
+  group: Appointment[];
   staffId: string;
   startMinutes: number;
   height: number;
@@ -79,7 +92,7 @@ type DragState = {
 };
 
 type ResizeState = {
-  appt: Appointment;
+  group: Appointment[];
   staffId: string;
   startMinutes: number;
   durationMinutes: number;
@@ -88,6 +101,7 @@ type ResizeState = {
 
 type PointerStart = {
   appt: Appointment;
+  group: Appointment[];
   x: number;
   y: number;
   height: number;
@@ -101,23 +115,73 @@ type Props = {
   resourceKind?: JournalResourceKind;
   appointments: Appointment[];
   gridStep: JournalGridStep;
+  gridScale?: JournalGridScale;
+  fillViewport?: boolean;
+  hideInactive?: boolean;
+  onHideInactiveChange?: (value: boolean) => void;
   onSlotClick: (initial: ModalInitial) => void;
-  onAppointmentClick: (appt: Appointment) => void;
+  onAppointmentClick: (appt: Appointment, group: Appointment[]) => void;
   onMoved: () => void | Promise<void>;
 };
 
+function toGroupRefs(appts: Appointment[]): GroupApptRef[] {
+  return appts.map((a) => ({
+    id: a.id,
+    startAt: a.startAt,
+    durationMinutes: a.durationMinutes,
+    price: a.price,
+  }));
+}
+
+function groupCreateTemplate(first: Appointment) {
+  return {
+    serviceId: first.service.id,
+    staffId: first.staff.id,
+    phone: first.client.phone,
+    firstName: first.client.firstName ?? "",
+    lastName: first.client.lastName ?? undefined,
+    comment: first.comment ?? undefined,
+    status: first.status,
+  };
+}
+
+function groupTotalMinutes(group: Appointment[]): number {
+  if (!group.length) return 0;
+  if (group.length === 1) return group[0].durationMinutes;
+  const start = new Date(group[0].startAt).getTime();
+  const end = Math.max(...group.map((a) => new Date(a.endAt).getTime()));
+  return Math.round((end - start) / 60_000);
+}
 function collapsedStaffLabel(name: string): string {
-  const match = name.match(/№\s*(\d+)/);
+  const label = journalStaffDisplayName(name);
+  const match = label.match(/(?:№\s*|\s)(\d+)\s*$/);
   if (match) return `№${match[1]}`;
-  return name.length > 6 ? `${name.slice(0, 5)}…` : name;
+  return label.length > 6 ? `${label.slice(0, 5)}…` : label;
+}
+
+function staffColumnWidthClass(
+  collapsed: boolean,
+  expandColumns: boolean,
+  extra?: string,
+) {
+  return cn(
+    "border-r border-slate-200 last:border-r-0",
+    collapsed
+      ? "w-10 shrink-0"
+      : expandColumns
+        ? "min-w-[9rem] flex-1"
+        : "w-32 shrink-0 sm:w-36 md:w-40",
+    extra,
+  );
 }
 
 function topPxFromMinutes(
   minutes: number,
   boundsStart: number,
   slotMinutes: number,
+  slotHeightPx: number,
 ): number {
-  return ((minutes - boundsStart) / slotMinutes) * SLOT_HEIGHT_PX;
+  return ((minutes - boundsStart) / slotMinutes) * slotHeightPx;
 }
 
 export function JournalGrid({
@@ -128,11 +192,23 @@ export function JournalGrid({
   resourceKind = "all",
   appointments,
   gridStep,
+  gridScale = 1,
+  fillViewport = false,
+  hideInactive: hideInactiveProp,
+  onHideInactiveChange,
   onSlotClick,
   onAppointmentClick,
   onMoved,
 }: Props) {
-  const [hideInactive, setHideInactive] = useState(true);
+  const [hideInactiveInternal, setHideInactiveInternal] = useState(true);
+  const hideInactive = hideInactiveProp ?? hideInactiveInternal;
+  const setHideInactive = onHideInactiveChange ?? setHideInactiveInternal;
+  const viewport = useAdminViewport();
+  const isDesktop = viewport === "desktop";
+  const slotHeightPx = useMemo(
+    () => getJournalSlotHeightPx(gridScale),
+    [gridScale],
+  );
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
   const [drag, setDrag] = useState<DragState | null>(null);
   const [resize, setResize] = useState<ResizeState | null>(null);
@@ -143,6 +219,7 @@ export function JournalGrid({
   const pointerStartRef = useRef<PointerStart | null>(null);
   const suppressClickRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const headerScrollRef = useRef<HTMLDivElement>(null);
   const pendingScrollRestore = useRef<{ left: number; top: number } | null>(
     null,
   );
@@ -196,7 +273,8 @@ export function JournalGrid({
     [bounds, gridStep],
   );
 
-  const gridHeight = timeLabels.length * SLOT_HEIGHT_PX;
+  const gridHeight = timeLabels.length * slotHeightPx;
+  const expandColumns = resourceKind !== "all";
 
   const canDrop = useCallback(
     (staffId: string, startMinutes: number, durationMinutes: number) => {
@@ -222,13 +300,13 @@ export function JournalGrid({
           continue;
         }
         const relY = Math.max(0, Math.min(clientY - rect.top, gridHeight - 1));
-        const slotIndex = Math.floor(relY / SLOT_HEIGHT_PX);
+        const slotIndex = Math.floor(relY / slotHeightPx);
         const minutes = bounds.start + slotIndex * gridStep;
         return { staffId: s.id, minutes };
       }
       return null;
     },
-    [visibleStaff, collapsedIds, gridHeight, bounds.start, gridStep],
+    [visibleStaff, collapsedIds, gridHeight, bounds.start, gridStep, slotHeightPx],
   );
 
   const resolveDurationFromPointer = useCallback(
@@ -237,66 +315,58 @@ export function JournalGrid({
       if (!el) return null;
       const rect = el.getBoundingClientRect();
       const relY = Math.max(0, Math.min(clientY - rect.top, gridHeight));
-      const slotIndex = Math.max(1, Math.ceil(relY / SLOT_HEIGHT_PX));
+      const slotIndex = Math.max(1, Math.ceil(relY / slotHeightPx));
       const endMinutes = bounds.start + slotIndex * gridStep;
       const duration = Math.max(gridStep, endMinutes - startMinutes);
       const maxDuration = bounds.end - startMinutes;
       return Math.min(duration, maxDuration);
     },
-    [gridHeight, bounds.start, bounds.end, gridStep],
+    [gridHeight, bounds.start, bounds.end, gridStep, slotHeightPx],
   );
 
-  const moveAppointment = useCallback(
-    async (apptId: string, staffId: string, startMinutes: number) => {
-      const appt = appointments.find((a) => a.id === apptId);
-      if (!appt) return;
-      if (!canDrop(staffId, startMinutes, appt.durationMinutes)) return;
+  const moveGroupBlock = useCallback(
+    async (group: Appointment[], staffId: string, startMinutes: number) => {
+      const first = group[0];
+      if (!first) return;
+      const total = groupTotalMinutes(group);
+      if (!canDrop(staffId, startMinutes, total)) return;
 
       const scrollEl = scrollContainerRef.current;
       const scrollLeft = scrollEl?.scrollLeft ?? 0;
-      const scrollTop = window.scrollY;
+      const scrollTop = scrollEl?.scrollTop ?? 0;
 
-      const res = await fetch(`/api/admin/appointments/${apptId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          staffId,
-          startAt: isoAtMinutes(date, startMinutes),
-          durationMinutes: appt.durationMinutes,
-        }),
-      });
-      if (res.ok) {
-        pendingScrollRestore.current = { left: scrollLeft, top: scrollTop };
-        await onMoved();
-      }
+      await moveGroupAppointments(
+        toGroupRefs(group),
+        isoAtMinutes(date, startMinutes),
+        staffId,
+      );
+      pendingScrollRestore.current = { left: scrollLeft, top: scrollTop };
+      await onMoved();
     },
-    [appointments, canDrop, date, onMoved],
+    [canDrop, date, onMoved],
   );
 
-  const resizeAppointment = useCallback(
-    async (apptId: string, durationMinutes: number) => {
-      const appt = appointments.find((a) => a.id === apptId);
-      if (!appt || durationMinutes === appt.durationMinutes) return;
+  const resizeGroupBlock = useCallback(
+    async (group: Appointment[], durationMinutes: number) => {
+      const first = group[0];
+      if (!first) return;
+      const currentTotal = groupTotalMinutes(group);
+      if (durationMinutes === currentTotal) return;
 
       const scrollEl = scrollContainerRef.current;
       const scrollLeft = scrollEl?.scrollLeft ?? 0;
-      const scrollTop = window.scrollY;
+      const scrollTop = scrollEl?.scrollTop ?? 0;
 
-      const res = await fetch(`/api/admin/appointments/${apptId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ durationMinutes }),
-      });
-      if (res.ok) {
-        pendingScrollRestore.current = { left: scrollLeft, top: scrollTop };
-        await onMoved();
-      }
+      await resizeGroupAppointments(
+        toGroupRefs(group),
+        durationMinutes,
+        groupCreateTemplate(first),
+      );
+      pendingScrollRestore.current = { left: scrollLeft, top: scrollTop };
+      await onMoved();
     },
-    [appointments, onMoved],
+    [onMoved],
   );
-
-  const resizeAppointmentRef = useRef(resizeAppointment);
-  resizeAppointmentRef.current = resizeAppointment;
 
   useEffect(() => {
     if (!pendingScrollRestore.current) return;
@@ -305,14 +375,18 @@ export function JournalGrid({
     const scrollEl = scrollContainerRef.current;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        if (scrollEl) scrollEl.scrollLeft = left;
-        window.scrollTo(0, top);
+        if (scrollEl) {
+          scrollEl.scrollLeft = left;
+          scrollEl.scrollTop = top;
+        }
       });
     });
   }, [appointments]);
 
-  const moveAppointmentRef = useRef(moveAppointment);
-  moveAppointmentRef.current = moveAppointment;
+  const moveGroupBlockRef = useRef(moveGroupBlock);
+  moveGroupBlockRef.current = moveGroupBlock;
+  const resizeGroupBlockRef = useRef(resizeGroupBlock);
+  resizeGroupBlockRef.current = resizeGroupBlock;
 
   useEffect(() => {
     if (!isTracking) return;
@@ -332,7 +406,7 @@ export function JournalGrid({
         if (nextDuration === null || nextDuration === current.durationMinutes) {
           return;
         }
-        const height = (nextDuration / gridStep) * SLOT_HEIGHT_PX;
+        const height = (nextDuration / gridStep) * slotHeightPx;
         setResize((prev) =>
           prev
             ? {
@@ -359,13 +433,14 @@ export function JournalGrid({
         const initialMinutes = startMin ?? bounds.start;
         setDrag({
           appt: pending.appt,
+          group: pending.group,
           staffId: pending.appt.staff.id,
           startMinutes: initialMinutes,
           height: pending.height,
           valid: canDrop(
             pending.appt.staff.id,
             initialMinutes,
-            pending.appt.durationMinutes,
+            groupTotalMinutes(pending.group),
           ),
         });
         setPointerStart(null);
@@ -387,7 +462,7 @@ export function JournalGrid({
         const valid = canDrop(
           target.staffId,
           target.minutes,
-          prev.appt.durationMinutes,
+          groupTotalMinutes(prev.group),
         );
         return {
           ...prev,
@@ -410,9 +485,9 @@ export function JournalGrid({
         window.setTimeout(() => {
           suppressClickRef.current = false;
         }, 400);
-        if (resizing.durationMinutes !== resizing.appt.durationMinutes) {
-          void resizeAppointmentRef.current(
-            resizing.appt.id,
+        if (resizing.durationMinutes !== groupTotalMinutes(resizing.group)) {
+          void resizeGroupBlockRef.current(
+            resizing.group,
             resizing.durationMinutes,
           );
         }
@@ -428,13 +503,13 @@ export function JournalGrid({
         }, 400);
 
         if (current.valid) {
-          const originMin = minutesFromIso(date, current.appt.startAt);
+          const originMin = minutesFromIso(date, current.group[0].startAt);
           const moved =
-            current.staffId !== current.appt.staff.id ||
+            current.staffId !== current.group[0].staff.id ||
             originMin !== current.startMinutes;
           if (moved) {
-            void moveAppointmentRef.current(
-              current.appt.id,
+            void moveGroupBlockRef.current(
+              current.group,
               current.staffId,
               current.startMinutes,
             );
@@ -449,7 +524,7 @@ export function JournalGrid({
         window.setTimeout(() => {
           suppressClickRef.current = false;
         }, 400);
-        onAppointmentClick(pending.appt);
+        onAppointmentClick(pending.appt, pending.group);
         setPointerStart(null);
       }
     }
@@ -502,7 +577,7 @@ export function JournalGrid({
     if ((e.target as HTMLElement).closest("[data-appointment-block]")) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const y = e.clientY - rect.top;
-    const slotIndex = Math.floor(y / SLOT_HEIGHT_PX);
+    const slotIndex = Math.floor(y / slotHeightPx);
     const minutes = bounds.start + slotIndex * gridStep;
 
     onSlotClick({
@@ -522,7 +597,8 @@ export function JournalGrid({
   }
 
   function renderDragPreview(d: DragState) {
-    const endMin = d.startMinutes + d.appt.durationMinutes;
+    const duration = groupTotalMinutes(d.group);
+    const endMin = d.startMinutes + duration;
     const name = apptName(d.appt);
     return (
       <>
@@ -533,16 +609,16 @@ export function JournalGrid({
               : "border-red-400 bg-red-200/40"
           }`}
           style={{
-            top: topPxFromMinutes(d.startMinutes, bounds.start, gridStep),
+            top: topPxFromMinutes(d.startMinutes, bounds.start, gridStep, slotHeightPx),
             height: d.height,
           }}
         />
         <div
-          className={`pointer-events-none absolute left-0.5 right-0.5 z-30 overflow-hidden rounded px-1 py-0.5 text-[10px] leading-tight shadow-lg ring-2 ${
+          className={`pointer-events-none absolute left-1 right-1 z-30 overflow-hidden rounded px-1.5 py-1 text-[11px] leading-tight shadow-lg ring-2 ${
             d.valid ? "ring-lime-500" : "ring-red-400"
           } ${statusBlockClass(d.appt.status)}`}
           style={{
-            top: topPxFromMinutes(d.startMinutes, bounds.start, gridStep),
+            top: topPxFromMinutes(d.startMinutes, bounds.start, gridStep, slotHeightPx),
             height: d.height,
             opacity: 0.95,
           }}
@@ -561,8 +637,84 @@ export function JournalGrid({
     );
   }
 
+  function syncHeaderScrollLeft(scrollLeft: number) {
+    if (headerScrollRef.current) {
+      headerScrollRef.current.scrollLeft = scrollLeft;
+    }
+  }
+
+  function renderStaffHeader(
+    s: StaffRow,
+    staffLabel: string,
+    collapsed: boolean,
+    colAppts: Appointment[],
+  ) {
+    return (
+      <div
+        key={`header-${s.id}`}
+        className={staffColumnWidthClass(collapsed, expandColumns, "relative bg-white")}
+        style={{ height: HEADER_HEIGHT_PX }}
+      >
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={() => toggleColumnCollapsed(s.id)}
+            className="flex h-full w-full flex-col items-center justify-center gap-0.5 rounded px-0.5 hover:bg-slate-50"
+            title={`Развернуть: ${staffLabel}`}
+          >
+            <span className="text-sm font-semibold text-lime-700">›</span>
+            <span
+              className="max-h-[36px] overflow-hidden text-[9px] font-medium leading-tight text-slate-600"
+              style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
+            >
+              {collapsedStaffLabel(s.name)}
+            </span>
+            {colAppts.length > 0 && (
+              <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-lime-500" />
+            )}
+          </button>
+        ) : (
+          <div className="flex h-full items-center gap-1 overflow-hidden px-1.5">
+            <p
+              className="min-w-0 shrink truncate text-[11px] font-semibold leading-none text-slate-800"
+              title={staffLabel}
+            >
+              {staffLabel}
+            </p>
+            <Link
+              href={`/admin/staff/${s.id}/schedule`}
+              className="shrink-0 text-[10px] leading-none text-sky-600 hover:underline"
+              onClick={(e) => drag && e.preventDefault()}
+            >
+              график
+            </Link>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleColumnCollapsed(s.id);
+              }}
+              className="ml-auto shrink-0 rounded px-0.5 text-xs leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              title="Свернуть колонку"
+              aria-label={`Свернуть ${staffLabel}`}
+            >
+              −
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
-      <div className="select-none">
+      <div
+        className={cn(
+          "select-none",
+          fillViewport && "flex min-h-0 flex-1 flex-col",
+        )}
+      >
+      {!fillViewport && (
+        <>
       <label className="mb-3 flex items-center gap-2 text-sm text-slate-600">
         <input
           type="checkbox"
@@ -571,15 +723,24 @@ export function JournalGrid({
         />
         Скрыть нерабочие колонки
       </label>
+        </>
+      )}
 
       {visibleStaff.length === 0 && (
-        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <p
+          className={cn(
+            "rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800",
+            fillViewport ? "mb-2 shrink-0" : "mb-3",
+          )}
+        >
           {staff.length === 0
             ? "Нет ресурсов для выбранного филиала. Выберите филиал или проверьте загрузку данных."
             : "Нет ресурсов со сменой в этот день. Снимите «Скрыть нерабочие колонки» или выберите другой день."}
         </p>
       )}
 
+      {!fillViewport && (
+        <>
       <p className="mb-2 text-xs text-slate-400">
         Удерживайте запись и перетащите в нужный слот — можно накладывать на другие записи.
         Потяните нижний край записи, чтобы изменить длительность.
@@ -587,28 +748,63 @@ export function JournalGrid({
       </p>
 
       <p className="mb-2 hidden text-xs text-slate-400 md:block">
-        Листайте вправо для просмотра всех ресурсов
+        {expandColumns
+          ? "Прокручивайте сетку для просмотра всего дня"
+          : "Листайте вправо для просмотра всех ресурсов"}
       </p>
+        </>
+      )}
 
       <div
-        ref={scrollContainerRef}
-        className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm [-webkit-overflow-scrolling:touch]"
+        className={cn(
+          "flex min-h-0 flex-col",
+          fillViewport && "flex-1",
+        )}
       >
-        <div className="flex min-w-max">
-          <div className="sticky left-0 z-20 w-14 shrink-0 border-r border-slate-200 bg-slate-50">
-            <div className="h-[52px] border-b border-slate-200" />
+        <div
+          ref={headerScrollRef}
+          className="shrink-0 overflow-x-hidden rounded-t-lg border border-b-0 border-slate-200 bg-white shadow-sm"
+        >
+          <div className={`flex ${expandColumns ? "w-full min-w-0" : "min-w-max"}`}>
+            <div
+              className="w-16 shrink-0 border-r border-slate-200 bg-slate-50"
+              style={{ height: HEADER_HEIGHT_PX }}
+            />
+            {visibleStaff.map((s) => {
+              const staffLabel = journalStaffDisplayName(s.name);
+              const collapsed = collapsedIds.has(s.id);
+              const colAppts = appointments.filter((a) => a.staff.id === s.id);
+              return renderStaffHeader(s, staffLabel, collapsed, colAppts);
+            })}
+          </div>
+        </div>
+
+        <div
+          ref={scrollContainerRef}
+          onScroll={(e) => syncHeaderScrollLeft(e.currentTarget.scrollLeft)}
+          className={cn(
+            "admin-journal-grid-scroll overflow-auto rounded-b-lg border border-slate-200 bg-white shadow-sm [-webkit-overflow-scrolling:touch]",
+            fillViewport
+              ? "min-h-0 flex-1"
+              : isDesktop
+                ? "h-[calc(100dvh-11rem)] max-h-[calc(100dvh-11rem)]"
+                : "max-h-[var(--admin-journal-grid-max-h,min(72vh,calc(100dvh-14rem)))] min-h-[280px]",
+          )}
+        >
+        <div className={`flex ${expandColumns ? "w-full min-w-0" : "min-w-max"}`}>
+          <div className="sticky left-0 z-30 w-16 shrink-0 border-r border-slate-200 bg-slate-50">
             <div className="relative" style={{ height: gridHeight }}>
               {timeLabels.map((m) => (
                 <div
                   key={m}
-                  className={`absolute right-1 text-[10px] ${
+                  className={`absolute right-1.5 text-xs ${
                     drag && drag.startMinutes === m
                       ? "font-bold text-lime-700"
                       : "text-slate-400"
                   }`}
                   style={{
-                    top: topPxFromMinutes(m, bounds.start, gridStep),
-                    height: SLOT_HEIGHT_PX,
+                    top: topPxFromMinutes(m, bounds.start, gridStep, slotHeightPx),
+                    height: slotHeightPx,
                   }}
                 >
                   {formatMinutesLabel(m, gridStep)}
@@ -618,7 +814,7 @@ export function JournalGrid({
                 <div
                   className="absolute right-0 z-30 rounded-l bg-lime-600 px-1 py-0.5 text-[10px] font-semibold text-white"
                   style={{
-                    top: topPxFromMinutes(drag.startMinutes, bounds.start, gridStep),
+                    top: topPxFromMinutes(drag.startMinutes, bounds.start, gridStep, slotHeightPx),
                   }}
                 >
                   {minutesToTime(drag.startMinutes)}
@@ -628,7 +824,7 @@ export function JournalGrid({
           </div>
 
           {visibleStaff.map((s) => {
-            const rule = getStaffRule(s.schedules, weekday);
+            const staffLabel = journalStaffDisplayName(s.name);
             const collapsed = collapsedIds.has(s.id);
             const colAppts = appointments
               .filter((a) => a.staff.id === s.id)
@@ -637,76 +833,21 @@ export function JournalGrid({
                   new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
               );
             const colBlocks = groupConsecutiveClientAppointments(colAppts);
-            const overlapRegions = getOverlapRegions(date, colAppts);
+            const overlapRegions = getOverlapRegions(
+              date,
+              colBlocks.map((b) => ({ startAt: b.startAt, endAt: b.endAt })),
+            );
             const isDropColumn = drag?.staffId === s.id;
 
             return (
               <div
                 key={s.id}
-                className={`shrink-0 border-r border-slate-200 last:border-r-0 ${
-                  collapsed ? "w-10" : "w-28 sm:w-32 md:w-36"
-                } ${isDropColumn && drag?.valid ? "bg-lime-50/30" : ""}`}
+                className={staffColumnWidthClass(
+                  collapsed,
+                  expandColumns,
+                  isDropColumn && drag?.valid ? "bg-lime-50/30" : "",
+                )}
               >
-                <div
-                  className={`relative border-b border-slate-200 ${
-                    collapsed
-                      ? "flex h-[52px] flex-col items-center justify-center gap-0.5 px-0.5"
-                      : "h-[52px] px-1 py-1 text-center"
-                  }`}
-                >
-                  {collapsed ? (
-                    <button
-                      type="button"
-                      onClick={() => toggleColumnCollapsed(s.id)}
-                      className="flex h-full w-full flex-col items-center justify-center gap-0.5 rounded hover:bg-slate-50"
-                      title={`Развернуть: ${s.name}`}
-                    >
-                      <span className="text-sm font-semibold text-lime-700">›</span>
-                      <span
-                        className="max-h-[36px] overflow-hidden text-[9px] font-medium leading-tight text-slate-600"
-                        style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
-                      >
-                        {collapsedStaffLabel(s.name)}
-                      </span>
-                      {colAppts.length > 0 && (
-                        <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-lime-500" />
-                      )}
-                    </button>
-                  ) : (
-                    <>
-                      <div className="flex items-start justify-between gap-0.5">
-                        <p className="min-w-0 flex-1 truncate text-left text-[11px] font-semibold leading-tight text-slate-800">
-                          {s.name}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleColumnCollapsed(s.id);
-                          }}
-                          className="shrink-0 rounded px-0.5 text-sm leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                          title="Свернуть колонку"
-                          aria-label={`Свернуть ${s.name}`}
-                        >
-                          −
-                        </button>
-                      </div>
-                      {rule && (
-                        <p className="text-[10px] text-emerald-600">
-                          {rule.timeFrom} – {rule.timeTo}
-                        </p>
-                      )}
-                      <Link
-                        href={`/admin/staff/${s.id}/schedule`}
-                        className="text-[10px] text-sky-600 hover:underline"
-                        onClick={(e) => drag && e.preventDefault()}
-                      >
-                        график
-                      </Link>
-                    </>
-                  )}
-                </div>
-
                 {collapsed ? (
                   <div
                     className="bg-slate-50"
@@ -740,8 +881,8 @@ export function JournalGrid({
                           working ? "bg-white" : "bg-slate-100"
                         } ${isTargetSlot ? "bg-lime-100/80" : ""}`}
                         style={{
-                          top: topPxFromMinutes(m, bounds.start, gridStep),
-                          height: SLOT_HEIGHT_PX,
+                          top: topPxFromMinutes(m, bounds.start, gridStep, slotHeightPx),
+                          height: slotHeightPx,
                         }}
                       />
                     );
@@ -754,10 +895,10 @@ export function JournalGrid({
                       key={`overlap-${idx}`}
                       className="pointer-events-none absolute left-0 right-0 z-[8] bg-orange-400/50 ring-1 ring-inset ring-orange-500/70"
                       style={{
-                        top: topPxFromMinutes(region.start, bounds.start, gridStep),
+                        top: topPxFromMinutes(region.start, bounds.start, gridStep, slotHeightPx),
                         height:
                           ((region.end - region.start) / gridStep) *
-                          SLOT_HEIGHT_PX,
+                          slotHeightPx,
                       }}
                       title="Пересечение записей"
                     />
@@ -771,24 +912,37 @@ export function JournalGrid({
                       block.startAt,
                       block.endAt,
                       gridStep,
+                      slotHeightPx,
                     );
                     if (!layout) return null;
                     const name = apptName(a);
-                    const showStatus = layout.height >= 44;
-                    const isDragging = drag?.appt.id === a.id;
-                    const isResizing = resize?.appt.id === a.id;
-                    const isPending = pointerStart?.appt.id === a.id;
+                    const showStatus = layout.height >= slotHeightPx * 1.65;
+                    const isDragging =
+                      drag?.group.some((g) =>
+                        block.appointments.some((b) => b.id === g.id),
+                      ) ?? false;
+                    const isResizing =
+                      resize?.group.some((g) =>
+                        block.appointments.some((b) => b.id === g.id),
+                      ) ?? false;
+                    const isPending = pointerStart?.group.some((g) =>
+                      block.appointments.some((b) => b.id === g.id),
+                    );
                     const overlapSegments = getAppointmentOverlapSegments(
                       date,
                       block.startAt,
                       block.endAt,
-                      colAppts.filter((o) => !block.appointments.some((g) => g.id === o.id)),
+                      colBlocks
+                        .filter((b) => b.id !== block.id)
+                        .map((b) => ({ startAt: b.startAt, endAt: b.endAt })),
                     );
                     const myStartMin = minutesFromIso(date, block.startAt);
-                    const myDuration = isResizing
-                      ? resize.durationMinutes
-                      : block.durationMinutes;
-                    const blockHeight = isResizing ? resize.height : layout.height;
+                    const myDuration =
+                      isResizing && resize
+                        ? resize.durationMinutes
+                        : block.durationMinutes;
+                    const blockHeight =
+                      isResizing && resize ? resize.height : layout.height;
                     const blockEndMin =
                       myStartMin !== null ? myStartMin + myDuration : null;
 
@@ -806,6 +960,7 @@ export function JournalGrid({
                           e.currentTarget.setPointerCapture(e.pointerId);
                           setPointerStart({
                             appt: a,
+                            group: block.appointments,
                             x: e.clientX,
                             y: e.clientY,
                             height: layout.height,
@@ -818,7 +973,7 @@ export function JournalGrid({
                         }}
                         onDragStart={(e) => e.preventDefault()}
                         draggable={false}
-                        className={`absolute left-0.5 right-0.5 touch-none select-none overflow-hidden rounded px-1 py-0.5 text-[10px] leading-tight shadow-sm ${
+                        className={`absolute left-1 right-1 touch-none select-none overflow-hidden rounded px-1.5 py-1 text-[11px] leading-tight shadow-sm ${
                           isDragging
                             ? "z-20 cursor-grabbing opacity-25"
                             : isResizing
@@ -872,16 +1027,16 @@ export function JournalGrid({
                             if (e.button !== 0) return;
                             e.preventDefault();
                             e.stopPropagation();
-                            const startMin = minutesFromIso(date, a.startAt);
+                            const startMin = minutesFromIso(date, block.startAt);
                             if (startMin === null) return;
                             (e.currentTarget as HTMLElement).setPointerCapture(
                               e.pointerId,
                             );
                             setResize({
-                              appt: a,
+                              group: block.appointments,
                               staffId: s.id,
                               startMinutes: startMin,
-                              durationMinutes: a.durationMinutes,
+                              durationMinutes: block.durationMinutes,
                               height: layout.height,
                             });
                             setPointerStart(null);
@@ -908,6 +1063,7 @@ export function JournalGrid({
             );
           })}
         </div>
+      </div>
       </div>
     </div>
   );

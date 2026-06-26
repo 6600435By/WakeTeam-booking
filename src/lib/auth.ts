@@ -29,22 +29,24 @@ export async function verifyUser(email: string, password: string) {
   return user;
 }
 
-export async function createSession(userId: string) {
+export async function createSession(userId: string): Promise<string> {
   const token = Buffer.from(`${userId}:${Date.now()}`).toString("base64url");
-  const cookieStore = await cookies();
-  cookieStore.set(COOKIE, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 14,
-  });
   await prisma.appSetting.upsert({
     where: { key: `session:${token}` },
     create: { key: `session:${token}`, value: userId },
     update: { value: userId },
   });
   return token;
+}
+
+export function sessionCookieOptions(secure: boolean) {
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure,
+    path: "/",
+    maxAge: 60 * 60 * 24 * 14,
+  };
 }
 
 export async function getSessionUser() {

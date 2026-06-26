@@ -12,6 +12,7 @@ type StaffDef = {
   kind: string;
   sort: number;
   slotMinutes?: number;
+  description?: string;
   schedule: { weekday: number; from: string; to: string }[];
 };
 
@@ -49,12 +50,14 @@ async function upsertStaff(branchId: string, defs: StaffDef[]) {
         branchId,
         name: s.name,
         kind: s.kind,
+        description: s.description ?? null,
         sortOrder: s.sort,
         slotMinutes: s.slotMinutes ?? 10,
       },
       update: {
         name: s.name,
         kind: s.kind,
+        ...(s.description !== undefined ? { description: s.description } : {}),
         sortOrder: s.sort,
         slotMinutes: s.slotMinutes ?? 10,
       },
@@ -144,8 +147,8 @@ async function upsertServices(branchId: string, defs: ServiceDef[]) {
   }
 }
 
-function wakeReversIds(branchPrefix: string): string[] {
-  return [`${branchPrefix}-rev1`, `${branchPrefix}-rev2`, `${branchPrefix}-rev3`];
+function wakeReversIds(branchPrefix: string, count = 3): string[] {
+  return Array.from({ length: count }, (_, i) => `${branchPrefix}-rev${i + 1}`);
 }
 
 type DayWindow = { from: string; to: string; days: number[] };
@@ -154,8 +157,11 @@ function branchWakeRevers(
   branchPrefix: string,
   weekday: DayWindow,
   weekend?: DayWindow,
+  descriptions?: string[],
+  count = 3,
 ): StaffDef[] {
-  return [1, 2, 3].map((n) => {
+  return Array.from({ length: count }, (_, idx) => {
+    const n = idx + 1;
     const schedule: { weekday: number; from: string; to: string }[] = [];
     for (const wd of weekday.days) {
       schedule.push({ weekday: wd, from: weekday.from, to: weekday.to });
@@ -170,8 +176,17 @@ function branchWakeRevers(
       name: `Реверс №${n}`,
       kind: "revers",
       sort: n,
+      description: descriptions?.[idx],
       schedule,
     };
+  });
+}
+
+async function hideStaff(ids: string[]) {
+  if (ids.length === 0) return;
+  await prisma.staff.updateMany({
+    where: { id: { in: ids } },
+    data: { isActive: false, isVisible: false },
   });
 }
 
@@ -322,6 +337,11 @@ async function main() {
       "rau",
       { from: "10:00", to: "21:00", days: [1, 2, 3, 4, 5] },
       { from: "09:00", to: "21:00", days: [6, 7] },
+      [
+        "Фигуры: два кикера M, стол 16 м с двумя заездами",
+        "Без фигур",
+        "Фигуры: два кикера M, труба 16 м, руфтоп 18 м с двумя заездами",
+      ],
     ),
     ...supBoards("rau", 7, "09:00", "21:00"),
   ];
@@ -378,14 +398,21 @@ async function main() {
   });
 
   const druzyaStaff: StaffDef[] = [
-    ...branchWakeRevers("dru", {
-      from: "10:00",
-      to: "21:00",
-      days: [1, 2, 3, 4, 5, 6, 7],
-    }),
+    ...branchWakeRevers(
+      "dru",
+      { from: "10:00", to: "21:00", days: [1, 2, 3, 4, 5, 6, 7] },
+      undefined,
+      ["Фигуры: двойной кикер L, труба L 16 м, олли кикер L, пирамидка"],
+      1,
+    ),
   ];
   await upsertStaff(druzya.id, druzyaStaff);
   await migrateLegacyRevers("dru");
+  await hideStaff([
+    "dru-rev2",
+    "dru-rev3",
+    ...Array.from({ length: 7 }, (_, i) => `dru-sup${i + 1}`),
+  ]);
 
   await upsertServices(druzya.id, [
     {
@@ -398,7 +425,7 @@ async function main() {
       from: "10:00",
       to: "21:00",
       weekdays: "1,2,3,4,5,6,7",
-      staffIds: wakeReversIds("dru"),
+      staffIds: wakeReversIds("dru", 1),
       sort: 1,
       priceRules: [
         {
@@ -449,15 +476,24 @@ async function main() {
   });
 
   const staykiStaff: StaffDef[] = [
-    ...branchWakeRevers("sta", {
-      from: "09:00",
-      to: "20:00",
-      days: [1, 2, 3, 4, 5, 6, 7],
-    }),
-    ...supBoards("sta", 5, "09:00", "21:00"),
+    ...branchWakeRevers(
+      "sta",
+      { from: "09:00", to: "20:00", days: [1, 2, 3, 4, 5, 6, 7] },
+      undefined,
+      ["Фигуры: два кикера M"],
+      1,
+    ),
+    ...supBoards("sta", 2, "09:00", "21:00"),
   ];
   await upsertStaff(stayki.id, staykiStaff);
   await migrateLegacyRevers("sta");
+  await hideStaff([
+    "sta-rev2",
+    "sta-rev3",
+    "sta-sup3",
+    "sta-sup4",
+    "sta-sup5",
+  ]);
 
   await upsertServices(stayki.id, [
     {
@@ -470,7 +506,7 @@ async function main() {
       from: "09:00",
       to: "20:00",
       weekdays: "1,2,3,4,5,6,7",
-      staffIds: wakeReversIds("sta"),
+      staffIds: wakeReversIds("sta", 1),
       sort: 1,
       priceRules: [
         {
@@ -509,7 +545,7 @@ async function main() {
       from: "09:00",
       to: "21:00",
       weekdays: "1,2,3,4,5,6,7",
-      staffIds: Array.from({ length: 5 }, (_, i) => `sta-sup${i + 1}`),
+      staffIds: ["sta-sup1", "sta-sup2"],
       sort: 2,
     },
   ]);

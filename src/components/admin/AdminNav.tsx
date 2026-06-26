@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
 import { LogoutButton } from "./LogoutButton";
+import { useAdminViewport } from "./AdminViewportContext";
 
 const links = [
   { href: "/admin/journal", label: "Журнал", short: "Журнал" },
@@ -14,73 +14,50 @@ const links = [
   { href: "/admin/widget", label: "Виджет", short: "Виджет" },
 ];
 
-type AdminInfo = {
+export type AdminNavInfo = {
   email: string;
   name: string | null;
-  role: string;
   branchName: string | null;
   isSuperAdmin: boolean;
 };
 
-export function AdminNav() {
+function isLinkActive(pathname: string, href: string) {
+  if (href === "/admin/widget") return pathname === "/admin/widget";
+  return pathname.startsWith(href);
+}
+
+function pageTitle(pathname: string) {
+  const match = links.find((l) => isLinkActive(pathname, l.href));
+  return match?.label ?? "Админ";
+}
+
+function branchCaption(admin: AdminNavInfo) {
+  if (admin.isSuperAdmin) return "Все филиалы";
+  return admin.branchName ?? admin.email;
+}
+
+type Props = {
+  admin: AdminNavInfo;
+};
+
+export function AdminNav({ admin }: Props) {
   const pathname = usePathname();
-  const [admin, setAdmin] = useState<AdminInfo | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const viewport = useAdminViewport();
+  const isDesktop = viewport === "desktop";
+  const title = pageTitle(pathname);
+  const caption = branchCaption(admin);
 
-  useEffect(() => {
-    fetch("/api/admin/me")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d?.user) {
-          setAdmin({
-            email: d.user.email,
-            name: d.user.name,
-            role: d.role,
-            branchName: d.branchName,
-            isSuperAdmin: d.isSuperAdmin,
-          });
-        }
-      });
-  }, []);
-
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [pathname]);
-
-  return (
-    <>
-      <nav className="mb-4 border-b border-slate-200 pb-3 md:mb-8 md:pb-4">
-        <div className="flex items-center justify-between gap-3">
+  if (isDesktop) {
+    return (
+      <nav className="mb-4 shrink-0 border-b border-slate-200 pb-3">
+        <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <span className="font-bold text-slate-900">WakeTeam Admin</span>
-            {admin && (
-              <p className="truncate text-xs text-slate-500">
-                {admin.isSuperAdmin
-                  ? "Все филиалы"
-                  : admin.branchName ?? admin.email}
-              </p>
-            )}
+            <span className="text-lg font-bold text-slate-900">WakeTeam Admin</span>
+            <p className="truncate text-xs text-slate-500">{caption}</p>
           </div>
-
-          <div className="flex items-center gap-2 md:hidden">
-            <button
-              type="button"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700"
-              onClick={() => setMenuOpen((v) => !v)}
-              aria-expanded={menuOpen}
-              aria-label="Меню"
-            >
-              {menuOpen ? "✕" : "☰"}
-            </button>
-            <LogoutButton />
-          </div>
-
-          <div className="hidden items-center gap-4 md:flex md:flex-wrap">
+          <div className="flex flex-1 flex-wrap items-center gap-x-5 gap-y-2 pl-6">
             {links.map((l) => {
-              const active =
-                l.href === "/admin/widget"
-                  ? pathname === "/admin/widget"
-                  : pathname.startsWith(l.href);
+              const active = isLinkActive(pathname, l.href);
               return (
                 <Link
                   key={l.href}
@@ -107,55 +84,41 @@ export function AdminNav() {
             </div>
           </div>
         </div>
-
-        {menuOpen && (
-          <div className="mt-3 space-y-1 rounded-lg border border-slate-200 bg-white p-2 shadow-sm md:hidden">
-            {links.map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                className={`block rounded-lg px-3 py-2.5 text-sm ${
-                  pathname.startsWith(l.href)
-                    ? "bg-lime-50 font-medium text-lime-800"
-                    : "text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                {l.label}
-              </Link>
-            ))}
-            <Link
-              href="/book/waketeam"
-              target="_blank"
-              className="block rounded-lg px-3 py-2.5 text-sm text-slate-600 hover:bg-slate-50"
-            >
-              Виджет ↗
-            </Link>
-          </div>
-        )}
       </nav>
+    );
+  }
+
+  return (
+    <>
+      <header className="admin-mobile-header fixed inset-x-0 top-0 z-50 border-b border-slate-200 bg-white/95 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-white/80">
+        <div className="flex h-12 items-center justify-between gap-3 px-3">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-base font-semibold leading-tight text-slate-900">
+              {title}
+            </p>
+            <p className="truncate text-[11px] leading-tight text-slate-500">{caption}</p>
+          </div>
+          <LogoutButton compact />
+        </div>
+      </header>
 
       <nav
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
-        aria-label="Быстрая навигация"
+        className="admin-mobile-tabbar fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur supports-[backdrop-filter]:bg-white/80"
+        aria-label="Навигация"
       >
         <div className="grid grid-cols-6">
           {links.map((l) => {
-            const active =
-              l.href === "/admin/widget"
-                ? pathname === "/admin/widget"
-                : pathname.startsWith(l.href);
+            const active = isLinkActive(pathname, l.href);
             return (
               <Link
                 key={l.href}
                 href={l.href}
-                className={`flex flex-col items-center px-1 py-2 text-[10px] leading-tight ${
-                  active
-                    ? "font-semibold text-lime-700"
-                    : "text-slate-600"
+                className={`flex min-h-[52px] touch-manipulation flex-col items-center justify-center px-0.5 py-1 text-[9px] leading-tight sm:text-[10px] ${
+                  active ? "font-semibold text-lime-700" : "text-slate-600"
                 }`}
               >
                 <span className="text-base leading-none">{active ? "●" : "○"}</span>
-                <span className="mt-0.5 truncate">{l.short}</span>
+                <span className="mt-0.5 max-w-full truncate">{l.short}</span>
               </Link>
             );
           })}
