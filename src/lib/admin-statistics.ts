@@ -14,6 +14,7 @@ export type StatisticsFilters = {
   phone?: string;
   email?: string;
   comment?: string;
+  paymentMethod?: string;
   status?: string;
   branchId?: string;
   staffId?: string;
@@ -55,6 +56,7 @@ export function buildStatisticsWhere(
   }
 
   if (filters.status) where.status = filters.status;
+  if (filters.paymentMethod) where.paymentMethod = filters.paymentMethod;
   if (filters.staffId) where.staffId = filters.staffId;
   if (filters.serviceId) where.serviceId = filters.serviceId;
   if (filters.source) where.source = filters.source;

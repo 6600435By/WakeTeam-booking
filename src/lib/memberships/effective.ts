@@ -12,6 +12,7 @@ export type MembershipWithEffective = {
   ownerName: string | null;
   phone: string;
   initialMinutes: number;
+  pricePerMinute: number | null;
   sheetRemainingMinutes: number;
   localDeductedMinutes: number;
   effectiveRemainingMinutes: number;
@@ -27,6 +28,7 @@ export function toMembershipDto(m: {
   ownerName: string | null;
   phone: string;
   initialMinutes: number;
+  pricePerMinute: number | null;
   sheetRemainingMinutes: number;
   localDeductedMinutes: number;
   comment: string | null;

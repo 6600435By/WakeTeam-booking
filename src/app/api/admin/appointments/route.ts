@@ -36,6 +36,7 @@ const createSchema = z.object({
   comment: z.string().optional(),
   status: z.string().optional(),
   membershipId: z.string().nullable().optional(),
+  paymentMethod: z.enum(["cash", "card", "corporate"]).nullable().optional(),
   price: z.number().nonnegative().optional(),
 });
 
@@ -84,7 +85,7 @@ export async function POST(req: NextRequest) {
     await assertServiceAccess(ctx, body.serviceId);
     await assertStaffAccess(ctx, body.staffId);
 
-    const { membershipId, status: desiredStatus, ...bookingBody } = body;
+    const { membershipId, paymentMethod, status: desiredStatus, ...bookingBody } = body;
 
     const result = await createBooking(
       {
@@ -95,10 +96,13 @@ export async function POST(req: NextRequest) {
       { skipSlotCheck: true },
     );
 
-    if (body.price != null) {
+    if (body.price != null || paymentMethod !== undefined) {
       await prisma.appointment.update({
         where: { id: result.id },
-        data: { price: body.price },
+        data: {
+          ...(body.price != null ? { price: body.price } : {}),
+          ...(paymentMethod !== undefined ? { paymentMethod } : {}),
+        },
       });
     }
 

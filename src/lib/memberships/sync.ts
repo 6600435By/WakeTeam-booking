@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { normalizePhone } from "@/lib/phone";
-import { parseIntField, parseMembershipCsv, parseSaleDate } from "./parse-csv";
+import { parseIntField, parseMembershipCsv, parsePriceField, parseSaleDate } from "./parse-csv";
 
 export function membershipsCsvUrlFromEnv(): string {
   const raw = process.env.MEMBERSHIPS_SHEET_URL?.trim();
@@ -19,18 +19,56 @@ export function membershipsCsvUrlFromEnv(): string {
   throw new Error("MEMBERSHIPS_SHEET_URL_INVALID");
 }
 
-export async function fetchMembershipsCsv(): Promise<string> {
-  const url = membershipsCsvUrlFromEnv();
+const FETCH_TIMEOUT_MS = 60_000;
+const FETCH_RETRIES = 2;
+
+function isFetchNetworkError(e: unknown): boolean {
+  if (!(e instanceof Error)) return false;
+  if (e.name === "TimeoutError" || e.name === "AbortError") return true;
+  const cause = (e as Error & { cause?: unknown }).cause;
+  const haystack = `${e.message} ${cause instanceof Error ? cause.message : String(cause ?? "")}`.toLowerCase();
+  return (
+    haystack.includes("fetch failed") ||
+    haystack.includes("aborted") ||
+    haystack.includes("timeout") ||
+    haystack.includes("connect")
+  );
+}
+
+async function fetchMembershipsCsvOnce(url: string): Promise<string> {
   const res = await fetch(url, {
     headers: {
       "User-Agent": "booking-crm/1.0 (+memberships-sync)",
+      Accept: "text/csv,text/plain,*/*",
     },
-    next: { revalidate: 0 },
+    cache: "no-store",
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
     throw new Error(`MEMBERSHIPS_FETCH_FAILED:${res.status}`);
   }
   return res.text();
+}
+
+export async function fetchMembershipsCsv(): Promise<string> {
+  const url = membershipsCsvUrlFromEnv();
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= FETCH_RETRIES; attempt++) {
+    try {
+      return await fetchMembershipsCsvOnce(url);
+    } catch (e) {
+      lastError = e;
+      if (attempt < FETCH_RETRIES && isFetchNetworkError(e)) {
+        await new Promise((r) => setTimeout(r, 1500 * attempt));
+        continue;
+      }
+      break;
+    }
+  }
+  if (isFetchNetworkError(lastError)) {
+    throw new Error("MEMBERSHIPS_FETCH_TIMEOUT");
+  }
+  throw lastError;
 }
 
 export type SyncMembershipsResult = {
@@ -62,6 +100,7 @@ export async function syncMembershipsFromSheet(
       phone,
       saleDate: parseSaleDate(row.saleDate),
       initialMinutes: parseIntField(row.initialMinutes),
+      pricePerMinute: parsePriceField(row.pricePerMinute),
       sheetRemainingMinutes: parseIntField(row.sheetRemainingMinutes),
       comment: row.comment || null,
       syncedAt: now,

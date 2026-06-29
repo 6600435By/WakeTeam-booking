@@ -65,3 +65,20 @@ export function minPriceFromRules(service: {
   if (!service.priceRules?.length) return service.price;
   return Math.min(service.price, ...service.priceRules.map((r) => r.price));
 }
+
+/** Цена записи: по тарифу абонемента (Br/мин) или по тарифу услуги. */
+export function resolveAppointmentPrice(
+  service: {
+    price: number;
+    durationMinutes: number;
+    priceRules?: ServicePriceRuleDto[];
+  },
+  startAt: Date,
+  durationMinutes: number,
+  membershipPricePerMinute?: number | null,
+): number {
+  if (membershipPricePerMinute != null && membershipPricePerMinute > 0) {
+    return Math.round(membershipPricePerMinute * durationMinutes * 100) / 100;
+  }
+  return resolveServicePrice(service, startAt, durationMinutes);
+}

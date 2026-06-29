@@ -178,6 +178,7 @@ export async function saveAppointmentEdit(params: {
   status: string;
   comment?: string;
   membershipId?: string | null;
+  paymentMethod?: "cash" | "card" | "corporate" | null;
 }): Promise<void> {
   const createTemplate: CreateTemplate = {
     serviceId: params.newServiceId,
@@ -202,6 +203,7 @@ export async function saveAppointmentEdit(params: {
       status: params.status,
       comment: params.comment,
       membershipId: params.membershipId ?? null,
+      paymentMethod: params.paymentMethod ?? null,
     });
     return;
   }
@@ -230,7 +232,12 @@ export async function saveAppointmentEdit(params: {
         phone: params.phone,
         status: params.status,
         comment: params.comment,
-        ...(i === 0 ? { membershipId: params.membershipId ?? null } : {}),
+        ...(i === 0
+          ? {
+              membershipId: params.membershipId ?? null,
+              paymentMethod: params.paymentMethod ?? null,
+            }
+          : {}),
       }),
     ),
   );

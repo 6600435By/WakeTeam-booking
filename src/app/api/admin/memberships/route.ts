@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { handleAdminError, requireAdminContext } from "@/lib/admin-access";
+import { canViewMemberships, handleAdminError, requireAdminContext } from "@/lib/admin-access";
 import {
   findMembershipsByCode,
   findMembershipsByPhone,
@@ -29,6 +29,10 @@ export async function GET(req: NextRequest) {
         memberships: found.map(toMembershipDto),
         membership: toMembershipDto(membership),
       });
+    }
+
+    if (!codeRaw?.trim() && !phoneRaw?.trim() && !canViewMemberships(ctx)) {
+      return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
     }
 
     let memberships;

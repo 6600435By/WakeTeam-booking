@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  assertStatisticsAccess,
   branchListWhere,
   handleAdminError,
   requireAdminContext,
@@ -39,12 +40,14 @@ function parseFilters(req: NextRequest): StatisticsFilters {
     serviceId: p.get("serviceId") || undefined,
     source: p.get("source") || undefined,
     cancelReason: p.get("cancelReason") || undefined,
+    paymentMethod: p.get("paymentMethod") || undefined,
   };
 }
 
 export async function GET(req: NextRequest) {
   try {
     const ctx = await requireAdminContext();
+    assertStatisticsAccess(ctx);
     const filters = parseFilters(req);
     const where = buildStatisticsWhere(ctx, filters);
     const branchId = resolveBranchFilter(ctx, filters.branchId);

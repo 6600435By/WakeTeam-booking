@@ -9,7 +9,8 @@ import {
 } from "@/lib/time";
 import { normalizeAdminDuration } from "@/lib/admin-duration";
 import { isSearchablePhone } from "@/lib/phone";
-import { resolveServicePrice, type ServicePriceRuleDto } from "@/lib/service-pricing";
+import { resolveAppointmentPrice, type ServicePriceRuleDto } from "@/lib/service-pricing";
+import { PAYMENT_METHOD_OPTIONS, type PaymentMethod } from "@/lib/payment-method";
 import {
   deleteGroupAppointments,
   saveAppointmentEdit,
@@ -43,6 +44,7 @@ type MembershipOption = {
   category: string | null;
   ownerName: string | null;
   effectiveRemainingMinutes: number;
+  pricePerMinute: number | null;
 };
 
 type ClientSuggestion = {
@@ -73,6 +75,7 @@ type Props = {
     status?: string;
     comment?: string;
     membershipId?: string | null;
+    paymentMethod?: string | null;
   };
 };
 
@@ -80,6 +83,15 @@ const inputClass =
   "w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-900";
 
 const labelClass = "mb-0.5 block text-[11px] text-slate-500";
+
+function paymentMethodBtnClass(active: boolean) {
+  return [
+    "rounded-md border px-2 py-1.5 text-xs font-medium transition-colors",
+    active
+      ? "border-lime-600 bg-lime-600 text-white"
+      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
+  ].join(" ");
+}
 
 export function AppointmentModal({
   open,
@@ -111,6 +123,7 @@ export function AppointmentModal({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState<CancelReason | "">("");
   const [membershipId, setMembershipId] = useState<string>("");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | "">("");
   const [membershipOptions, setMembershipOptions] = useState<MembershipOption[]>([]);
   const [membershipsLoading, setMembershipsLoading] = useState(false);
   const [manualMembershipCode, setManualMembershipCode] = useState("");
@@ -181,6 +194,7 @@ export function AppointmentModal({
     setDeleteOpen(false);
     setCancelReason("");
     setMembershipId(initial?.membershipId ?? "");
+    setPaymentMethod((initial?.paymentMethod as PaymentMethod | undefined) ?? "");
     setMembershipOptions([]);
     setManualMembershipCode("");
     setManualMembershipError("");
@@ -202,6 +216,7 @@ export function AppointmentModal({
     initial?.status,
     initial?.comment,
     initial?.membershipId,
+    initial?.paymentMethod,
     totalPrice,
     branches[0]?.id,
   ]);
@@ -221,7 +236,17 @@ export function AppointmentModal({
       : parsedDuration;
     const iso = fromDatetimeLocalValue(`${date}T${time}`);
     if (!iso) return;
-    setQuotedPrice(resolveServicePrice(service, new Date(iso), duration));
+    const membershipRate = membershipId
+      ? membershipOptions.find((m) => m.id === membershipId)?.pricePerMinute
+      : null;
+    setQuotedPrice(
+      resolveAppointmentPrice(
+        service,
+        new Date(iso),
+        duration,
+        membershipRate,
+      ),
+    );
   }, [
     open,
     serviceId,
@@ -231,6 +256,8 @@ export function AppointmentModal({
     durationInput,
     durationMinutes,
     services,
+    membershipId,
+    membershipOptions,
   ]);
 
   useEffect(() => {
@@ -375,6 +402,7 @@ export function AppointmentModal({
               category: m.category,
               ownerName: m.ownerName,
               effectiveRemainingMinutes: m.effectiveRemainingMinutes,
+              pricePerMinute: m.pricePerMinute ?? null,
             }),
           );
           setMembershipOptions(list);
@@ -426,6 +454,7 @@ export function AppointmentModal({
         category: data.membership.category,
         ownerName: data.membership.ownerName,
         effectiveRemainingMinutes: data.membership.effectiveRemainingMinutes,
+        pricePerMinute: data.membership.pricePerMinute ?? null,
       };
       setMembershipOptions((prev) => {
         if (prev.some((m) => m.id === found.id)) return prev;
@@ -503,6 +532,7 @@ export function AppointmentModal({
           status,
           comment,
           membershipId: membershipId || null,
+          paymentMethod: paymentMethod || null,
         });
         onSaved();
         onClose();
@@ -527,6 +557,7 @@ export function AppointmentModal({
           status,
           comment,
           membershipId: membershipId || null,
+          paymentMethod: paymentMethod || null,
           price: priceValue,
         }),
       });
@@ -881,8 +912,32 @@ export function AppointmentModal({
             {selectedMembership && (
               <p className="mt-0.5 text-[10px] text-slate-600">
                 Остаток: {selectedMembership.effectiveRemainingMinutes} мин
+                {selectedMembership.pricePerMinute != null &&
+                  selectedMembership.pricePerMinute > 0 && (
+                    <>
+                      {" "}
+                      · {selectedMembership.pricePerMinute} Br/мин
+                    </>
+                  )}
               </p>
             )}
+          </div>
+          <div>
+            <label className={labelClass}>Оплата</label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {PAYMENT_METHOD_OPTIONS.map((o) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() =>
+                    setPaymentMethod((prev) => (prev === o.value ? "" : o.value))
+                  }
+                  className={paymentMethodBtnClass(paymentMethod === o.value)}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
           </div>
           <div>
             <label className={labelClass}>Статус</label>

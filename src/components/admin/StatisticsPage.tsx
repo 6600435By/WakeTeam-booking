@@ -9,6 +9,7 @@ import {
   statusLabel,
 } from "@/lib/appointment-status";
 import { SOURCE_OPTIONS, sourceLabel } from "@/lib/statistics-constants";
+import { PAYMENT_METHOD_OPTIONS, paymentMethodLabel } from "@/lib/payment-method";
 import { periodToday, periodWeek, todayDateKey } from "@/lib/date-ranges";
 
 type Branch = { id: string; name: string };
@@ -23,6 +24,7 @@ type Appointment = {
   status: string;
   price: number;
   durationMinutes: number;
+  paymentMethod: string | null;
   comment: string | null;
   cancelReason: string | null;
   source: string;
@@ -48,6 +50,7 @@ type Filters = {
   serviceId: string;
   source: string;
   cancelReason: string;
+  paymentMethod: string;
 };
 
 const ALL_STATUSES = [
@@ -89,6 +92,7 @@ function emptyFilters(): Filters {
     serviceId: "",
     source: "",
     cancelReason: "",
+    paymentMethod: "",
   };
 }
 
@@ -143,6 +147,7 @@ export function StatisticsPage() {
       "serviceId",
       "source",
       "cancelReason",
+      "paymentMethod",
     ] as const) {
       if (f[key]) q.set(key, f[key]);
     }
@@ -491,6 +496,23 @@ export function StatisticsPage() {
                 ))}
               </select>
             </label>
+            <label className="block text-xs text-slate-500">
+              Оплата
+              <select
+                value={draft.paymentMethod}
+                onChange={(e) =>
+                  setDraft((d) => ({ ...d, paymentMethod: e.target.value }))
+                }
+                className={`mt-1 ${inputClass}`}
+              >
+                <option value="">Все</option>
+                {PAYMENT_METHOD_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -583,6 +605,12 @@ export function StatisticsPage() {
                             timeZone: "Europe/Minsk",
                           })}{" "}
                           · {a.price} Br · {a.durationMinutes} мин
+                          {a.paymentMethod && (
+                            <span className="text-slate-400">
+                              {" "}
+                              · {paymentMethodLabel(a.paymentMethod)}
+                            </span>
+                          )}
                         </p>
                       </div>
                       <StatusBadge status={a.status} />
@@ -600,6 +628,7 @@ export function StatisticsPage() {
                     <th className="px-2 py-2">Статус</th>
                     <th className="px-2 py-2">Описание</th>
                     <th className="px-2 py-2">Цена</th>
+                    <th className="px-2 py-2">Оплата</th>
                     <th className="px-4 py-2">Дата записи</th>
                   </tr>
                 </thead>
@@ -629,6 +658,9 @@ export function StatisticsPage() {
                           )}
                         </td>
                         <td className="px-2 py-2">{a.price} Br</td>
+                        <td className="px-2 py-2 text-slate-600">
+                          {paymentMethodLabel(a.paymentMethod)}
+                        </td>
                         <td className="px-4 py-2">
                           {new Date(a.startAt).toLocaleString("ru-RU", {
                             timeZone: "Europe/Minsk",
@@ -652,7 +684,7 @@ export function StatisticsPage() {
       </div>
 
       <p className="mt-6 text-xs text-slate-400">
-        Не используются (нет в системе): промокоды, оплата, история изменений,
+        Не используются (нет в системе): промокоды, онлайн-оплата, история изменений,
         запросы оповещений.
       </p>
     </div>

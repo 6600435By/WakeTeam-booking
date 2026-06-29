@@ -53,6 +53,14 @@ export function parseIntField(raw: string): number {
   return Math.round(n);
 }
 
+export function parsePriceField(raw: string): number | null {
+  const cleaned = raw.trim().replace(/\s/g, "").replace(",", ".");
+  if (!cleaned) return null;
+  const n = parseFloat(cleaned);
+  if (Number.isNaN(n)) return null;
+  return Math.round(n * 100) / 100;
+}
+
 export function parseSaleDate(raw: string): Date | null {
   const s = raw.trim();
   if (!s) return null;

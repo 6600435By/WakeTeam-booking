@@ -833,6 +833,7 @@ export async function updateAppointment(
     lastName?: string;
     phone?: string;
     price?: number;
+    paymentMethod?: string | null;
   },
   opts?: { skipSlotCheck?: boolean },
 ) {
@@ -918,6 +919,9 @@ export async function updateAppointment(
         price,
         status: data.status,
         comment: data.comment,
+        ...(data.paymentMethod !== undefined
+          ? { paymentMethod: data.paymentMethod }
+          : {}),
       },
       include: { client: true, service: true, staff: true },
     });
