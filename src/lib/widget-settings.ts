@@ -23,6 +23,7 @@ export type WidgetTexts = {
   callAdminPhone: string;
   successTitle: string;
   successMessage: string;
+  successCancelReminder: string;
 };
 
 export type WidgetBehavior = {
@@ -59,6 +60,8 @@ export const DEFAULT_WIDGET_SETTINGS: WidgetSettings = {
     callAdminPhone: "+375445996565",
     successTitle: "Запись создана",
     successMessage: "Ждём вас на вейк-парке WakeTeam!",
+    successCancelReminder:
+      "Не сможете приехать? Позвоните администратору и отмените запись:",
   },
   behavior: {
     hideBranchStep: false,
@@ -72,7 +75,13 @@ export function parseWidgetSettings(raw: string | null | undefined): WidgetSetti
     const parsed = JSON.parse(raw) as Partial<WidgetSettings>;
     return {
       theme: { ...DEFAULT_WIDGET_SETTINGS.theme, ...parsed.theme },
-      texts: { ...DEFAULT_WIDGET_SETTINGS.texts, ...parsed.texts },
+      texts: {
+        ...DEFAULT_WIDGET_SETTINGS.texts,
+        ...parsed.texts,
+        successCancelReminder:
+          parsed.texts?.successCancelReminder?.trim() ||
+          DEFAULT_WIDGET_SETTINGS.texts.successCancelReminder,
+      },
       behavior: { ...DEFAULT_WIDGET_SETTINGS.behavior, ...parsed.behavior },
     };
   } catch {

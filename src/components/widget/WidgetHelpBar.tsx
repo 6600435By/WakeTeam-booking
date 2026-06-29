@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { formatAdminPhone } from "@/lib/widget-settings";
+import { WidgetHelpFooter } from "@/components/widget/widget-primitives";
 
 type Props = {
   label: string;
@@ -15,31 +16,13 @@ export function WidgetHelpBar({ label, phone, compact }: Props) {
   const display = formatAdminPhone(phone);
 
   return (
-    <div
-      className={`border-t border-slate-200/80 text-center ${
-        compact ? "mt-2 pt-2" : "mt-6 pt-4"
-      }`}
-    >
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={`font-medium underline decoration-dotted underline-offset-2 ${
-          compact ? "text-xs" : "text-sm"
-        }`}
-        style={{ color: "var(--widget-primary, #c0c100)" }}
-      >
-        {label}
-      </button>
-      {open && (
-        <p className="mt-2">
-          <a
-            href={`tel:${tel}`}
-            className="text-base font-semibold text-slate-800 hover:underline"
-          >
-            {display}
-          </a>
-        </p>
-      )}
-    </div>
+    <WidgetHelpFooter
+      label={label}
+      phone={tel}
+      displayPhone={display}
+      compact={compact}
+      open={open}
+      onToggle={() => setOpen((v) => !v)}
+    />
   );
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
+  assertSuperAdmin,
   handleAdminError,
   requireAdminContext,
 } from "@/lib/admin-access";
@@ -36,6 +37,7 @@ const settingsSchema = z.object({
     callAdminPhone: z.string(),
     successTitle: z.string(),
     successMessage: z.string(),
+    successCancelReminder: z.string(),
   }),
   behavior: z.object({
     hideBranchStep: z.boolean(),
@@ -46,6 +48,7 @@ const settingsSchema = z.object({
 export async function GET() {
   try {
     const ctx = await requireAdminContext();
+    assertSuperAdmin(ctx);
     const settings = await getWidgetSettingsForOrg(ctx.organizationId);
     const org = await import("@/lib/db").then((m) =>
       m.prisma.organization.findUnique({
@@ -70,6 +73,7 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   try {
     const ctx = await requireAdminContext();
+    assertSuperAdmin(ctx);
     const body = settingsSchema.parse(await req.json()) as WidgetSettings;
     await saveWidgetSettings(ctx.organizationId, body);
     return NextResponse.json({ ok: true, settings: body });

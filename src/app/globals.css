@@ -136,24 +136,61 @@ body {
   }
 }
 
-/* Booking widget: slot grid (works inside WordPress embed) */
+/* Booking widget */
+@keyframes widget-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+#waketeam-booking-root .widget-step-enter {
+  animation: widget-fade-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 #waketeam-booking-root .widget-slot-grid {
   display: grid !important;
   gap: 0.5rem !important;
-  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+
+@media (min-width: 380px) {
+  #waketeam-booking-root .widget-slot-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (min-width: 520px) {
+  #waketeam-booking-root .widget-slot-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+  }
 }
 
 #waketeam-booking-root .widget-slot-grid-scroll {
-  height: 200px !important;
-  max-height: 200px !important;
+  height: 11.5rem !important;
+  max-height: 11.5rem !important;
   overflow-y: auto !important;
   overflow-x: hidden !important;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
   scrollbar-width: thin;
+  scrollbar-color: rgb(203 213 225) transparent;
   position: relative;
   contain: layout;
+  margin-top: 0.75rem;
+  padding-right: 2px;
+}
+
+@media (min-width: 640px) {
+  #waketeam-booking-root .widget-slot-grid-scroll {
+    height: 12.5rem !important;
+    max-height: 12.5rem !important;
+  }
 }
 
 #waketeam-booking-root .widget-slot-grid-scroll button {

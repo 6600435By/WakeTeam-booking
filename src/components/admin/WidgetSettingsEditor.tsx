@@ -108,6 +108,7 @@ export function WidgetSettingsEditor() {
                 ["callAdminPhone", "Телефон (tel:)"],
                 ["successTitle", "Успех — заголовок"],
                 ["successMessage", "Успех — текст"],
+                ["successCancelReminder", "Успех — отмена записи"],
               ] as const
             ).map(([key, label]) => (
               <label key={key} className="block text-sm">

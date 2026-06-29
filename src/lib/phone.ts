@@ -42,6 +42,22 @@ export function phoneMatchesSearch(query: string, stored: string): boolean {
   return storedNational.endsWith(suffix);
 }
 
+/** Значение по умолчанию в виджете записи */
+export const WIDGET_DEFAULT_PHONE = "+375";
+
+/** Поле телефона в виджете: всегда с ведущим + */
+export function sanitizeWidgetPhoneInput(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  return digits ? `+${digits}` : "+";
+}
+
+/** Подготовка номера для поля виджета */
+export function toWidgetPhone(value: string): string {
+  const digits = phoneDigitsOnly(value);
+  if (!digits) return WIDGET_DEFAULT_PHONE;
+  return `+${digits}`;
+}
+
 /** Канонический формат +375XXXXXXXXX */
 export function normalizePhone(phone: string): string {
   const national = nationalPhoneDigits(phone);

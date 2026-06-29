@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolveServicePrice } from "@/lib/service-pricing";
+import {
+  isCompletePhone,
+  normalizePhone,
+  toWidgetPhone,
+  WIDGET_DEFAULT_PHONE,
+} from "@/lib/phone";
+import { cn } from "@/lib/utils";
 import { formatDateKey, parseTimeOnDate, TZ } from "@/lib/time";
+import { sessionRangeFromSlots } from "@/lib/calendar-ics";
 import { formatInTimeZone } from "date-fns-tz";
 import { ru } from "date-fns/locale";
 import {
@@ -12,6 +20,32 @@ import {
 } from "@/lib/widget-settings";
 import { WidgetHelpBar } from "@/components/widget/WidgetHelpBar";
 import { WidgetPhotoCard } from "@/components/widget/WidgetPhotoCard";
+import {
+  WidgetBackButton,
+  WidgetCalendarLink,
+  WidgetChipButton,
+  WidgetChoiceButton,
+  WidgetDateNavButton,
+  WidgetErrorState,
+  WidgetField,
+  WidgetHeader,
+  WidgetInlineError,
+  WidgetLoadingSkeleton,
+  WidgetPanel,
+  WidgetPhoneInput,
+  WidgetPriceBadge,
+  WidgetPrimaryButton,
+  WidgetShell,
+  WidgetStatusText,
+  WidgetStepEnter,
+  WidgetStepProgress,
+  WidgetSuccessScreen,
+  WidgetSummaryCard,
+  WidgetTextArea,
+  WidgetTextInput,
+} from "@/components/widget/widget-primitives";
+import { Label } from "@/components/ui/label";
+import { ChevronDown, Sailboat, Waves } from "lucide-react";
 
 type Branch = {
   id: string;
@@ -131,6 +165,18 @@ function formatSlotTime(iso: string) {
   });
 }
 
+function formatSessionStart(iso: string) {
+  return new Date(iso).toLocaleString("ru-RU", {
+    day: "numeric",
+    month: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Minsk",
+  });
+}
+
+const SUP_SLOT_MINUTES = 60;
+
 function toggleInList(list: string[], value: string): string[] {
   return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
 }
@@ -196,7 +242,7 @@ function weekdayAbbr(dateStr: string) {
   return WEEKDAY_ABBR[isoDow] ?? "";
 }
 
-const SLOT_SCROLL_HEIGHT_PX = 200;
+const SLOT_SCROLL_HEIGHT_PX = 184;
 
 const slotGridScrollStyle: React.CSSProperties = {
   height: SLOT_SCROLL_HEIGHT_PX,
@@ -209,11 +255,8 @@ const slotGridScrollStyle: React.CSSProperties = {
   position: "relative",
 };
 
-const slotGridScrollClass = "widget-slot-grid-scroll mt-3";
-const slotGridClass = "widget-slot-grid grid grid-cols-6 gap-2";
-
-const slotBtnClass =
-  "min-h-[35px] touch-pan-y rounded-lg px-3 py-1.5 text-sm font-medium transition-colors";
+const slotGridScrollClass = "widget-slot-grid-scroll";
+const slotGridClass = "widget-slot-grid";
 
 function buildCarouselDates(selected: string, today: string): string[] {
   const offsets = Array.from(
@@ -272,37 +315,28 @@ function CarouselDatePicker({
     input.addEventListener("blur", cleanup, { once: true });
 
     if (typeof input.showPicker === "function") {
-      input.showPicker().catch(cleanup);
+      void Promise.resolve(input.showPicker()).catch(cleanup);
     } else {
       input.click();
     }
   };
 
   return (
-    <div className="mt-1">
-      <p className="text-center text-xs font-medium text-slate-800">
+    <div className="mt-3">
+      <p className="text-center text-sm font-medium tracking-tight text-slate-800">
         {monthCapitalized}
       </p>
-      <button
-        type="button"
-        onClick={openCalendar}
-        className="mx-auto mt-0 block text-[10px] leading-tight text-[var(--widget-primary)] underline"
-      >
-        выбрать дату в календаре
-      </button>
+      <WidgetCalendarLink onClick={openCalendar} />
 
-      <div className="mt-1 flex items-center gap-0">
-        <button
-          type="button"
-          onClick={() => date > today && onChange(shiftDateStr(date, -1))}
+      <div className="mt-2 flex items-center gap-1">
+        <WidgetDateNavButton
+          direction="prev"
+          label="Предыдущий день"
           disabled={date <= today}
-          className="shrink-0 px-0 py-0.5 text-xl leading-none text-slate-400 disabled:opacity-25"
-          aria-label="Предыдущий день"
-        >
-          ‹
-        </button>
+          onClick={() => date > today && onChange(shiftDateStr(date, -1))}
+        />
 
-        <div className="flex min-w-0 flex-1 items-end justify-between">
+        <div className="flex min-w-0 flex-1 items-stretch justify-between gap-1 px-0.5">
           {carouselDates.map((d) => {
             const selected = d === date;
             const dayNum = formatInTimeZone(
@@ -317,25 +351,26 @@ function CarouselDatePicker({
                 key={d}
                 type="button"
                 onClick={() => onChange(d)}
-                className={`flex min-w-0 flex-1 flex-col items-center px-0 py-0.5 transition-colors ${
+                className={cn(
+                  "flex min-w-0 flex-1 flex-col items-center justify-center rounded-xl py-2 transition-all duration-200",
                   selected
-                    ? "text-slate-900"
-                    : "text-slate-400 hover:text-slate-600"
-                }`}
+                    ? "bg-[var(--widget-primary)]/12 text-slate-900 shadow-sm ring-1 ring-[var(--widget-primary)]/20"
+                    : "text-slate-400 hover:bg-slate-50 hover:text-slate-600",
+                )}
               >
                 <span
-                  className={
-                    selected
-                      ? "text-xl font-bold leading-none"
-                      : "text-xs font-medium leading-none"
-                  }
+                  className={cn(
+                    "font-semibold tabular-nums leading-none",
+                    selected ? "text-lg sm:text-xl" : "text-sm",
+                  )}
                 >
                   {dayNum}
                 </span>
                 <span
-                  className={`leading-none ${
-                    selected ? "text-[10px] font-bold" : "text-[9px] font-medium"
-                  }`}
+                  className={cn(
+                    "mt-1 leading-none font-medium",
+                    selected ? "text-[10px] text-slate-700" : "text-[9px]",
+                  )}
                 >
                   {weekday}
                 </span>
@@ -344,14 +379,11 @@ function CarouselDatePicker({
           })}
         </div>
 
-        <button
-          type="button"
+        <WidgetDateNavButton
+          direction="next"
+          label="Следующий день"
           onClick={() => onChange(shiftDateStr(date, 1))}
-          className="shrink-0 px-0 py-0.5 text-xl leading-none text-slate-400"
-          aria-label="Следующий день"
-        >
-          ›
-        </button>
+        />
       </div>
     </div>
   );
@@ -400,12 +432,17 @@ export function BookingWidget({
   const [done, setDone] = useState<{
     publicNumber: number;
     price: number;
-    count?: number;
+    branchName: string;
+    resourceLabel: string;
+    sessionStartAt: string;
+    sessionStartIso: string;
+    sessionEndIso: string;
+    bookedMinutes: number;
   } | null>(null);
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [phone, setPhone] = useState("");
+  const [phone, setPhone] = useState(WIDGET_DEFAULT_PHONE);
   const [email, setEmail] = useState("");
   const [comment, setComment] = useState("");
 
@@ -571,7 +608,7 @@ export function BookingWidget({
     setStaffId(prefill.staffId);
     setFirstName(prefill.firstName);
     setLastName(prefill.lastName ?? "");
-    setPhone(prefill.phone);
+    setPhone(toWidgetPhone(prefill.phone));
     setEmail(prefill.email ?? "");
     setComment(prefill.comment ?? "");
     setSelectedWakeStarts([]);
@@ -818,7 +855,7 @@ export function BookingWidget({
         slots,
         firstName,
         lastName: lastName || undefined,
-        phone,
+        phone: normalizePhone(phone),
         email: email || undefined,
         comment: comment || undefined,
       };
@@ -833,10 +870,31 @@ export function BookingWidget({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Ошибка записи");
+
+      const slotStarts =
+        activityKind === "wake" ? selectedWakeStarts : selectedSupStarts;
+      const cellMinutes =
+        activityKind === "wake" ? WAKE_CELL_MINUTES : SUP_SLOT_MINUTES;
+      const range = sessionRangeFromSlots(slotStarts, cellMinutes);
+      const earliestStart = range?.startIso;
+      const bookedMinutes =
+        activityKind === "wake"
+          ? selectedWakeStarts.length * WAKE_CELL_MINUTES
+          : selectedSupStarts.length * SUP_SLOT_MINUTES;
+      const resourceLabel =
+        activityKind === "wake"
+          ? settings.texts.wakeLabel
+          : settings.texts.supLabel;
+
       setDone({
         publicNumber: data.publicNumber,
         price: data.price,
-        count: data.count ?? slots.length,
+        branchName: branch?.name ?? "",
+        resourceLabel,
+        sessionStartAt: earliestStart ? formatSessionStart(earliestStart) : "",
+        sessionStartIso: range?.startIso ?? "",
+        sessionEndIso: range?.endIso ?? "",
+        bookedMinutes,
       });
       if (copyMode) {
         onCopyBookingDone?.();
@@ -861,6 +919,9 @@ export function BookingWidget({
     slug,
     copyMode,
     onCopyBookingDone,
+    branch,
+    settings.texts.wakeLabel,
+    settings.texts.supLabel,
   ]);
 
   const stepLabels = settings?.texts.stepLabels ?? [
@@ -932,125 +993,68 @@ export function BookingWidget({
   }, [copyMode, activityKind, submit]);
 
   if (configLoading) {
-    return (
-      <div className="animate-pulse rounded-xl bg-slate-100 p-6">
-        <div className="h-6 w-40 rounded bg-slate-200" />
-        <div className="mt-4 h-24 rounded bg-slate-200" />
-      </div>
-    );
+    return <WidgetLoadingSkeleton />;
   }
 
   if (configError || !config) {
     return (
-      <div className="rounded-xl bg-red-50 p-5 text-sm text-red-700 ring-1 ring-red-200">
-        <p className="font-medium">Не удалось загрузить виджет</p>
-        <p className="mt-1">{configError || "Проверьте подключение к серверу"}</p>
-      </div>
+      <WidgetErrorState
+        message={configError || "Проверьте подключение к серверу"}
+      />
     );
   }
 
   if (done) {
     return (
-      <div
-        ref={embedRef}
-        className="rounded-xl p-5 shadow-sm ring-1 ring-slate-200 sm:p-6"
-        style={{ background: theme.cardBackground, ...widgetThemeVars(theme) }}
-      >
-        <h2 className="text-lg font-semibold" style={{ color: theme.primaryColor }}>
-          {settings.texts.successTitle}
-        </h2>
-        <p className="mt-2 text-slate-600">
-          Номер записи: <strong>#{done.publicNumber}</strong>
-        </p>
-        <p className="mt-1 text-slate-600">
-          Стоимость: <strong>{done.price} Br</strong>
-        </p>
-        {done.count != null && done.count > 1 && (
-          <p className="mt-1 text-sm text-slate-500">
-            Забронировано интервалов: {done.count}
-          </p>
-        )}
-        <p className="mt-2 text-sm text-slate-500">{settings.texts.successMessage}</p>
-      </div>
+      <WidgetSuccessScreen
+        embedRef={embedRef}
+        title={settings.texts.successTitle}
+        publicNumber={done.publicNumber}
+        price={done.price}
+        branchName={done.branchName}
+        resourceLabel={done.resourceLabel}
+        sessionStartAt={done.sessionStartAt}
+        sessionStartIso={done.sessionStartIso}
+        sessionEndIso={done.sessionEndIso}
+        bookedMinutes={done.bookedMinutes}
+        adminPhone={settings.texts.callAdminPhone}
+        theme={theme}
+      />
     );
   }
 
-  const btnClass =
-    "min-h-[44px] rounded-lg px-4 py-2.5 text-sm font-medium transition-colors";
-  const btnActive = { background: theme.buttonBg, color: theme.buttonText };
-  const btnOutline = {
-    background: theme.cardBackground,
-    border: "1px solid #e2e8f0",
-  };
-
   return (
-    <div
-      ref={embedRef}
-      className="@container rounded-xl p-3 sm:p-4"
-      style={{ background: theme.pageBackground, ...widgetThemeVars(theme) }}
+    <WidgetShell
+      embedRef={embedRef}
       id="waketeam-booking-root"
+      style={{ background: theme.pageBackground, ...widgetThemeVars(theme) }}
     >
       {!copyMode ? (
         <>
-          <h1 className="text-base font-bold text-slate-900 sm:text-lg">
-            {settings.texts.title}
-          </h1>
-          <p className="mt-0.5 text-xs text-slate-600 sm:text-sm">
-            {settings.texts.subtitle}
-          </p>
-
-          <div className="mt-2 flex flex-wrap gap-0.5 text-[10px] font-medium sm:text-xs">
-            {visibleSteps.map((label, i) => {
-              const isActive = i === stepIndicatorIndex;
-              const isPast = i < stepIndicatorIndex;
-              const clickable =
-                isActive || isPast || canNavigateToVisibleIndex(i);
-              return (
-                <button
-                  key={label}
-                  type="button"
-                  disabled={!clickable}
-                  onClick={() => goToVisibleStep(i)}
-                  className={`rounded px-2 py-1 transition-opacity ${
-                    clickable
-                      ? "cursor-pointer hover:opacity-90"
-                      : "cursor-not-allowed opacity-55"
-                  }`}
-                  style={{
-                    background: isActive
-                      ? theme.stepActiveBg
-                      : isPast
-                        ? theme.stepInactiveBg
-                        : "#e2e8f0",
-                    color: isActive
-                      ? theme.buttonText
-                      : isPast
-                        ? "#fff"
-                        : "#475569",
-                  }}
-                >
-                  {i + 1}. {label}
-                </button>
-              );
-            })}
-          </div>
+          <WidgetHeader
+            title={settings.texts.title}
+            subtitle={settings.texts.subtitle}
+          />
+          <WidgetStepProgress
+            steps={visibleSteps}
+            activeIndex={stepIndicatorIndex}
+            theme={theme}
+            onStepClick={goToVisibleStep}
+            canNavigateTo={canNavigateToVisibleIndex}
+          />
         </>
       ) : (
-        <p className="text-xs text-slate-600">
+        <p className="text-sm text-slate-600">
           {[branch?.name, service?.name, staffOptions.find((s) => s.id === staffId)?.name]
             .filter(Boolean)
             .join(" · ")}
         </p>
       )}
 
-      {error && (
-        <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-          {error}
-        </p>
-      )}
+      {error && <WidgetInlineError message={error} />}
 
       {step === 0 && (
-        <div className="mt-4 space-y-2">
+        <WidgetStepEnter stepKey="branch" className="mt-5 space-y-3">
           {config!.branches.map((b) => (
             <WidgetPhotoCard
               key={b.id}
@@ -1061,11 +1065,11 @@ export function BookingWidget({
               onClick={() => goBranch(b.id)}
             />
           ))}
-        </div>
+        </WidgetStepEnter>
       )}
 
       {step === 1 && (
-        <div className="mt-4 space-y-3">
+        <WidgetStepEnter stepKey="activity" className="mt-4 space-y-3">
           <BackButton onClick={() => setStep(0)} />
           {wakeService && (
             <ActivityCard
@@ -1073,29 +1077,17 @@ export function BookingWidget({
               priceHint={`от ${wakeService.priceFrom} Br`}
               onClick={() => pickActivity("wake")}
               theme={theme}
+              icon={Waves}
             >
               {settings.behavior.showTariffsExpandable &&
                 wakeService.priceRules.length > 0 && (
-                  <div>
-                    <button
-                      type="button"
-                      className="text-xs underline"
-                      style={{ color: theme.primaryColor }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setTariffsOpen((v) => !v);
-                      }}
-                    >
-                      Тарифы
-                    </button>
-                    {tariffsOpen && (
-                      <ul className="mt-1 space-y-0.5 text-xs text-slate-600">
-                        {wakeService.priceRules.map((r, i) => (
-                          <li key={i}>{formatTariffLine(r, wakeService.durationMinutes)}</li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
+                  <TariffsBlock
+                    open={tariffsOpen}
+                    onToggle={() => setTariffsOpen((v) => !v)}
+                    rules={wakeService.priceRules}
+                    durationMinutes={wakeService.durationMinutes}
+                    theme={theme}
+                  />
                 )}
             </ActivityCard>
           )}
@@ -1105,41 +1097,27 @@ export function BookingWidget({
               priceHint={`от ${supService.priceFrom} Br`}
               onClick={() => pickActivity("sup")}
               theme={theme}
+              icon={Sailboat}
             >
               {settings.behavior.showTariffsExpandable &&
                 supService.priceRules.length > 0 && (
-                  <div>
-                    <button
-                      type="button"
-                      className="text-xs underline"
-                      style={{ color: theme.primaryColor }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setTariffsOpen((v) => !v);
-                      }}
-                    >
-                      Тарифы
-                    </button>
-                    {tariffsOpen && (
-                      <ul className="mt-1 space-y-0.5 text-xs text-slate-600">
-                        {supService.priceRules.map((r, i) => (
-                          <li key={i}>
-                            {formatTariffLine(r, supService.durationMinutes)}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
+                  <TariffsBlock
+                    open={tariffsOpen}
+                    onToggle={() => setTariffsOpen((v) => !v)}
+                    rules={supService.priceRules}
+                    durationMinutes={supService.durationMinutes}
+                    theme={theme}
+                  />
                 )}
             </ActivityCard>
           )}
-        </div>
+        </WidgetStepEnter>
       )}
 
       {step === 2 && activityKind === "wake" && service && (
-        <div className="mt-2 space-y-2">
+        <WidgetStepEnter stepKey="staff" className="mt-3 space-y-3">
           <BackButton onClick={() => setStep(1)} />
-          <p className="text-xs text-slate-600 sm:text-sm">{branch?.name}</p>
+          <p className="text-sm text-slate-500">{branch?.name}</p>
           {staffOptions.map((st) => (
             <WidgetPhotoCard
               key={st.id}
@@ -1153,7 +1131,7 @@ export function BookingWidget({
               }}
             />
           ))}
-        </div>
+        </WidgetStepEnter>
       )}
 
       {step === 2 && activityKind === "sup" && service && (
@@ -1181,8 +1159,6 @@ export function BookingWidget({
           nextLoading={submitLoading}
           nextLabel={copyMode ? "Записать" : "Далее"}
           hideBack={copyMode}
-          btnClass={btnClass}
-          btnActive={btnActive}
           theme={theme}
         />
       )}
@@ -1212,8 +1188,6 @@ export function BookingWidget({
           nextLoading={submitLoading}
           nextLabel={copyMode ? "Записать" : "Далее"}
           hideBack={copyMode}
-          btnClass={btnClass}
-          btnActive={btnActive}
           theme={theme}
         />
       )}
@@ -1239,8 +1213,7 @@ export function BookingWidget({
           loading={submitLoading}
           onBack={() => setStep(2)}
           onSubmit={submit}
-          btnClass={btnClass}
-          btnActive={btnActive}
+          theme={theme}
         />
       )}
 
@@ -1265,8 +1238,7 @@ export function BookingWidget({
           loading={submitLoading}
           onBack={() => setStep(3)}
           onSubmit={submit}
-          btnClass={btnClass}
-          btnActive={btnActive}
+          theme={theme}
         />
       )}
 
@@ -1275,19 +1247,52 @@ export function BookingWidget({
         phone={settings.texts.callAdminPhone}
         compact={step === 3 || copyMode}
       />
-    </div>
+    </WidgetShell>
   );
 }
 
 function BackButton({ onClick }: { onClick: () => void }) {
+  return <WidgetBackButton onClick={onClick} />;
+}
+
+function TariffsBlock({
+  open,
+  onToggle,
+  rules,
+  durationMinutes,
+  theme,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  rules: PriceRule[];
+  durationMinutes: number;
+  theme: WidgetSettings["theme"];
+}) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="text-xs text-slate-600 hover:text-slate-900 sm:text-sm"
-    >
-      ← Назад
-    </button>
+    <div>
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 text-xs font-medium transition-opacity hover:opacity-80"
+        style={{ color: theme.primaryColor }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+      >
+        Тарифы
+        <ChevronDown
+          className={cn("size-3.5 transition-transform duration-200", open && "rotate-180")}
+          strokeWidth={2.25}
+        />
+      </button>
+      {open && (
+        <ul className="mt-2 space-y-1 rounded-lg bg-slate-50 px-2.5 py-2 text-xs leading-relaxed text-slate-600">
+          {rules.map((r, i) => (
+            <li key={i}>{formatTariffLine(r, durationMinutes)}</li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -1296,32 +1301,42 @@ function ActivityCard({
   priceHint,
   onClick,
   theme,
+  icon: Icon,
   children,
 }: {
   title: string;
   priceHint: string;
   onClick: () => void;
   theme: WidgetSettings["theme"];
+  icon: typeof Waves;
   children?: React.ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full flex-col gap-1 rounded-lg border border-slate-200 px-4 py-3.5 text-left hover:border-[var(--widget-primary)] active:bg-lime-50 sm:flex-row sm:items-center sm:justify-between"
+      className="group flex w-full items-start gap-3 rounded-xl border border-slate-200/90 bg-white p-3.5 text-left shadow-sm ring-1 ring-black/[0.03] transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--widget-primary)]/30 hover:shadow-md active:translate-y-0 sm:items-center sm:gap-4 sm:p-4"
       style={{ background: theme.cardBackground }}
     >
+      <span
+        className="flex size-10 shrink-0 items-center justify-center rounded-xl transition-colors sm:size-11"
+        style={{ background: `${theme.primaryColor}18`, color: theme.primaryColor }}
+      >
+        <Icon className="size-5" strokeWidth={2} />
+      </span>
       <div className="min-w-0 flex-1">
-        <span className="font-medium text-slate-800">{title}</span>
+        <div className="flex items-start justify-between gap-3">
+          <span className="font-semibold tracking-tight text-slate-900">{title}</span>
+          <WidgetPriceBadge>{priceHint}</WidgetPriceBadge>
+        </div>
         <div className="mt-2">
           {children ?? (
-            <span className="invisible text-xs underline" aria-hidden>
+            <span className="invisible text-xs" aria-hidden>
               Тарифы
             </span>
           )}
         </div>
       </div>
-      <span className="text-sm text-slate-600 sm:shrink-0 sm:self-start">{priceHint}</span>
     </button>
   );
 }
@@ -1358,8 +1373,6 @@ function DateTimeStep(props: {
   nextLoading?: boolean;
   nextLabel?: string;
   hideBack?: boolean;
-  btnClass: string;
-  btnActive: React.CSSProperties;
   theme: WidgetSettings["theme"];
 }) {
   const slots =
@@ -1386,29 +1399,24 @@ function DateTimeStep(props: {
         (props.alternateStaff?.length ?? 0) === 0);
 
   return (
-    <div className="mt-2">
+    <WidgetStepEnter stepKey={`time-${props.kind}`} className="mt-3">
       {!props.hideBack && <BackButton onClick={props.onBack} />}
 
       {props.showDurationPicker && props.setDurationMinutes && props.allowedDurations && (
         <>
-          <label className="mt-3 block text-sm font-medium text-slate-700">
+          <Label className="mt-3 block text-sm font-medium text-slate-700">
             Длительность
-          </label>
-          <div className="mt-1 flex flex-wrap gap-2">
+          </Label>
+          <div className="mt-2 flex flex-wrap gap-2">
             {props.allowedDurations.map((d) => (
-              <button
+              <WidgetChoiceButton
                 key={d}
-                type="button"
+                selected={props.durationMinutes === d}
                 onClick={() => props.setDurationMinutes!(d)}
-                className={props.btnClass}
-                style={
-                  props.durationMinutes === d
-                    ? props.btnActive
-                    : { background: props.theme.cardBackground, border: "1px solid #e2e8f0" }
-                }
+                theme={props.theme}
               >
                 {d} мин
-              </button>
+              </WidgetChoiceButton>
             ))}
           </div>
         </>
@@ -1417,17 +1425,17 @@ function DateTimeStep(props: {
       <CarouselDatePicker date={props.date} onChange={props.setDate} />
 
       {props.slotsLoading && (
-        <p className="mt-1 text-sm text-slate-500">Загрузка слотов…</p>
+        <WidgetStatusText className="mt-3">Загрузка слотов…</WidgetStatusText>
       )}
 
       {!props.slotsLoading && props.kind === "wake" && wakeAllBusy && (
-        <p className="mt-2 text-sm text-amber-700">
+        <WidgetStatusText tone="warning" className="mt-3">
           На эту дату все слоты заняты
-        </p>
+        </WidgetStatusText>
       )}
 
       {props.kind === "wake" && props.checkingAlternateStaff && (
-        <p className="mt-2 text-sm text-slate-500">Проверяем другие реверсы…</p>
+        <WidgetStatusText className="mt-3">Проверяем другие реверсы…</WidgetStatusText>
       )}
 
       {props.kind === "wake" &&
@@ -1437,51 +1445,49 @@ function DateTimeStep(props: {
         props.alternateStaff.length > 0 &&
         props.onSwitchStaff && (
           <>
-            <p className="mt-2 text-sm text-slate-600">
+            <WidgetStatusText className="mt-3 text-slate-600">
               Свободное время на другом реверсе:
-            </p>
+            </WidgetStatusText>
             <div className="mt-2 flex flex-wrap gap-2">
               {props.alternateStaff.map((st) => (
-                <button
+                <WidgetChipButton
                   key={st.id}
-                  type="button"
-                  className="rounded-md border border-slate-200 px-3 py-1.5 text-sm hover:border-[var(--widget-primary)]"
                   onClick={() => props.onSwitchStaff!(st.id)}
                 >
                   {st.name}
-                </button>
+                </WidgetChipButton>
               ))}
             </div>
           </>
         )}
 
       {props.checkingOtherBranches && (
-        <p className="mt-2 text-sm text-slate-500">Проверяем другие филиалы…</p>
+        <WidgetStatusText className="mt-3">Проверяем другие филиалы…</WidgetStatusText>
       )}
 
       {showBranchFallback && (
-        <div className="mt-3 rounded-lg bg-white p-3 text-sm text-slate-600">
-          <p>{props.emptyHint ?? "Попробуйте другой филиал"}</p>
-          <div className="mt-2 flex flex-wrap gap-2">
+        <WidgetPanel className="mt-3">
+          <p className="text-sm text-slate-600">
+            {props.emptyHint ?? "Попробуйте другой филиал"}
+          </p>
+          <div className="flex flex-wrap gap-2">
             {branchAltList.map((b) => (
-              <button
+              <WidgetChipButton
                 key={b.id}
-                type="button"
-                className="rounded-md border border-slate-200 px-3 py-1.5 text-sm hover:border-[var(--widget-primary)]"
                 onClick={props.onPickOtherBranch}
               >
                 {b.name}
-              </button>
+              </WidgetChipButton>
             ))}
           </div>
           <button
             type="button"
-            className="mt-3 text-sm font-medium text-[var(--widget-primary)] hover:underline"
+            className="text-sm font-medium text-[var(--widget-primary)] transition-opacity hover:opacity-80"
             onClick={props.onPickOtherBranch}
           >
             Выбрать другой филиал
           </button>
-        </div>
+        </WidgetPanel>
       )}
 
       <div
@@ -1500,25 +1506,17 @@ function DateTimeStep(props: {
             const free = sl.status === "free";
             const selected = props.selectedWakeStarts?.includes(sl.startAt) ?? false;
             return (
-              <button
+              <WidgetChoiceButton
                 key={sl.startAt}
-                type="button"
                 disabled={!free}
+                selected={selected}
                 aria-pressed={selected}
                 onClick={() => free && props.onToggleWakeStart?.(sl.startAt)}
-                className={`${slotBtnClass} ${
-                  !free ? "cursor-not-allowed opacity-40" : ""
-                }`}
-                style={
-                  selected
-                    ? props.btnActive
-                    : free
-                      ? { background: props.theme.cardBackground, border: "1px solid #e2e8f0" }
-                      : { background: "#e2e8f0", color: "#94a3b8" }
-                }
+                theme={props.theme}
+                className="min-h-10 w-full px-1.5 py-2 text-xs sm:text-sm"
               >
                 {time}
-              </button>
+              </WidgetChoiceButton>
             );
           })}
 
@@ -1529,19 +1527,19 @@ function DateTimeStep(props: {
             const time = formatSlotTime(sl.startAt);
             const selected = props.selectedSupStarts?.includes(sl.startAt) ?? false;
             return (
-              <button
+              <WidgetChoiceButton
                 key={sl.startAt}
-                type="button"
+                selected={selected}
                 aria-pressed={selected}
                 onClick={() => props.onToggleSupStart?.(sl.startAt)}
-                className={`${slotBtnClass} sm:min-w-[4rem]`}
-                style={selected ? props.btnActive : { background: props.theme.cardBackground, border: "1px solid #e2e8f0" }}
+                theme={props.theme}
+                className="min-h-[3.25rem] w-full flex-col gap-0.5 px-1.5 py-2 text-xs sm:min-h-11 sm:text-sm"
               >
                 <span>{time}</span>
-                <span className="mt-0.5 block text-[10px] font-normal opacity-75">
-                  доступно {sl.availableBoards}
+                <span className="text-[10px] font-normal opacity-75">
+                  {sl.availableBoards} шт.
                 </span>
-              </button>
+              </WidgetChoiceButton>
             );
           })}
         </div>
@@ -1551,94 +1549,93 @@ function DateTimeStep(props: {
         slots.length === 0 &&
         !showBranchFallback &&
         props.kind === "wake" && (
-        <div className="mt-3 rounded-lg bg-white p-3 text-sm text-slate-600">
+        <WidgetSummaryCard className="mt-3">
           <p>Нет слотов на эту дату</p>
-        </div>
+        </WidgetSummaryCard>
       )}
 
       {!props.slotsLoading &&
         slots.length === 0 &&
         !showBranchFallback &&
         props.kind === "sup" && (
-        <div className="mt-3 rounded-lg bg-white p-3 text-sm text-slate-600">
+        <WidgetSummaryCard className="mt-3">
           <p>Нет слотов на эту дату</p>
-        </div>
+        </WidgetSummaryCard>
       )}
 
       {props.kind === "sup" && selectedSupCount > 0 && (
-        <div className="mt-4 space-y-3 rounded-lg bg-white p-3">
+        <WidgetPanel className="mt-4">
           <p className="text-sm text-slate-700">
-            Выбрано: <strong>{selectedSupCount}</strong>{" "}
+            Выбрано: <strong className="font-semibold">{selectedSupCount}</strong>{" "}
             {selectedSupCount === 1 ? "слот" : "слота"}
           </p>
           <p className="text-sm font-medium text-slate-700">
             Доступно сапов: {maxQty}
             {selectedSupCount > 1 ? " (минимум по выбранным слотам)" : ""}
           </p>
-          <label className="block text-sm font-medium text-slate-700">
+          <Label className="text-sm font-medium text-slate-700">
             {selectedSupCount > 1
               ? "Количество сапов на каждый слот"
               : "Количество сапов"}
-          </label>
+          </Label>
           <div className="flex flex-wrap gap-2">
             {Array.from({ length: maxQty }, (_, i) => i + 1).map((n) => (
-              <button
+              <WidgetChoiceButton
                 key={n}
-                type="button"
+                selected={props.supQuantity === n}
                 onClick={() => props.setSupQuantity?.(n)}
-                className={props.btnClass}
-                style={
-                  props.supQuantity === n
-                    ? props.btnActive
-                    : { background: props.theme.cardBackground, border: "1px solid #e2e8f0" }
-                }
+                theme={props.theme}
+                className="min-w-10"
               >
                 {n}
-              </button>
+              </WidgetChoiceButton>
             ))}
           </div>
           {props.displayPrice != null && (
             <p className="text-sm text-slate-700">
-              Стоимость: <strong>{props.displayPrice} Br</strong>
+              Стоимость:{" "}
+              <strong className="font-semibold tabular-nums">
+                {props.displayPrice} Br
+              </strong>
             </p>
           )}
-          <button
-            type="button"
-            disabled={!props.supQuantity || props.nextLoading}
+          <WidgetPrimaryButton
+            disabled={!props.supQuantity}
+            loading={props.nextLoading}
             onClick={props.onNext}
-            className={`${props.btnClass} w-full`}
-            style={props.btnActive}
+            theme={props.theme}
           >
-            {props.nextLoading ? "…" : (props.nextLabel ?? "Далее")}
-          </button>
-        </div>
+            {props.nextLabel ?? "Далее"}
+          </WidgetPrimaryButton>
+        </WidgetPanel>
       )}
 
       {props.kind === "wake" && selectedWakeCount > 0 && (
-        <div className="mt-4 space-y-3 rounded-lg bg-white p-3">
+        <WidgetPanel className="mt-4">
           <p className="text-sm text-slate-700">
-            Выбрано: <strong>{selectedWakeCount}</strong> интервалов (
-            {selectedWakeCount * WAKE_CELL_MINUTES} мин)
+            Выбрано: <strong className="font-semibold">{selectedWakeCount}</strong>{" "}
+            интервалов ({selectedWakeCount * WAKE_CELL_MINUTES} мин)
           </p>
           {props.displayPrice != null && (
             <p className="text-sm text-slate-700">
-              Стоимость: <strong>{props.displayPrice} Br</strong>
+              Стоимость:{" "}
+              <strong className="font-semibold tabular-nums">
+                {props.displayPrice} Br
+              </strong>
             </p>
           )}
           {props.onNext && (
-            <button
-              type="button"
-              disabled={props.nextLoading}
+            <WidgetPrimaryButton
+              loading={props.nextLoading}
               onClick={props.onNext}
-              className={`${props.btnClass} w-full`}
-              style={props.btnActive}
+              theme={props.theme}
             >
-              {props.nextLoading ? "…" : (props.nextLabel ?? "Далее")}
-            </button>
+              {props.nextLabel ?? "Далее"}
+            </WidgetPrimaryButton>
           )}
-        </div>
+        </WidgetPanel>
       )}
-    </div>
+    </WidgetStepEnter>
   );
 }
 
@@ -1659,8 +1656,7 @@ function ContactsStep({
   loading,
   onBack,
   onSubmit,
-  btnClass,
-  btnActive,
+  theme,
 }: {
   summary: string;
   displayPrice: number | null;
@@ -1678,63 +1674,70 @@ function ContactsStep({
   loading: boolean;
   onBack: () => void;
   onSubmit: () => void;
-  btnClass: string;
-  btnActive: React.CSSProperties;
+  theme: WidgetSettings["theme"];
 }) {
   return (
-    <div className="mt-4 space-y-3">
-      <BackButton onClick={onBack} />
-      <p className="rounded-lg bg-white px-3 py-2 text-sm text-slate-600">{summary}</p>
+    <WidgetStepEnter stepKey="contacts" className="mt-4 space-y-4">
+      <WidgetBackButton onClick={onBack} />
+      <WidgetSummaryCard>{summary}</WidgetSummaryCard>
       {displayPrice != null && (
         <p className="text-sm text-slate-700">
-          Стоимость: <strong>{displayPrice} Br</strong>
+          Стоимость:{" "}
+          <strong className="font-semibold tabular-nums">{displayPrice} Br</strong>
         </p>
       )}
-      <input
-        placeholder="Имя *"
-        value={firstName}
-        onChange={(e) => setFirstName(e.target.value)}
-        autoComplete="given-name"
-        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-base"
-      />
-      <input
-        placeholder="Фамилия"
-        value={lastName}
-        onChange={(e) => setLastName(e.target.value)}
-        autoComplete="family-name"
-        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-base"
-      />
-      <input
-        placeholder="Телефон *"
-        value={phone}
-        onChange={(e) => setPhone(e.target.value)}
-        autoComplete="tel"
-        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-base"
-      />
-      <input
-        placeholder="Email"
-        type="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        autoComplete="email"
-        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-base"
-      />
-      <textarea
-        placeholder="Комментарий"
-        value={comment}
-        onChange={(e) => setComment(e.target.value)}
-        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-base"
-        rows={2}
-      />
-      <button
-        type="button"
+      <div className="space-y-3">
+        <WidgetField id="widget-first-name" label="Имя" required>
+          <WidgetTextInput
+            id="widget-first-name"
+            value={firstName}
+            onChange={(e) => setFirstName(e.target.value)}
+            autoComplete="given-name"
+          />
+        </WidgetField>
+        <WidgetField id="widget-last-name" label="Фамилия">
+          <WidgetTextInput
+            id="widget-last-name"
+            value={lastName}
+            onChange={(e) => setLastName(e.target.value)}
+            autoComplete="family-name"
+          />
+        </WidgetField>
+        <WidgetField id="widget-phone" label="Телефон" required>
+          <WidgetPhoneInput
+            id="widget-phone"
+            value={phone}
+            onChange={setPhone}
+          />
+        </WidgetField>
+        <WidgetField id="widget-email" label="Email">
+          <WidgetTextInput
+            id="widget-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
+            inputMode="email"
+          />
+        </WidgetField>
+        <WidgetField id="widget-comment" label="Комментарий">
+          <WidgetTextArea
+            id="widget-comment"
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            rows={3}
+          />
+        </WidgetField>
+      </div>
+      <WidgetPrimaryButton
         onClick={onSubmit}
-        disabled={loading || !firstName || !phone}
-        className={`${btnClass} w-full disabled:opacity-50`}
-        style={btnActive}
+        disabled={!firstName || !isCompletePhone(phone)}
+        loading={loading}
+        loadingLabel="Отправка…"
+        theme={theme}
       >
-        {loading ? "Отправка…" : submitLabel}
-      </button>
-    </div>
+        {submitLabel}
+      </WidgetPrimaryButton>
+    </WidgetStepEnter>
   );
 }
