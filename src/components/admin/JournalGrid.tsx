@@ -37,6 +37,7 @@ import {
 import { useAdminViewport } from "./AdminViewportContext";
 import { cn } from "@/lib/utils";
 import { journalStaffDisplayName } from "@/lib/journal-staff-label";
+import { catalogStaff } from "@/lib/admin/staff-catalog";
 import {
   getJournalSlotHeightPx,
   type JournalGridScale,
@@ -250,7 +251,9 @@ export function JournalGrid({
   }
 
   const visibleStaff = useMemo(() => {
-    const list = staff.filter((s) => !branchId || s.branchId === branchId);
+    const list = catalogStaff(
+      staff.filter((s) => !branchId || s.branchId === branchId),
+    );
     let filtered = list.filter((s) => staffMatchesResourceFilter(s, resourceKind));
     if (!hideInactive) return filtered;
     return filtered.filter((s) => getStaffRule(s.schedules, weekday));

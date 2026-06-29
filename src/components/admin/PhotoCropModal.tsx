@@ -14,13 +14,24 @@ import { WidgetPhotoCard, widgetSampleLabels } from "@/components/widget/WidgetP
 type Props = {
   kind: WidgetPhotoKind;
   imageSrc: string;
+  title?: string;
+  subtitle?: string | null;
   onCancel: () => void;
   onConfirm: (blob: Blob) => void;
 };
 
-export function PhotoCropModal({ kind, imageSrc, onCancel, onConfirm }: Props) {
+export function PhotoCropModal({
+  kind,
+  imageSrc,
+  title,
+  subtitle,
+  onCancel,
+  onConfirm,
+}: Props) {
   const layout = WIDGET_PHOTO_LAYOUT[kind];
   const sample = widgetSampleLabels(kind);
+  const previewTitle = title?.trim() || sample.title;
+  const previewSubtitle = subtitle?.trim() || sample.subtitle || null;
   const cropRef = useRef<HTMLDivElement>(null);
   const [cropSize, setCropSize] = useState({ width: 320, height: 320 / layout.aspectRatio });
   const [natural, setNatural] = useState({ width: 1, height: 1 });
@@ -210,8 +221,8 @@ export function PhotoCropModal({ kind, imageSrc, onCancel, onConfirm }: Props) {
         <div className="mt-2">
           <WidgetPhotoCard
             kind={kind}
-            title={sample.title}
-            subtitle={sample.subtitle}
+            title={previewTitle}
+            subtitle={previewSubtitle}
             photoUrl={previewUrl ?? imageSrc}
           />
         </div>

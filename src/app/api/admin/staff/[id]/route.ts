@@ -49,3 +49,33 @@ export async function PATCH(
     return NextResponse.json({ error: "Ошибка" }, { status: 500 });
   }
 }
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const ctx = await requireAdminContext();
+    const { id } = await params;
+    await assertStaffAccess(ctx, id);
+
+    const appointments = await prisma.appointment.count({
+      where: { staffId: id },
+    });
+    if (appointments > 0) {
+      return NextResponse.json(
+        { error: "Нельзя удалить ресурс с существующими записями" },
+        { status: 409 },
+      );
+    }
+
+    await prisma.staff.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    const handled = handleAdminError(e);
+    if (handled) {
+      return NextResponse.json({ error: handled.error }, { status: handled.status });
+    }
+    return NextResponse.json({ error: "Ошибка" }, { status: 500 });
+  }
+}

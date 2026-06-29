@@ -9,7 +9,7 @@ import { prisma } from "@/lib/db";
 
 const patchSchema = z.object({
   name: z.string().min(1).optional(),
-  description: z.string().nullable().optional(),
+  resourceLabel: z.string().nullable().optional(),
   price: z.number().nonnegative().optional(),
   durationMinutes: z.number().int().positive().optional(),
   allowedDurations: z.string().optional(),
@@ -84,6 +84,7 @@ export async function PATCH(
       data: {
         ...data,
         description: data.description === null ? null : data.description,
+        resourceLabel: data.resourceLabel === null ? null : data.resourceLabel,
         bookableFrom: data.bookableFrom === null ? null : data.bookableFrom,
         bookableTo: data.bookableTo === null ? null : data.bookableTo,
       },
@@ -98,6 +99,59 @@ export async function PATCH(
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.flatten() }, { status: 400 });
     }
+    const handled = handleAdminError(e);
+    if (handled) {
+      return NextResponse.json({ error: handled.error }, { status: handled.status });
+    }
+    return NextResponse.json({ error: "Ошибка" }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const ctx = await requireAdminContext();
+    const { id } = await params;
+    await assertServiceAccess(ctx, id);
+
+    const service = await prisma.service.findUnique({
+      where: { id },
+      include: { staff: { select: { staffId: true } } },
+    });
+    if (!service) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    const appointments = await prisma.appointment.count({
+      where: { serviceId: id },
+    });
+    if (appointments > 0) {
+      return NextResponse.json(
+        { error: "Нельзя удалить услугу с существующими записями" },
+        { status: 409 },
+      );
+    }
+
+    if (service.kind === "custom") {
+      for (const link of service.staff) {
+        const staffId = link.staffId;
+        const [otherLinks, staffAppointments] = await Promise.all([
+          prisma.serviceStaff.count({
+            where: { staffId, serviceId: { not: id } },
+          }),
+          prisma.appointment.count({ where: { staffId } }),
+        ]);
+        if (otherLinks === 0 && staffAppointments === 0) {
+          await prisma.staff.delete({ where: { id: staffId } });
+        }
+      }
+    }
+
+    await prisma.service.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
     const handled = handleAdminError(e);
     if (handled) {
       return NextResponse.json({ error: handled.error }, { status: handled.status });

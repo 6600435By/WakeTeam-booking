@@ -1,8 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ScheduleEditor } from "./ScheduleEditor";
 import { PhotoUploadField } from "./PhotoUploadField";
+import { ServiceEditor, type ServiceRow } from "./ServiceEditor";
+import { ServicePriceRulesEditor } from "./ServicePriceRulesEditor";
+import {
+  StaffResourceEditor,
+} from "./StaffResourceEditor";
+import {
+  availableServiceKinds,
+  catalogServices,
+  isLegacyTariffService,
+  staffExclusiveToCustomService,
+  type PresetServiceKind,
+} from "@/lib/admin/service-catalog";
+import {
+  isLegacyTimeSlotStaff,
+} from "@/lib/admin/staff-catalog";
 
 type ScheduleRow = {
   weekday: number;
@@ -23,32 +37,6 @@ type StaffRow = {
   schedules: ScheduleRow[];
 };
 
-type PriceRuleRow = {
-  id: string;
-  weekdays: string;
-  timeFrom: string;
-  timeTo: string;
-  price: number;
-  sortOrder: number;
-};
-
-type ServiceRow = {
-  id: string;
-  name: string;
-  kind?: string;
-  description: string | null;
-  price: number;
-  durationMinutes: number;
-  allowedDurations: string;
-  bookableFrom: string | null;
-  bookableTo: string | null;
-  weekdays: string;
-  isActive: boolean;
-  isOnlineBookable: boolean;
-  priceRules?: PriceRuleRow[];
-  staff: { staff: { id: string; name: string } }[];
-};
-
 type BranchDetail = {
   id: string;
   name: string;
@@ -64,21 +52,6 @@ type BranchDetail = {
 const inputClass =
   "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900";
 
-const WEEKDAY_LABELS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
-
-function parseWeekdays(s: string): Set<number> {
-  return new Set(
-    s
-      .split(",")
-      .map((x) => parseInt(x.trim(), 10))
-      .filter((n) => !Number.isNaN(n)),
-  );
-}
-
-function formatWeekdays(set: Set<number>): string {
-  return [...set].sort((a, b) => a - b).join(",");
-}
-
 type Props = {
   branchId: string;
 };
@@ -91,17 +64,55 @@ export function BranchEditor({ branchId }: Props) {
   const [branchSaving, setBranchSaving] = useState(false);
   const [expandedStaff, setExpandedStaff] = useState<string | null>(null);
   const [serviceMsg, setServiceMsg] = useState<Record<string, string>>({});
+  const [serviceDeleteMsg, setServiceDeleteMsg] = useState<Record<string, string>>({});
+  const [deletingServiceId, setDeletingServiceId] = useState<string | null>(null);
   const [staffMsg, setStaffMsg] = useState<Record<string, string>>({});
+  const [staffDeleteMsg, setStaffDeleteMsg] = useState<Record<string, string>>({});
+  const [deletingStaffId, setDeletingStaffId] = useState<string | null>(null);
   const [addMsg, setAddMsg] = useState("");
   const [adding, setAdding] = useState(false);
+  const [activeServiceId, setActiveServiceId] = useState<string | null>(null);
+  const [addServiceOpen, setAddServiceOpen] = useState(false);
+  const [newServiceName, setNewServiceName] = useState("");
 
   const load = useCallback(() => {
     setLoading(true);
     setError("");
     fetch(`/api/admin/branches/${branchId}`)
       .then((r) => r.json())
-      .then((d) => {
+      .then(async (d) => {
         if (!d.branch) throw new Error(d.error ?? "Не удалось загрузить");
+        const legacyServices = (d.branch.services as ServiceRow[]).filter(
+          isLegacyTariffService,
+        );
+        const legacyStaff = (d.branch.staff as StaffRow[]).filter(
+          isLegacyTimeSlotStaff,
+        );
+        if (legacyServices.length > 0 || legacyStaff.length > 0) {
+          await Promise.all([
+            ...legacyServices.map((s) =>
+              fetch(`/api/admin/services/${s.id}`, { method: "DELETE" }),
+            ),
+            ...legacyStaff.map(async (s) => {
+              const res = await fetch(`/api/admin/staff/${s.id}`, {
+                method: "DELETE",
+              });
+              if (res.status === 409) {
+                await fetch(`/api/admin/staff/${s.id}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ isActive: false, isVisible: false }),
+                });
+              }
+            }),
+          ]);
+          const refreshed = await fetch(`/api/admin/branches/${branchId}`).then((r) =>
+            r.json(),
+          );
+          if (!refreshed.branch) throw new Error("Не удалось обновить филиал");
+          setBranch(refreshed.branch);
+          return;
+        }
         setBranch(d.branch);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Ошибка"))
@@ -111,6 +122,18 @@ export function BranchEditor({ branchId }: Props) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (!branch?.services.length) {
+      setActiveServiceId(null);
+      return;
+    }
+    const items = catalogServices(branch.services);
+    setActiveServiceId((current) => {
+      if (current && items.some((s) => s.id === current)) return current;
+      return items[0]?.id ?? null;
+    });
+  }, [branch?.services]);
 
   async function saveBranch() {
     if (!branch) return;
@@ -144,6 +167,7 @@ export function BranchEditor({ branchId }: Props) {
       body: JSON.stringify({
         name: service.name,
         description: service.description,
+        resourceLabel: service.resourceLabel ?? null,
         price: service.price,
         durationMinutes: service.durationMinutes,
         allowedDurations: service.allowedDurations,
@@ -245,13 +269,79 @@ export function BranchEditor({ branchId }: Props) {
     });
   }
 
-  async function addStaff(kind: "revers" | "sup") {
+  async function deleteStaff(staff: StaffRow) {
+    if (
+      !window.confirm(
+        `Удалить «${staff.name}»? Это действие нельзя отменить.`,
+      )
+    ) {
+      return;
+    }
+    setDeletingStaffId(staff.id);
+    setStaffDeleteMsg((m) => ({ ...m, [staff.id]: "" }));
+    const res = await fetch(`/api/admin/staff/${staff.id}`, {
+      method: "DELETE",
+    });
+    const data = await res.json();
+    setDeletingStaffId(null);
+    if (!res.ok) {
+      setStaffDeleteMsg((m) => ({
+        ...m,
+        [staff.id]:
+          typeof data.error === "string"
+            ? data.error
+            : "Не удалось удалить ресурс",
+      }));
+      return;
+    }
+    setStaffDeleteMsg((m) => ({ ...m, [staff.id]: "" }));
+    setAddMsg(`«${staff.name}» удалён`);
+    if (expandedStaff === staff.id) {
+      setExpandedStaff(null);
+    }
+    load();
+  }
+
+  async function deleteService(service: ServiceRow) {
+    if (
+      !window.confirm(
+        `Удалить услугу «${service.name}»? Это действие нельзя отменить.`,
+      )
+    ) {
+      return;
+    }
+    setDeletingServiceId(service.id);
+    setServiceDeleteMsg((m) => ({ ...m, [service.id]: "" }));
+    const res = await fetch(`/api/admin/services/${service.id}`, {
+      method: "DELETE",
+    });
+    const data = await res.json();
+    setDeletingServiceId(null);
+    if (!res.ok) {
+      setServiceDeleteMsg((m) => ({
+        ...m,
+        [service.id]:
+          typeof data.error === "string"
+            ? data.error
+            : "Не удалось удалить услугу",
+      }));
+      return;
+    }
+    setServiceDeleteMsg((m) => ({ ...m, [service.id]: "" }));
+    setAddMsg(`Услуга «${service.name}» удалена`);
+    if (activeServiceId === service.id) {
+      setActiveServiceId(null);
+    }
+    load();
+  }
+
+  async function addStaff(kind: "revers" | "sup", serviceId?: string) {
     setAdding(true);
     setAddMsg("");
     const res = await fetch("/api/admin/staff", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ branchId, kind }),
+      body: JSON.stringify({ branchId, kind, serviceId }),
     });
     const data = await res.json();
     setAdding(false);
@@ -259,12 +349,18 @@ export function BranchEditor({ branchId }: Props) {
       setAddMsg(data.error ?? "Не удалось добавить ресурс");
       return;
     }
-    setAddMsg(kind === "revers" ? "Реверс добавлен" : "Сапборд добавлен");
+    setAddMsg(
+      serviceId
+        ? "Ресурс добавлен"
+        : kind === "revers"
+          ? "Реверс добавлен"
+          : "Сапборд добавлен",
+    );
     load();
     if (data.staff?.id) setExpandedStaff(data.staff.id);
   }
 
-  async function addService(kind: "wake" | "sup") {
+  async function addService(kind: PresetServiceKind) {
     setAdding(true);
     setAddMsg("");
     const res = await fetch("/api/admin/services", {
@@ -280,14 +376,42 @@ export function BranchEditor({ branchId }: Props) {
     }
     setAddMsg(kind === "wake" ? "Услуга вейка добавлена" : "Услуга сапов добавлена");
     load();
+    if (data.service?.id) setActiveServiceId(data.service.id);
   }
 
-  const hasWakeService = branch?.services.some(
-    (s) => s.kind === "wake" && s.isActive,
-  );
-  const hasSupService = branch?.services.some(
-    (s) => s.kind === "sup" && s.isActive,
-  );
+  async function addCustomService(name: string) {
+    setAdding(true);
+    setAddMsg("");
+    const res = await fetch("/api/admin/services", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ branchId, kind: "custom", name }),
+    });
+    const data = await res.json();
+    setAdding(false);
+    if (!res.ok) {
+      setAddMsg(typeof data.error === "string" ? data.error : "Не удалось добавить услугу");
+      return;
+    }
+    setNewServiceName("");
+    setAddServiceOpen(false);
+    setAddMsg(`Услуга «${name}» создана`);
+    load();
+    if (data.service?.id) setActiveServiceId(data.service.id);
+  }
+
+  const catalog = branch ? catalogServices(branch.services) : [];
+  const sortedCatalog = [...catalog].sort((a, b) => {
+    const kindOrder: Record<string, number> = { wake: 0, sup: 1, custom: 2 };
+    const ao = a.kind != null ? (kindOrder[a.kind] ?? 9) : 9;
+    const bo = b.kind != null ? (kindOrder[b.kind] ?? 9) : 9;
+    return ao - bo || a.name.localeCompare(b.name, "ru");
+  });
+  const addableServiceKinds = branch ? availableServiceKinds(branch.services) : [];
+  const activeService =
+    sortedCatalog.find((s) => s.id === activeServiceId) ?? null;
+  const supService =
+    sortedCatalog.find((s) => s.kind === "sup") ?? null;
 
   if (loading) return <p className="text-slate-500">Загрузка…</p>;
   if (error || !branch) {
@@ -300,48 +424,71 @@ export function BranchEditor({ branchId }: Props) {
     <div className="space-y-8 pb-8">
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
         <h2 className="text-lg font-semibold text-slate-900">О филиале</h2>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <label className="block sm:col-span-2">
-            <span className="mb-1 block text-xs text-slate-500">Название</span>
-            <input
-              className={inputClass}
-              value={branch.name}
-              onChange={(e) => updateBranch({ name: e.target.value })}
-            />
-          </label>
-          <label className="block sm:col-span-2">
-            <PhotoUploadField
-              label="Фото филиала"
-              kind="branch"
-              value={branch.photoUrl}
-              onChange={(url) => updateBranch({ photoUrl: url })}
-            />
-          </label>
-          <label className="block sm:col-span-2">
-            <span className="mb-1 block text-xs text-slate-500">Описание</span>
-            <textarea
-              className={`${inputClass} min-h-[80px]`}
-              value={branch.description ?? ""}
-              onChange={(e) => updateBranch({ description: e.target.value })}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs text-slate-500">Адрес</span>
-            <input
-              className={inputClass}
-              value={branch.address ?? ""}
-              onChange={(e) => updateBranch({ address: e.target.value })}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs text-slate-500">Телефон</span>
-            <input
-              className={inputClass}
-              value={branch.phone ?? ""}
-              onChange={(e) => updateBranch({ phone: e.target.value })}
-            />
-          </label>
-          <label className="flex items-center gap-2 sm:col-span-2">
+        <p className="mt-1 text-xs text-slate-500">
+          Название и подпись отображаются поверх фото в виджете записи
+        </p>
+
+        <div className="mt-4 space-y-4">
+          <PhotoUploadField
+            label="Фото филиала"
+            kind="branch"
+            value={branch.photoUrl}
+            onChange={(url) => updateBranch({ photoUrl: url })}
+            title={branch.name}
+            subtitle={branch.description || branch.address}
+            previewAlways
+            previewWide
+            previewSize="large"
+          />
+
+          <div className="grid max-w-xl gap-3">
+            <label className="block">
+              <span className="mb-1 block text-xs text-slate-500">
+                Название на карточке
+              </span>
+              <input
+                className={inputClass}
+                value={branch.name}
+                onChange={(e) => updateBranch({ name: e.target.value })}
+                placeholder='Вейкпарк "Раубичи"'
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs text-slate-500">
+                Подпись на фото
+              </span>
+              <input
+                className={inputClass}
+                value={branch.description ?? ""}
+                onChange={(e) => updateBranch({ description: e.target.value })}
+                placeholder="Спот открыт, записывайтесь!"
+              />
+              <span className="mt-1 block text-[11px] text-slate-400">
+                Белый текст под названием. Если пусто — показывается адрес.
+              </span>
+            </label>
+          </div>
+
+          <div className="grid max-w-2xl gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block text-xs text-slate-500">Адрес</span>
+              <input
+                className={inputClass}
+                value={branch.address ?? ""}
+                onChange={(e) => updateBranch({ address: e.target.value })}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs text-slate-500">Телефон</span>
+              <input
+                className={inputClass}
+                value={branch.phone ?? ""}
+                onChange={(e) => updateBranch({ phone: e.target.value })}
+              />
+            </label>
+          </div>
+
+          <label className="flex items-center gap-2">
             <input
               type="checkbox"
               checked={branch.isActive}
@@ -364,275 +511,120 @@ export function BranchEditor({ branchId }: Props) {
       <section>
         <h2 className="text-lg font-semibold text-slate-900">Услуги</h2>
         <p className="mt-1 text-xs text-slate-500">
-          Настройки услуг влияют на виджет и журнал записей
+          Выберите услугу — настройте время работы и тарифы как в журнале записей
         </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {!hasWakeService && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {sortedCatalog.map((service) => (
+            <button
+              key={service.id}
+              type="button"
+              onClick={() => {
+                setActiveServiceId(service.id);
+                setAddServiceOpen(false);
+              }}
+              className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                activeServiceId === service.id
+                  ? "border-lime-600 bg-lime-50 text-lime-800"
+                  : "border-slate-300 text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              {service.name}
+              {!service.isActive && (
+                <span className="ml-1 text-xs font-normal text-slate-400">(выкл.)</span>
+              )}
+            </button>
+          ))}
+          <div className="relative">
             <button
               type="button"
               disabled={adding}
-              onClick={() => void addService("wake")}
-              className="rounded-lg border border-lime-600 px-3 py-1.5 text-sm text-lime-800 hover:bg-lime-50 disabled:opacity-50"
+              title="Добавить услугу"
+              onClick={() => setAddServiceOpen((v) => !v)}
+              className="rounded-lg border border-dashed border-lime-600 px-3 py-2 text-sm font-medium text-lime-800 hover:bg-lime-50 disabled:opacity-50"
             >
-              + Вейкбординг
+              + Добавить услугу
             </button>
-          )}
-          {!hasSupService && (
-            <button
-              type="button"
-              disabled={adding}
-              onClick={() => void addService("sup")}
-              className="rounded-lg border border-lime-600 px-3 py-1.5 text-sm text-lime-800 hover:bg-lime-50 disabled:opacity-50"
-            >
-              + Сапборд
-            </button>
-          )}
+            {addServiceOpen && (
+              <div className="absolute left-0 top-full z-10 mt-1 min-w-[14rem] rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                {addableServiceKinds.map((option) => (
+                  <button
+                    key={option.kind}
+                    type="button"
+                    disabled={adding}
+                    onClick={() => {
+                      setAddServiceOpen(false);
+                      void addService(option.kind);
+                    }}
+                    className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {option.label}
+                  </button>
+                ))}
+                {(addableServiceKinds.length > 0) && (
+                  <div className="my-1 border-t border-slate-100" />
+                )}
+                <div className="px-3 py-2">
+                  <p className="text-xs font-medium text-slate-600">Новая услуга</p>
+                  <input
+                    className={`${inputClass} mt-1.5`}
+                    value={newServiceName}
+                    placeholder="Название"
+                    onChange={(e) => setNewServiceName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newServiceName.trim()) {
+                        e.preventDefault();
+                        void addCustomService(newServiceName.trim());
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={adding || !newServiceName.trim()}
+                    onClick={() => void addCustomService(newServiceName.trim())}
+                    className="mt-2 w-full rounded-lg bg-lime-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-lime-700 disabled:opacity-50"
+                  >
+                    Создать
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
         {addMsg && <p className="mt-2 text-xs text-slate-600">{addMsg}</p>}
-        <div className="mt-4 space-y-4">
-          {branch.services.map((service) => {
-            const wd = parseWeekdays(service.weekdays);
-            return (
-              <div
-                key={service.id}
-                className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <input
-                    className={`${inputClass} max-w-md font-semibold`}
-                    value={service.name}
-                    onChange={(e) =>
-                      updateService(service.id, { name: e.target.value })
-                    }
-                  />
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={service.isActive}
-                      onChange={(e) =>
-                        updateService(service.id, { isActive: e.target.checked })
-                      }
-                    />
-                    Активна
-                  </label>
-                </div>
-                <textarea
-                  className={`${inputClass} mt-2 min-h-[60px]`}
-                  placeholder="Описание услуги"
-                  value={service.description ?? ""}
-                  onChange={(e) =>
-                    updateService(service.id, { description: e.target.value })
-                  }
-                />
-                <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <label className="block">
-                    <span className="mb-1 block text-xs text-slate-500">Цена, Br</span>
-                    <input
-                      type="number"
-                      className={inputClass}
-                      value={service.price}
-                      onChange={(e) =>
-                        updateService(service.id, {
-                          price: parseFloat(e.target.value) || 0,
-                        })
-                      }
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1 block text-xs text-slate-500">
-                      Длительности, мин
-                    </span>
-                    <input
-                      className={inputClass}
-                      value={service.allowedDurations}
-                      onChange={(e) =>
-                        updateService(service.id, {
-                          allowedDurations: e.target.value,
-                        })
-                      }
-                      placeholder="10,30,60"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1 block text-xs text-slate-500">С</span>
-                    <input
-                      type="time"
-                      className={inputClass}
-                      value={service.bookableFrom ?? ""}
-                      onChange={(e) =>
-                        updateService(service.id, {
-                          bookableFrom: e.target.value || null,
-                        })
-                      }
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1 block text-xs text-slate-500">До</span>
-                    <input
-                      type="time"
-                      className={inputClass}
-                      value={service.bookableTo ?? ""}
-                      onChange={(e) =>
-                        updateService(service.id, {
-                          bookableTo: e.target.value || null,
-                        })
-                      }
-                    />
-                  </label>
-                </div>
-                {(service.kind === "wake" || (service.priceRules?.length ?? 0) > 0) && (
-                  <div className="mt-3">
-                    <span className="text-xs font-medium text-slate-600">Тарифы по времени</span>
-                    <div className="mt-2 space-y-2">
-                      {(service.priceRules ?? []).map((rule, idx) => (
-                        <div
-                          key={rule.id || idx}
-                          className="grid gap-2 rounded-lg border border-slate-100 bg-slate-50 p-2 sm:grid-cols-4"
-                        >
-                          <input
-                            className={inputClass}
-                            value={rule.weekdays}
-                            placeholder="1,2,3,4,5"
-                            onChange={(e) => {
-                              const rules = [...(service.priceRules ?? [])];
-                              rules[idx] = { ...rules[idx], weekdays: e.target.value };
-                              updateService(service.id, { priceRules: rules });
-                            }}
-                          />
-                          <input
-                            type="time"
-                            className={inputClass}
-                            value={rule.timeFrom}
-                            onChange={(e) => {
-                              const rules = [...(service.priceRules ?? [])];
-                              rules[idx] = { ...rules[idx], timeFrom: e.target.value };
-                              updateService(service.id, { priceRules: rules });
-                            }}
-                          />
-                          <input
-                            type="time"
-                            className={inputClass}
-                            value={rule.timeTo}
-                            onChange={(e) => {
-                              const rules = [...(service.priceRules ?? [])];
-                              rules[idx] = { ...rules[idx], timeTo: e.target.value };
-                              updateService(service.id, { priceRules: rules });
-                            }}
-                          />
-                          <input
-                            type="number"
-                            className={inputClass}
-                            value={rule.price}
-                            onChange={(e) => {
-                              const rules = [...(service.priceRules ?? [])];
-                              rules[idx] = {
-                                ...rules[idx],
-                                price: parseFloat(e.target.value) || 0,
-                              };
-                              updateService(service.id, { priceRules: rules });
-                            }}
-                          />
-                        </div>
-                      ))}
-                      <button
-                        type="button"
-                        className="text-xs text-lime-700 hover:underline"
-                        onClick={() =>
-                          updateService(service.id, {
-                            priceRules: [
-                              ...(service.priceRules ?? []),
-                              {
-                                id: `new-${Date.now()}`,
-                                weekdays: "1,2,3,4,5",
-                                timeFrom: "10:00",
-                                timeTo: "16:00",
-                                price: service.price,
-                                sortOrder: (service.priceRules?.length ?? 0) + 1,
-                              },
-                            ],
-                          })
-                        }
-                      >
-                        + Добавить тариф
-                      </button>
-                    </div>
-                  </div>
-                )}
-                <div className="mt-3">
-                  <span className="text-xs text-slate-500">Дни недели</span>
-                  <div className="mt-1 flex flex-wrap gap-2">
-                    {WEEKDAY_LABELS.map((label, i) => {
-                      const day = i + 1;
-                      return (
-                        <label
-                          key={day}
-                          className="flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-sm"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={wd.has(day)}
-                            onChange={(e) => {
-                              const next = new Set(wd);
-                              if (e.target.checked) next.add(day);
-                              else next.delete(day);
-                              updateService(service.id, {
-                                weekdays: formatWeekdays(next),
-                              });
-                            }}
-                          />
-                          {label}
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div className="mt-3">
-                  <span className="text-xs text-slate-500">Ресурсы для услуги</span>
-                  <div className="mt-1 flex flex-wrap gap-2">
-                    {branch.staff.map((st) => {
-                      const checked = service.staff.some((x) => x.staff.id === st.id);
-                      return (
-                        <label
-                          key={st.id}
-                          className="flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-sm"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleServiceStaff(service.id, st.id)}
-                          />
-                          {st.name}
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-                <label className="mt-2 flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={service.isOnlineBookable}
-                    onChange={(e) =>
-                      updateService(service.id, {
-                        isOnlineBookable: e.target.checked,
-                      })
-                    }
-                  />
-                  Доступна в онлайн-виджете
-                </label>
-                <button
-                  type="button"
-                  onClick={() => void saveService(service)}
-                  className="mt-3 rounded-lg border border-lime-600 px-3 py-1.5 text-sm text-lime-800 hover:bg-lime-50"
-                >
-                  Сохранить услугу
-                </button>
-                {serviceMsg[service.id] && (
-                  <p className="mt-1 text-xs text-slate-500">{serviceMsg[service.id]}</p>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        {activeService ? (
+          <div className="mt-4">
+            <ServiceEditor
+              service={activeService}
+              staff={branch.staff}
+              branchStaff={branch.staff}
+              expandedStaffId={expandedStaff}
+              onExpandStaff={setExpandedStaff}
+              onUpdateStaff={updateStaff}
+              onSaveStaff={(st) => void saveStaffMeta(st as StaffRow)}
+              onDeleteStaff={(st) => void deleteStaff(st as StaffRow)}
+              onAddResource={() =>
+                void addStaff("revers", activeService.id)
+              }
+              staffSaveMessage={staffMsg}
+              staffDeleteMessage={staffDeleteMsg}
+              deletingStaffId={deletingStaffId}
+              addingResource={adding}
+              onUpdate={(patch) => updateService(activeService.id, patch)}
+              onToggleStaff={(staffId) =>
+                toggleServiceStaff(activeService.id, staffId)
+              }
+              onSave={() => void saveService(activeService)}
+              onDelete={() => void deleteService(activeService)}
+              deleting={deletingServiceId === activeService.id}
+              saveMessage={serviceMsg[activeService.id]}
+              deleteMessage={serviceDeleteMsg[activeService.id]}
+            />
+          </div>
+        ) : (
+          <p className="mt-4 text-sm text-slate-500">
+            Добавьте услугу вейка или сапов для настройки филиала.
+          </p>
+        )}
       </section>
 
       <section>
@@ -643,6 +635,11 @@ export function BranchEditor({ branchId }: Props) {
         <div className="mt-4 space-y-3">
           {branch.staff
             .filter((st) => st.kind === "revers")
+            .filter((st) => !isLegacyTimeSlotStaff(st))
+            .filter(
+              (st) =>
+                !staffExclusiveToCustomService(st.id, branch.services),
+            )
             .map((st) => (
               <StaffResourceEditor
                 key={st.id}
@@ -655,7 +652,10 @@ export function BranchEditor({ branchId }: Props) {
                 photoLabel="Фото реверса"
                 onUpdate={(patch) => updateStaff(st.id, patch)}
                 onSave={() => void saveStaffMeta(st)}
+                onDelete={() => void deleteStaff(st)}
+                deleting={deletingStaffId === st.id}
                 saveMessage={staffMsg[st.id]}
+                deleteMessage={staffDeleteMsg[st.id]}
               />
             ))}
           <button
@@ -674,9 +674,41 @@ export function BranchEditor({ branchId }: Props) {
         <p className="mt-1 text-xs text-slate-500">
           Колонки в журнале и слоты для записи на сапы
         </p>
+        {supService ? (
+          <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-xs text-slate-500">
+              Тарифы для услуги «{supService.name}» — применяются ко всем сапбордам филиала
+            </p>
+            <ServicePriceRulesEditor
+              embedded
+              priceRules={supService.priceRules ?? []}
+              basePrice={supService.price}
+              durationMinutes={supService.durationMinutes}
+              bookableFrom={supService.bookableFrom}
+              bookableTo={supService.bookableTo}
+              serviceWeekdays={supService.weekdays}
+              onChange={(priceRules) => updateService(supService.id, { priceRules })}
+            />
+            <button
+              type="button"
+              onClick={() => void saveService(supService)}
+              className="mt-4 rounded-lg bg-lime-600 px-4 py-2 text-sm font-medium text-white hover:bg-lime-700"
+            >
+              Сохранить тарифы
+            </button>
+            {serviceMsg[supService.id] && (
+              <p className="mt-2 text-xs text-slate-500">{serviceMsg[supService.id]}</p>
+            )}
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-slate-500">
+            Добавьте услугу «Сапборд» в блоке «Услуги», чтобы настроить тарифы.
+          </p>
+        )}
         <div className="mt-4 space-y-3">
           {branch.staff
             .filter((st) => st.kind === "sup")
+            .filter((st) => !isLegacyTimeSlotStaff(st))
             .map((st) => (
               <StaffResourceEditor
                 key={st.id}
@@ -689,7 +721,10 @@ export function BranchEditor({ branchId }: Props) {
                 photoLabel="Фото"
                 onUpdate={(patch) => updateStaff(st.id, patch)}
                 onSave={() => void saveStaffMeta(st)}
+                onDelete={() => void deleteStaff(st)}
+                deleting={deletingStaffId === st.id}
                 saveMessage={staffMsg[st.id]}
+                deleteMessage={staffDeleteMsg[st.id]}
               />
             ))}
           <button
@@ -702,115 +737,6 @@ export function BranchEditor({ branchId }: Props) {
           </button>
         </div>
       </section>
-    </div>
-  );
-}
-
-function StaffResourceEditor({
-  staff,
-  open,
-  onToggle,
-  descriptionLabel,
-  photoLabel,
-  onUpdate,
-  onSave,
-  saveMessage,
-}: {
-  staff: StaffRow;
-  open: boolean;
-  onToggle: () => void;
-  descriptionLabel: string;
-  photoLabel: string;
-  onUpdate: (patch: Partial<StaffRow>) => void;
-  onSave: () => void;
-  saveMessage?: string;
-}) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
-      >
-        <span className="flex min-w-0 flex-1 items-center gap-2">
-          <span
-            className={`font-medium ${staff.isActive && staff.isVisible ? "text-slate-900" : "text-slate-400"}`}
-          >
-            {staff.name}
-          </span>
-          {(!staff.isActive || !staff.isVisible) && (
-            <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
-              скрыт
-            </span>
-          )}
-        </span>
-        <span className="text-xs text-slate-400">{open ? "▲" : "▼"}</span>
-      </button>
-      {open && (
-        <div className="border-t border-slate-100 px-4 pb-4 pt-2">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block sm:col-span-2">
-              <span className="mb-1 block text-xs text-slate-500">Название</span>
-              <input
-                className={inputClass}
-                value={staff.name}
-                onChange={(e) => onUpdate({ name: e.target.value })}
-              />
-            </label>
-            <label className="block sm:col-span-2">
-              <span className="mb-1 block text-xs text-slate-500">
-                {descriptionLabel}
-              </span>
-              <textarea
-                className={`${inputClass} min-h-[72px]`}
-                placeholder="Например: Фигуры — два кикера M, стол 16 м"
-                value={staff.description ?? ""}
-                onChange={(e) => onUpdate({ description: e.target.value })}
-              />
-            </label>
-            <label className="block sm:col-span-2">
-              <PhotoUploadField
-                label={photoLabel}
-                kind="staff"
-                value={staff.photoUrl}
-                onChange={(url) => onUpdate({ photoUrl: url })}
-              />
-            </label>
-            <div className="flex flex-col gap-2 justify-end sm:col-span-2 sm:flex-row sm:items-center">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={staff.isActive}
-                  onChange={(e) => onUpdate({ isActive: e.target.checked })}
-                />
-                Активен
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={staff.isVisible}
-                  onChange={(e) => onUpdate({ isVisible: e.target.checked })}
-                />
-                В виджете
-              </label>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onSave}
-            className="mt-3 rounded-lg border border-lime-600 px-3 py-1.5 text-sm text-lime-800 hover:bg-lime-50"
-          >
-            Сохранить
-          </button>
-          {saveMessage && (
-            <p className="mt-1 text-xs text-slate-500">{saveMessage}</p>
-          )}
-          <div className="mt-4">
-            <h3 className="text-sm font-medium text-slate-700">Расписание работы</h3>
-            <ScheduleEditor staffId={staff.id} embedded />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -107,6 +107,7 @@ model Service {
   branch            Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
   name              String
   description       String?
+  resourceLabel     String?
   kind              String   @default("wake")
   durationMinutes   Int      @default(10)
   allowedDurations  String   @default("10,30,60")

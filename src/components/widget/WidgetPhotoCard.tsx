@@ -13,6 +13,8 @@ type Props = {
   photoUrl?: string | null;
   onClick?: () => void;
   className?: string;
+  /** Крупнее текст в админ-превью */
+  previewSize?: "widget" | "large";
 };
 
 export function WidgetPhotoCard({
@@ -22,10 +24,16 @@ export function WidgetPhotoCard({
   photoUrl,
   onClick,
   className = "",
+  previewSize = "widget",
 }: Props) {
+  const isLarge = previewSize === "large";
+
   const inner = (
     <>
-      <div className="relative w-full overflow-hidden" style={widgetPhotoAspectStyle(kind)}>
+      <div
+        className={`relative w-full overflow-hidden ${isLarge ? "min-h-[7.5rem] sm:min-h-[9rem]" : ""}`}
+        style={widgetPhotoAspectStyle(kind)}
+      >
         {photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -37,12 +45,22 @@ export function WidgetPhotoCard({
           <div className="absolute inset-0 bg-gradient-to-br from-slate-700 to-slate-900" />
         )}
         <div className="absolute inset-0 bg-black/45" />
-        <div className="absolute inset-0 flex flex-col justify-end p-2.5">
-          <span className="text-base font-bold leading-tight text-white drop-shadow-md">
+        <div
+          className={`absolute inset-0 flex flex-col justify-end ${isLarge ? "p-4 sm:p-5" : "p-2.5"}`}
+        >
+          <span
+            className={`font-bold leading-tight text-white drop-shadow-md ${
+              isLarge ? "text-lg sm:text-xl" : "text-base"
+            }`}
+          >
             {title}
           </span>
           {subtitle ? (
-            <span className="mt-0.5 line-clamp-2 text-xs leading-snug text-white/90">
+            <span
+              className={`mt-0.5 line-clamp-2 leading-snug text-white/90 ${
+                isLarge ? "text-sm sm:text-base" : "text-xs"
+              }`}
+            >
               {subtitle}
             </span>
           ) : null}

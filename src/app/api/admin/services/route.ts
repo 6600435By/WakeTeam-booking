@@ -7,10 +7,14 @@ import {
   resolveBranchFilter,
 } from "@/lib/admin-access";
 import { prisma } from "@/lib/db";
+import {
+  defaultWakeLikePriceRules,
+  isLegacyTariffServiceName,
+} from "@/lib/admin/service-catalog";
 
 const createSchema = z.object({
   branchId: z.string(),
-  kind: z.enum(["wake", "sup"]),
+  kind: z.enum(["wake", "sup", "custom"]),
   name: z.string().min(1).optional(),
   price: z.number().nonnegative().optional(),
 });
@@ -55,14 +59,40 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const existing = await prisma.service.findFirst({
-      where: { branchId: body.branchId, kind: body.kind, isActive: true },
-    });
-    if (existing) {
+    const isCustom = body.kind === "custom";
+    if (isCustom && !body.name?.trim()) {
       return NextResponse.json(
-        { error: `Услуга «${existing.name}» уже есть в этом филиале` },
-        { status: 409 },
+        { error: "Укажите название новой услуги" },
+        { status: 400 },
       );
+    }
+
+    if (!isCustom) {
+      const existingServices = await prisma.service.findMany({
+        where: { branchId: body.branchId, kind: body.kind },
+      });
+      const existing = existingServices.find(
+        (s) => !isLegacyTariffServiceName(s.name),
+      );
+      if (existing) {
+        return NextResponse.json(
+          { error: `Услуга «${existing.name}» уже есть в этом филиале` },
+          { status: 409 },
+        );
+      }
+    } else {
+      const duplicate = await prisma.service.findFirst({
+        where: {
+          branchId: body.branchId,
+          name: body.name!.trim(),
+        },
+      });
+      if (duplicate) {
+        return NextResponse.json(
+          { error: `Услуга «${body.name}» уже есть в этом филиале` },
+          { status: 409 },
+        );
+      }
     }
 
     const maxSort = await prisma.service.aggregate({
@@ -71,61 +101,70 @@ export async function POST(req: NextRequest) {
     });
 
     const isWake = body.kind === "wake";
-    const staffKind = isWake ? "revers" : "sup";
-    const staff = await prisma.staff.findMany({
-      where: {
-        branchId: body.branchId,
-        kind: staffKind,
-        isActive: true,
-        isVisible: true,
-      },
-      orderBy: { sortOrder: "asc" },
-    });
+    const isSup = body.kind === "sup";
+    const basePrice = body.price ?? (isSup ? 20 : 15);
+
+    let staffLinks: { staffId: string }[] = [];
+    if (!isCustom) {
+      const staffKind = isWake ? "revers" : "sup";
+      const staff = await prisma.staff.findMany({
+        where: {
+          branchId: body.branchId,
+          kind: staffKind,
+          isActive: true,
+          isVisible: true,
+        },
+        orderBy: { sortOrder: "asc" },
+      });
+      staffLinks = staff.map((s) => ({ staffId: s.id }));
+    }
+
+    const priceRuleRows =
+      isSup
+        ? [
+            {
+              weekdays: "1,2,3,4,5",
+              timeFrom: "09:00",
+              timeTo: "16:00",
+              price: basePrice,
+              sortOrder: 1,
+            },
+            {
+              weekdays: "1,2,3,4,5",
+              timeFrom: "16:00",
+              timeTo: "21:00",
+              price: 25,
+              sortOrder: 2,
+            },
+            {
+              weekdays: "6,7",
+              timeFrom: "09:00",
+              timeTo: "21:00",
+              price: 25,
+              sortOrder: 3,
+            },
+          ]
+        : defaultWakeLikePriceRules(basePrice);
 
     const service = await prisma.service.create({
       data: {
         branchId: body.branchId,
         kind: body.kind,
-        name: body.name ?? (isWake ? "Вейкбординг" : "Сапборд"),
-        price: body.price ?? (isWake ? 15 : 20),
-        durationMinutes: isWake ? 10 : 60,
-        allowedDurations: isWake ? "10,30,60" : "60",
-        bookableFrom: isWake ? "10:00" : "09:00",
-        bookableTo: isWake ? "21:00" : "21:00",
+        name: body.name?.trim() ?? (isWake ? "Вейкбординг" : isSup ? "Сапборд" : "Услуга"),
+        resourceLabel: isCustom ? body.name!.trim() : null,
+        price: basePrice,
+        durationMinutes: isSup ? 60 : 10,
+        allowedDurations: isSup ? "60" : "10,30,60",
+        bookableFrom: isSup ? "09:00" : "10:00",
+        bookableTo: "21:00",
         weekdays: "1,2,3,4,5,6,7",
         sortOrder: (maxSort._max.sortOrder ?? 0) + 1,
-        staff: {
-          create: staff.map((s) => ({ staffId: s.id })),
-        },
-        ...(isWake
-          ? {
-              priceRules: {
-                create: [
-                  {
-                    weekdays: "1,2,3,4,5",
-                    timeFrom: "10:00",
-                    timeTo: "16:00",
-                    price: body.price ?? 15,
-                    sortOrder: 1,
-                  },
-                  {
-                    weekdays: "1,2,3,4,5",
-                    timeFrom: "16:00",
-                    timeTo: "21:00",
-                    price: 30,
-                    sortOrder: 2,
-                  },
-                  {
-                    weekdays: "6,7",
-                    timeFrom: "09:00",
-                    timeTo: "21:00",
-                    price: 30,
-                    sortOrder: 3,
-                  },
-                ],
-              },
-            }
+        ...(staffLinks.length > 0
+          ? { staff: { create: staffLinks } }
           : {}),
+        priceRules: {
+          create: priceRuleRows,
+        },
       },
       include: {
         priceRules: { orderBy: { sortOrder: "asc" } },

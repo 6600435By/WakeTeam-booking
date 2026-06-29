@@ -1102,10 +1102,36 @@ export function BookingWidget({
           {supService && (
             <ActivityCard
               title={settings.texts.supLabel}
-              priceHint={`от ${supService.price} Br`}
+              priceHint={`от ${supService.priceFrom} Br`}
               onClick={() => pickActivity("sup")}
               theme={theme}
-            />
+            >
+              {settings.behavior.showTariffsExpandable &&
+                supService.priceRules.length > 0 && (
+                  <div>
+                    <button
+                      type="button"
+                      className="text-xs underline"
+                      style={{ color: theme.primaryColor }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setTariffsOpen((v) => !v);
+                      }}
+                    >
+                      Тарифы
+                    </button>
+                    {tariffsOpen && (
+                      <ul className="mt-1 space-y-0.5 text-xs text-slate-600">
+                        {supService.priceRules.map((r, i) => (
+                          <li key={i}>
+                            {formatTariffLine(r, supService.durationMinutes)}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+            </ActivityCard>
           )}
         </div>
       )}

@@ -6,6 +6,8 @@ import {
   requireAdminContext,
 } from "@/lib/admin-access";
 import { prisma } from "@/lib/db";
+import { isLegacyTariffServiceName, serviceResourceLabel } from "@/lib/admin/service-catalog";
+import { catalogStaff } from "@/lib/admin/staff-catalog";
 
 const createSchema = z.object({
   branchId: z.string(),
@@ -13,6 +15,7 @@ const createSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
   copyScheduleFromStaffId: z.string().optional(),
+  serviceId: z.string().optional(),
 });
 
 const DEFAULT_SCHEDULE = Array.from({ length: 7 }, (_, i) => ({
@@ -35,14 +38,55 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const activeSameKind = await prisma.staff.count({
-      where: { branchId: body.branchId, kind: body.kind, isActive: true },
+    let dedicatedService: {
+      id: string;
+      kind: string;
+      durationMinutes: number;
+      name: string;
+      resourceLabel: string | null;
+    } | null = null;
+    if (body.serviceId) {
+      dedicatedService = await prisma.service.findFirst({
+        where: { id: body.serviceId, branchId: body.branchId },
+        select: {
+          id: true,
+          kind: true,
+          durationMinutes: true,
+          name: true,
+          resourceLabel: true,
+        },
+      });
+      if (!dedicatedService) {
+        return NextResponse.json({ error: "Услуга не найдена" }, { status: 404 });
+      }
+      if (dedicatedService.kind === "sup") {
+        return NextResponse.json(
+          { error: "Для сапборда используйте общий список сапов" },
+          { status: 400 },
+        );
+      }
+    }
+
+    const branchStaff = await prisma.staff.findMany({
+      where: { branchId: body.branchId, kind: body.kind },
     });
-    const defaultName =
-      body.name ??
-      (body.kind === "revers"
-        ? `Реверс №${activeSameKind + 1}`
-        : `Сапборд №${activeSameKind + 1}`);
+
+    let defaultName = body.name;
+    if (!defaultName) {
+      if (dedicatedService) {
+        const linkedCount = await prisma.serviceStaff.count({
+          where: { serviceId: dedicatedService.id },
+        });
+        const label = serviceResourceLabel(dedicatedService);
+        defaultName = `${label} №${linkedCount + 1}`;
+      } else {
+        const activeSameKind = catalogStaff(branchStaff).filter((s) => s.isActive).length;
+        defaultName =
+          body.kind === "revers"
+            ? `Реверс №${activeSameKind + 1}`
+            : `Сапборд №${activeSameKind + 1}`;
+      }
+    }
 
     const maxSort = await prisma.staff.aggregate({
       where: { branchId: body.branchId, kind: body.kind },
@@ -63,21 +107,45 @@ export async function POST(req: NextRequest) {
           timeTo: s.timeTo,
         }));
       }
-    } else {
-      const template = await prisma.staff.findFirst({
-        where: { branchId: body.branchId, kind: body.kind, isActive: true },
-        include: { schedules: true },
-        orderBy: { sortOrder: "asc" },
+    } else if (dedicatedService) {
+      const linked = await prisma.serviceStaff.findFirst({
+        where: { serviceId: dedicatedService.id },
+        include: { staff: { include: { schedules: true } } },
+        orderBy: { staff: { sortOrder: "asc" } },
       });
-      if (template?.schedules.length) {
-        scheduleRows = template.schedules.map((s) => ({
+      if (linked?.staff.schedules.length) {
+        scheduleRows = linked.staff.schedules.map((s) => ({
           weekday: s.weekday,
           isWorking: s.isWorking,
           timeFrom: s.timeFrom,
           timeTo: s.timeTo,
         }));
       }
+    } else {
+      const templateMeta = catalogStaff(branchStaff)
+        .filter((s) => s.isActive)
+        .sort((a, b) => a.sortOrder - b.sortOrder)[0];
+      if (templateMeta) {
+        const template = await prisma.staff.findUnique({
+          where: { id: templateMeta.id },
+          include: { schedules: true },
+        });
+        if (template?.schedules.length) {
+          scheduleRows = template.schedules.map((s) => ({
+            weekday: s.weekday,
+            isWorking: s.isWorking,
+            timeFrom: s.timeFrom,
+            timeTo: s.timeTo,
+          }));
+        }
+      }
     }
+
+    const slotMinutes = dedicatedService
+      ? dedicatedService.durationMinutes
+      : body.kind === "sup"
+        ? 60
+        : 10;
 
     const staff = await prisma.staff.create({
       data: {
@@ -87,7 +155,7 @@ export async function POST(req: NextRequest) {
         kind: body.kind,
         description: body.description ?? null,
         sortOrder: (maxSort._max.sortOrder ?? 0) + 1,
-        slotMinutes: body.kind === "sup" ? 60 : 10,
+        slotMinutes,
         schedules: {
           create: scheduleRows,
         },
@@ -95,23 +163,30 @@ export async function POST(req: NextRequest) {
       include: { schedules: true },
     });
 
-    const serviceKind = body.kind === "revers" ? "wake" : "sup";
-    const service = await prisma.service.findFirst({
-      where: {
-        branchId: body.branchId,
-        kind: serviceKind,
-        isActive: true,
-      },
-      orderBy: { sortOrder: "asc" },
-    });
-    if (service) {
-      await prisma.serviceStaff.upsert({
-        where: {
-          serviceId_staffId: { serviceId: service.id, staffId: staff.id },
-        },
-        create: { serviceId: service.id, staffId: staff.id },
-        update: {},
+    if (dedicatedService) {
+      await prisma.serviceStaff.create({
+        data: { serviceId: dedicatedService.id, staffId: staff.id },
       });
+    } else {
+      const serviceKind = body.kind === "revers" ? "wake" : "sup";
+      const branchServices = await prisma.service.findMany({
+        where: {
+          branchId: body.branchId,
+          kind: serviceKind,
+          isActive: true,
+        },
+        orderBy: { sortOrder: "asc" },
+      });
+      const service = branchServices.find((s) => !isLegacyTariffServiceName(s.name));
+      if (service) {
+        await prisma.serviceStaff.upsert({
+          where: {
+            serviceId_staffId: { serviceId: service.id, staffId: staff.id },
+          },
+          create: { serviceId: service.id, staffId: staff.id },
+          update: {},
+        });
+      }
     }
 
     return NextResponse.json({ ok: true, staff });

@@ -11,15 +11,37 @@ type Props = {
   kind: WidgetPhotoKind;
   value: string | null;
   onChange: (url: string | null) => void;
+  /** Текст на карточке в виджете (название) */
+  title?: string;
+  /** Подпись под названием на фото */
+  subtitle?: string | null;
+  /** Показывать превью даже без загруженного фото */
+  previewAlways?: boolean;
+  /** Превью на всю ширину контейнера (админка) */
+  previewWide?: boolean;
+  previewSize?: "widget" | "large";
 };
 
-export function PhotoUploadField({ label, kind, value, onChange }: Props) {
+export function PhotoUploadField({
+  label,
+  kind,
+  value,
+  onChange,
+  title,
+  subtitle,
+  previewAlways = false,
+  previewWide = false,
+  previewSize = "widget",
+}: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [cropSrc, setCropSrc] = useState<string | null>(null);
   const pendingObjectUrl = useRef<string | null>(null);
   const sample = widgetSampleLabels(kind);
+  const previewTitle = title?.trim() || sample.title;
+  const previewSubtitle = subtitle?.trim() || sample.subtitle || null;
+  const showPreview = previewAlways || Boolean(value);
 
   useEffect(
     () => () => {
@@ -85,14 +107,15 @@ export function PhotoUploadField({ label, kind, value, onChange }: Props) {
     <div>
       <span className="mb-1 block text-xs text-slate-500">{label}</span>
 
-      {value && (
-        <div className="mb-3 max-w-md">
-          <p className="mb-1 text-xs text-slate-400">Текущее фото в виджете</p>
+      {showPreview && (
+        <div className={`mb-3 ${previewWide ? "w-full" : "max-w-md"}`}>
+          <p className="mb-1.5 text-xs text-slate-400">Как в виджете</p>
           <WidgetPhotoCard
             kind={kind}
-            title={sample.title}
-            subtitle={sample.subtitle}
+            title={previewTitle}
+            subtitle={previewSubtitle}
             photoUrl={value}
+            previewSize={previewSize}
           />
         </div>
       )}
@@ -144,6 +167,8 @@ export function PhotoUploadField({ label, kind, value, onChange }: Props) {
         <PhotoCropModal
           kind={kind}
           imageSrc={cropSrc}
+          title={previewTitle}
+          subtitle={previewSubtitle}
           onCancel={closeCropper}
           onConfirm={(blob) => void uploadBlob(blob)}
         />
