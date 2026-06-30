@@ -1,6 +1,11 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { DEFAULT_WIDGET_SETTINGS } from "../src/lib/widget-settings";
+import { parseTimeOnDate } from "../src/lib/time";
+import {
+  resolveRatesForDate,
+  serializeRatesSnapshot,
+} from "../src/lib/payroll/resolve-rates";
 
 const prisma = new PrismaClient();
 
@@ -263,17 +268,25 @@ function supBoards(prefix: string, count: number, from: string, to: string): Sta
 }
 
 async function upsertAdmin(
-  email: string,
+  login: string,
   password: string,
   name: string,
-  role: "super_admin" | "branch_admin",
+  lastName: string,
+  role: "super_admin" | "branch_admin" | "branch_operator",
   branchId?: string,
+  email?: string,
 ) {
   const hash = await bcrypt.hash(password, 10);
   const user = await prisma.user.upsert({
-    where: { email },
-    create: { email, passwordHash: hash, name },
-    update: { passwordHash: hash, name },
+    where: { login },
+    create: {
+      login,
+      email: email ?? null,
+      passwordHash: hash,
+      name,
+      lastName,
+    },
+    update: { passwordHash: hash, name, lastName, ...(email ? { email } : {}) },
   });
   await prisma.organizationMember.upsert({
     where: {
@@ -287,6 +300,214 @@ async function upsertAdmin(
     },
     update: { role, branchId: branchId ?? null },
   });
+  return user.id;
+}
+
+async function seedPayRates(
+  login: string,
+  rates: { kind: string; amount: number }[],
+) {
+  const member = await prisma.organizationMember.findFirst({
+    where: {
+      organizationId: ORG_ID,
+      user: { login },
+    },
+  });
+  if (!member) return;
+  const from = "2020-01-01";
+  for (const r of rates) {
+    const existing = await prisma.memberPayRate.findFirst({
+      where: { memberId: member.id, kind: r.kind, effectiveFrom: from },
+    });
+    if (!existing) {
+      await prisma.memberPayRate.create({
+        data: {
+          memberId: member.id,
+          kind: r.kind,
+          amount: r.amount,
+          effectiveFrom: from,
+        },
+      });
+    }
+  }
+}
+
+async function memberByLogin(login: string) {
+  return prisma.organizationMember.findFirst({
+    where: { organizationId: ORG_ID, user: { login } },
+  });
+}
+
+async function ratesSnapshotFor(memberId: string, date: string) {
+  const rates = await prisma.memberPayRate.findMany({ where: { memberId } });
+  return serializeRatesSnapshot(resolveRatesForDate(rates, date));
+}
+
+/** Демо-смены 15–29.06.2026 для календаря и расчёта ЗП. */
+async function seedDemoWorkShifts(raubichiId: string, druzyaId: string) {
+  const operator = await memberByLogin("operator");
+  const druzyaAdmin = await memberByLogin("druzya");
+  const admin = await memberByLogin("admin");
+  if (!operator) return;
+
+  const reversId = "rau-rev1";
+  const assignerId = admin?.id ?? operator.id;
+
+  for (let d = 15; d <= 29; d++) {
+    const date = `2026-06-${String(d).padStart(2, "0")}`;
+    if (date === "2026-06-18" || date === "2026-06-25") continue;
+
+    let status: "scheduled" | "closed" | "approved" = "scheduled";
+    if (d <= 22) status = "closed";
+    else if (d <= 26) status = "approved";
+
+    const existing = await prisma.workShift.findUnique({
+      where: { memberId_date: { memberId: operator.id, date } },
+    });
+
+    if (status === "scheduled") {
+      if (existing) {
+        await prisma.workShift.update({
+          where: { id: existing.id },
+          data: {
+            status: "scheduled",
+            plannedStart: "10:00",
+            plannedEnd: "22:00",
+            plannedStaffId: reversId,
+            workAsAdmin: false,
+            actualStart: null,
+            actualEnd: null,
+            ratesSnapshot: null,
+            panelMinutesOverride: null,
+            idleMinutesOverride: null,
+          },
+        });
+      } else {
+        await prisma.workShift.create({
+          data: {
+            organizationId: ORG_ID,
+            branchId: raubichiId,
+            memberId: operator.id,
+            date,
+            plannedStart: "10:00",
+            plannedEnd: "22:00",
+            plannedStaffId: reversId,
+            status: "scheduled",
+          },
+        });
+      }
+      continue;
+    }
+
+    const start = parseTimeOnDate(date, "10:00");
+    const end = parseTimeOnDate(date, "22:00");
+    const spotStart = parseTimeOnDate(date, "14:00");
+    const spotEnd = parseTimeOnDate(date, "15:15");
+    const panelMinutes = 270 + (d % 3) * 30;
+    const spotMinutes = 75;
+    const idleMinutes = 720 - panelMinutes - spotMinutes;
+    const snapshot = await ratesSnapshotFor(operator.id, date);
+
+    const shift = existing
+      ? await prisma.workShift.update({
+          where: { id: existing.id },
+          data: {
+            status,
+            branchId: raubichiId,
+            plannedStart: "10:00",
+            plannedEnd: "22:00",
+            plannedStaffId: reversId,
+            workAsAdmin: false,
+            actualStart: start,
+            actualEnd: end,
+            ratesSnapshot: snapshot,
+            panelMinutesOverride: panelMinutes,
+            idleMinutesOverride: idleMinutes,
+          },
+        })
+      : await prisma.workShift.create({
+          data: {
+            organizationId: ORG_ID,
+            branchId: raubichiId,
+            memberId: operator.id,
+            date,
+            plannedStart: "10:00",
+            plannedEnd: "22:00",
+            plannedStaffId: reversId,
+            status,
+            actualStart: start,
+            actualEnd: end,
+            ratesSnapshot: snapshot,
+            panelMinutesOverride: panelMinutes,
+            idleMinutesOverride: idleMinutes,
+          },
+        });
+
+    await prisma.reverseAssignment.deleteMany({ where: { shiftId: shift.id } });
+    await prisma.reverseAssignment.create({
+      data: { shiftId: shift.id, staffId: reversId, startedAt: start, endedAt: end },
+    });
+
+    await prisma.spotWorkEntry.deleteMany({ where: { shiftId: shift.id } });
+    await prisma.spotWorkEntry.create({
+      data: {
+        shiftId: shift.id,
+        category: "spot",
+        comment: "Демо: уборка спота",
+        startedAt: spotStart,
+        endedAt: spotEnd,
+        isActive: false,
+        createdByMemberId: assignerId,
+      },
+    });
+  }
+
+  if (druzyaAdmin) {
+    for (const date of [
+      "2026-06-16",
+      "2026-06-17",
+      "2026-06-18",
+      "2026-06-19",
+      "2026-06-20",
+    ]) {
+      const start = parseTimeOnDate(date, "09:00");
+      const end = parseTimeOnDate(date, "18:00");
+      const snapshot = await ratesSnapshotFor(druzyaAdmin.id, date);
+      const existing = await prisma.workShift.findUnique({
+        where: { memberId_date: { memberId: druzyaAdmin.id, date } },
+      });
+      if (existing) {
+        await prisma.workShift.update({
+          where: { id: existing.id },
+          data: {
+            status: "closed",
+            branchId: druzyaId,
+            actualStart: start,
+            actualEnd: end,
+            ratesSnapshot: snapshot,
+            workAsAdmin: false,
+            plannedStart: "09:00",
+            plannedEnd: "18:00",
+          },
+        });
+      } else {
+        await prisma.workShift.create({
+          data: {
+            organizationId: ORG_ID,
+            branchId: druzyaId,
+            memberId: druzyaAdmin.id,
+            date,
+            plannedStart: "09:00",
+            plannedEnd: "18:00",
+            status: "closed",
+            actualStart: start,
+            actualEnd: end,
+            ratesSnapshot: snapshot,
+          },
+        });
+      }
+    }
+  }
 }
 
 async function main() {
@@ -311,10 +532,13 @@ async function main() {
 
   // Главный админ (Раубичи) — видит все филиалы
   await upsertAdmin(
-    email,
+    "admin",
     password,
-    "Администратор WakeTeam (Раубичи)",
+    "WakeTeam",
+    "Администратор",
     "super_admin",
+    undefined,
+    email,
   );
 
   // --- Раубичи ---
@@ -556,24 +780,48 @@ async function main() {
 
   // Админы филиалов — только свой филиал
   await upsertAdmin(
-    "druzya@waketeam.by",
+    "druzya",
     branchPassword,
-    'Админ "Друзья"',
+    "Админ",
+    "Друзья",
     "branch_admin",
     druzya.id,
+    "druzya@waketeam.by",
   );
   await upsertAdmin(
-    "stayki@waketeam.by",
+    "stayki",
     branchPassword,
-    'Админ "Стайки"',
+    "Админ",
+    "Стайки",
     "branch_admin",
     stayki.id,
+    "stayki@waketeam.by",
   );
+  await upsertAdmin(
+    "operator",
+    branchPassword,
+    "Оператор",
+    "Раубичи",
+    "branch_operator",
+    raubichi.id,
+    "operator@waketeam.by",
+  );
+
+  await seedPayRates("operator", [
+    { kind: "panel", amount: 12 },
+    { kind: "spot", amount: 10 },
+    { kind: "idle", amount: 8 },
+  ]);
+  await seedPayRates("druzya", [{ kind: "shift", amount: 15 }]);
+  await seedPayRates("stayki", [{ kind: "shift", amount: 15 }]);
+
+  await seedDemoWorkShifts(raubichi.id, druzya.id);
 
   console.log("Seed OK. Organization: waketeam");
   console.log("Super admin (все филиалы):", email);
   console.log("Друзья:", "druzya@waketeam.by");
   console.log("Стайки:", "stayki@waketeam.by");
+  console.log("Оператор Раубичи:", "operator@waketeam.by");
   console.log("Пароль филиальных админов:", branchPassword);
   console.log("Branches: Раубичи, Друзья, Стайки");
 }

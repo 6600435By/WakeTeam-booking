@@ -42,6 +42,7 @@ export async function queryCalendarDay(
         client: true,
         service: true,
         staff: true,
+        rentalItem: true,
       },
       orderBy: { startAt: "asc" },
     }),
@@ -88,6 +89,7 @@ export async function queryAppointmentsList(
       client: true,
       service: true,
       staff: true,
+      rentalItem: true,
     },
     orderBy: { startAt: "desc" },
   });

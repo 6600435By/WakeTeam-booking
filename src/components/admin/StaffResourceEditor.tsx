@@ -1,7 +1,7 @@
 "use client";
 
 import { PhotoUploadField } from "./PhotoUploadField";
-import { ScheduleEditor } from "./ScheduleEditor";
+import { ScheduleEditor, type ScheduleRow } from "./ScheduleEditor";
 
 const inputClass =
   "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900";
@@ -18,6 +18,7 @@ export type StaffResourceRow = {
 
 type Props = {
   staff: StaffResourceRow;
+  schedules?: ScheduleRow[];
   open: boolean;
   onToggle: () => void;
   descriptionLabel: string;
@@ -32,6 +33,7 @@ type Props = {
 
 export function StaffResourceEditor({
   staff,
+  schedules,
   open,
   onToggle,
   descriptionLabel,
@@ -143,7 +145,7 @@ export function StaffResourceEditor({
           )}
           <div className="mt-4">
             <h3 className="text-sm font-medium text-slate-700">Расписание работы</h3>
-            <ScheduleEditor staffId={staff.id} embedded />
+            <ScheduleEditor staffId={staff.id} schedules={schedules} embedded />
           </div>
         </div>
       )}

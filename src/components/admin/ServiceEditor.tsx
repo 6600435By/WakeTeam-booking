@@ -10,6 +10,7 @@ import {
   StaffResourceEditor,
   type StaffResourceRow,
 } from "./StaffResourceEditor";
+import type { ScheduleRow } from "./ScheduleEditor";
 import {
   ServicePriceRulesEditor,
   WeekdayPicker,
@@ -46,7 +47,7 @@ const inputClass =
 type Props = {
   service: ServiceRow;
   staff: StaffRow[];
-  branchStaff?: StaffResourceRow[];
+  branchStaff?: (StaffResourceRow & { schedules?: ScheduleRow[] })[];
   expandedStaffId?: string | null;
   onExpandStaff?: (id: string | null) => void;
   onUpdateStaff?: (id: string, patch: Partial<StaffResourceRow>) => void;
@@ -93,7 +94,9 @@ export function ServiceEditor({
   const linkedStaff = dedicated
     ? service.staff
         .map((link) => branchStaff.find((s) => s.id === link.staff.id))
-        .filter((s): s is StaffResourceRow => !!s)
+        .filter(
+          (s): s is StaffResourceRow & { schedules?: ScheduleRow[] } => !!s,
+        )
     : [];
   const sharedStaff = !dedicated
     ? catalogStaffByKind(
@@ -191,6 +194,7 @@ export function ServiceEditor({
               <StaffResourceEditor
                 key={st.id}
                 staff={st}
+                schedules={st.schedules}
                 open={expandedStaffId === st.id}
                 onToggle={() =>
                   onExpandStaff?.(expandedStaffId === st.id ? null : st.id)
@@ -252,7 +256,8 @@ export function ServiceEditor({
         <h3 className="text-sm font-semibold text-slate-900">Время работы услуги</h3>
         <p className="mt-0.5 text-xs text-slate-500">
           Когда можно создавать записи в журнале
-          {isStaffBasedService(service) ? " и виджете" : ""}
+          {isStaffBasedService(service) ? " и виджете" : ""}. Для привязанных
+          ресурсов расписание обновляется автоматически.
         </p>
         <div className="mt-3">
           <span className="mb-1.5 block text-xs text-slate-500">Дни недели</span>

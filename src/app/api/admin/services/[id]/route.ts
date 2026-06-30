@@ -1,14 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
+  assertCatalogAccess,
   assertServiceAccess,
   handleAdminError,
   requireAdminContext,
 } from "@/lib/admin-access";
 import { prisma } from "@/lib/db";
+import {
+  buildStaffSchedulesFromService,
+} from "@/lib/admin/service-staff-schedule";
+
+async function syncLinkedStaffSchedules(
+  staffIds: string[],
+  weekdays: string,
+  bookableFrom: string | null,
+  bookableTo: string | null,
+) {
+  if (staffIds.length === 0) return;
+  const schedules = buildStaffSchedulesFromService(
+    weekdays,
+    bookableFrom,
+    bookableTo,
+  );
+  for (const staffId of staffIds) {
+    for (const s of schedules) {
+      await prisma.staffSchedule.upsert({
+        where: { staffId_weekday: { staffId, weekday: s.weekday } },
+        create: { staffId, ...s },
+        update: s,
+      });
+    }
+  }
+}
 
 const patchSchema = z.object({
   name: z.string().min(1).optional(),
+  description: z.string().nullable().optional(),
   resourceLabel: z.string().nullable().optional(),
   price: z.number().nonnegative().optional(),
   durationMinutes: z.number().int().positive().optional(),
@@ -39,6 +67,7 @@ export async function PATCH(
 ) {
   try {
     const ctx = await requireAdminContext();
+    assertCatalogAccess(ctx);
     const { id } = await params;
     await assertServiceAccess(ctx, id);
     const body = patchSchema.parse(await req.json());
@@ -94,6 +123,23 @@ export async function PATCH(
       },
     });
 
+    const scheduleTouched =
+      body.weekdays !== undefined ||
+      body.bookableFrom !== undefined ||
+      body.bookableTo !== undefined ||
+      staffIds !== undefined;
+
+    if (scheduleTouched) {
+      const linkedStaffIds =
+        staffIds ?? service.staff.map((link) => link.staff.id);
+      await syncLinkedStaffSchedules(
+        linkedStaffIds,
+        service.weekdays,
+        service.bookableFrom,
+        service.bookableTo,
+      );
+    }
+
     return NextResponse.json({ ok: true, service });
   } catch (e) {
     if (e instanceof z.ZodError) {
@@ -113,6 +159,7 @@ export async function DELETE(
 ) {
   try {
     const ctx = await requireAdminContext();
+    assertCatalogAccess(ctx);
     const { id } = await params;
     await assertServiceAccess(ctx, id);
 

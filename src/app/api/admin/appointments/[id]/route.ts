@@ -14,6 +14,8 @@ import {
   setAppointmentMembership,
 } from "@/lib/memberships/deduct";
 import { updateAppointment } from "@/lib/slots/generateSlots";
+import { applyAppointmentRental, reconcileDailyRentalCharges } from "@/lib/rental-pricing";
+import { formatDateKey } from "@/lib/time";
 
 const patchSchema = z.object({
   startAt: z.string().optional(),
@@ -28,6 +30,8 @@ const patchSchema = z.object({
   phone: z.string().optional(),
   paymentMethod: z.enum(["cash", "card", "corporate"]).nullable().optional(),
   price: z.number().nonnegative().optional(),
+  rentalItemId: z.string().nullable().optional(),
+  rentalQuantity: z.number().int().nonnegative().optional(),
 });
 
 export async function GET(
@@ -40,7 +44,7 @@ export async function GET(
     await assertAppointmentAccess(ctx, id);
     const appointment = await prisma.appointment.findUnique({
       where: { id },
-      include: { client: true, service: true, staff: true, membership: true },
+      include: { client: true, service: true, staff: true, membership: true, rentalItem: true },
     });
     if (!appointment) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -68,9 +72,32 @@ export async function PATCH(
     if (body.serviceId) await assertServiceAccess(ctx, body.serviceId);
 
     const existing = await prisma.appointment.findUniqueOrThrow({ where: { id } });
-    const { membershipId, ...rest } = body;
+    const oldDateKey = formatDateKey(existing.startAt);
+    const { membershipId, rentalItemId, rentalQuantity, price, ...rest } = body;
 
-    const appointment = await updateAppointment(id, rest, { skipSlotCheck: true });
+    await updateAppointment(id, rest, { skipSlotCheck: true });
+
+    if (rentalItemId !== undefined || rentalQuantity !== undefined) {
+      await applyAppointmentRental(prisma, id, {
+        rentalItemId: rentalItemId ?? null,
+        rentalQuantity: rentalQuantity ?? 0,
+      }, { priceOverride: price });
+    } else if (price != null) {
+      await prisma.appointment.update({
+        where: { id },
+        data: { price },
+      });
+    }
+
+    const updated = await prisma.appointment.findUniqueOrThrow({ where: { id } });
+    const newDateKey = formatDateKey(updated.startAt);
+    if (oldDateKey !== newDateKey && existing.rentalItemId) {
+      await reconcileDailyRentalCharges(prisma, {
+        clientId: existing.clientId,
+        branchId: existing.branchId,
+        dateKey: oldDateKey,
+      });
+    }
 
     if (membershipId !== undefined) {
       await setAppointmentMembership(id, membershipId);
@@ -92,7 +119,7 @@ export async function PATCH(
 
     const fresh = await prisma.appointment.findUnique({
       where: { id },
-      include: { client: true, service: true, staff: true, membership: true },
+      include: { client: true, service: true, staff: true, membership: true, rentalItem: true },
     });
     return NextResponse.json({ ok: true, appointment: fresh });
   } catch (e) {
@@ -131,7 +158,7 @@ export async function DELETE(
         status: "deleted",
         cancelReason: body.reason,
       },
-      include: { client: true, service: true, staff: true, membership: true },
+      include: { client: true, service: true, staff: true, membership: true, rentalItem: true },
     });
     return NextResponse.json({ ok: true, appointment });
   } catch (e) {

@@ -179,6 +179,8 @@ export async function saveAppointmentEdit(params: {
   comment?: string;
   membershipId?: string | null;
   paymentMethod?: "cash" | "card" | "corporate" | null;
+  rentalItemId?: string | null;
+  rentalQuantity?: number;
 }): Promise<void> {
   const createTemplate: CreateTemplate = {
     serviceId: params.newServiceId,
@@ -204,6 +206,8 @@ export async function saveAppointmentEdit(params: {
       comment: params.comment,
       membershipId: params.membershipId ?? null,
       paymentMethod: params.paymentMethod ?? null,
+      rentalItemId: params.rentalItemId ?? null,
+      rentalQuantity: params.rentalQuantity ?? 0,
     });
     return;
   }
@@ -236,6 +240,8 @@ export async function saveAppointmentEdit(params: {
           ? {
               membershipId: params.membershipId ?? null,
               paymentMethod: params.paymentMethod ?? null,
+              rentalItemId: params.rentalItemId ?? null,
+              rentalQuantity: params.rentalQuantity ?? 0,
             }
           : {}),
       }),

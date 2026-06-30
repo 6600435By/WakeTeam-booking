@@ -1,0 +1,263 @@
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import {
+  canReviewShifts,
+  handleAdminError,
+  requireAdminContext,
+  assertShiftSelfOrAdmin,
+} from "@/lib/admin-access";
+import { prisma } from "@/lib/db";
+import {
+  enrichShiftResponse,
+  SHIFT_INCLUDE,
+  snapshotRatesOnClose,
+} from "@/lib/payroll/work-shift-service";
+import { saveBaselineCompletions } from "@/lib/payroll/shift-baseline-tasks";
+
+const patchSchema = z.object({
+  action: z.enum(["close", "assign_reverse"]).optional(),
+  staffId: z.string().optional(),
+  panelMinutesOverride: z.number().int().min(0).nullable().optional(),
+  idleMinutesOverride: z.number().int().min(0).nullable().optional(),
+  actualStart: z.string().datetime().optional(),
+  actualEnd: z.string().datetime().optional(),
+  comment: z.string().optional(),
+  baselineCompletedTaskIds: z.array(z.string()).optional(),
+});
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const ctx = await requireAdminContext();
+    const { id } = await params;
+    const body = patchSchema.parse(await req.json());
+
+    const shift = await prisma.workShift.findUnique({
+      where: { id },
+      include: SHIFT_INCLUDE,
+    });
+    if (!shift || shift.organizationId !== ctx.organizationId) {
+      return NextResponse.json({ error: "Не найдено" }, { status: 404 });
+    }
+    assertShiftSelfOrAdmin(ctx, shift.memberId, shift.branchId);
+
+    if (body.action === "close") {
+      if (shift.status !== "open") {
+        return NextResponse.json({ error: "Смена уже закрыта" }, { status: 400 });
+      }
+      const activeSpot = shift.spotEntries.find((e) => e.isActive);
+      if (activeSpot) {
+        if (canReviewShifts(ctx)) {
+          await prisma.spotWorkEntry.update({
+            where: { id: activeSpot.id },
+            data: { isActive: false, endedAt: new Date() },
+          });
+        } else {
+          return NextResponse.json(
+            { error: "Завершите активную работу на споте" },
+            { status: 400 },
+          );
+        }
+      }
+      const openAssign = shift.reverseAssignments.find((a) => !a.endedAt);
+      if (openAssign) {
+        await prisma.reverseAssignment.update({
+          where: { id: openAssign.id },
+          data: { endedAt: new Date() },
+        });
+      }
+      const ratesSnapshot = await snapshotRatesOnClose(shift.memberId, shift.date);
+      if (body.baselineCompletedTaskIds) {
+        await saveBaselineCompletions(
+          shift.id,
+          shift.memberId,
+          body.baselineCompletedTaskIds,
+        );
+      }
+      const updated = await prisma.workShift.update({
+        where: { id },
+        data: {
+          status: "closed",
+          actualEnd: new Date(),
+          ratesSnapshot,
+        },
+        include: SHIFT_INCLUDE,
+      });
+      return NextResponse.json(await enrichShiftResponse(updated));
+    }
+
+    if (body.action === "assign_reverse") {
+      if (!body.staffId) {
+        return NextResponse.json({ error: "Выберите реверс" }, { status: 400 });
+      }
+      if (shift.status !== "open") {
+        return NextResponse.json({ error: "Смена не открыта" }, { status: 400 });
+      }
+      const staff = await prisma.staff.findFirst({
+        where: { id: body.staffId, branchId: shift.branchId, kind: "revers" },
+      });
+      if (!staff) {
+        return NextResponse.json({ error: "Реверс не найден" }, { status: 404 });
+      }
+      const now = new Date();
+      const openAssign = shift.reverseAssignments.find((a) => !a.endedAt);
+      if (openAssign) {
+        await prisma.reverseAssignment.update({
+          where: { id: openAssign.id },
+          data: { endedAt: now },
+        });
+      }
+      await prisma.reverseAssignment.create({
+        data: { shiftId: id, staffId: body.staffId, startedAt: now },
+      });
+      const updated = await prisma.workShift.findUnique({
+        where: { id },
+        include: SHIFT_INCLUDE,
+      });
+      return NextResponse.json(await enrichShiftResponse(updated!));
+    }
+
+    if (
+      body.panelMinutesOverride !== undefined ||
+      body.idleMinutesOverride !== undefined ||
+      body.actualStart ||
+      body.actualEnd
+    ) {
+      if (!canReviewShifts(ctx) && shift.status === "approved") {
+        return NextResponse.json({ error: "Смена утверждена" }, { status: 400 });
+      }
+      if (!body.comment?.trim()) {
+        return NextResponse.json({ error: "Укажите комментарий" }, { status: 400 });
+      }
+      const data: Record<string, unknown> = {};
+      const adjustments: {
+        field: string;
+        oldValue: string;
+        newValue: string;
+      }[] = [];
+
+      if (body.panelMinutesOverride !== undefined) {
+        adjustments.push({
+          field: "panel_minutes",
+          oldValue: String(shift.panelMinutesOverride ?? ""),
+          newValue: String(body.panelMinutesOverride ?? ""),
+        });
+        data.panelMinutesOverride = body.panelMinutesOverride;
+      }
+      if (body.idleMinutesOverride !== undefined) {
+        adjustments.push({
+          field: "idle_minutes",
+          oldValue: String(shift.idleMinutesOverride ?? ""),
+          newValue: String(body.idleMinutesOverride ?? ""),
+        });
+        data.idleMinutesOverride = body.idleMinutesOverride;
+      }
+      if (body.actualStart) {
+        adjustments.push({
+          field: "actual_start",
+          oldValue: shift.actualStart?.toISOString() ?? "",
+          newValue: body.actualStart,
+        });
+        data.actualStart = new Date(body.actualStart);
+      }
+      if (body.actualEnd) {
+        adjustments.push({
+          field: "actual_end",
+          oldValue: shift.actualEnd?.toISOString() ?? "",
+          newValue: body.actualEnd,
+        });
+        data.actualEnd = new Date(body.actualEnd);
+      }
+
+      await prisma.$transaction(
+        adjustments.map((adj) =>
+          prisma.shiftAdjustment.create({
+            data: {
+              shiftId: id,
+              field: adj.field,
+              oldValue: adj.oldValue,
+              newValue: adj.newValue,
+              comment: body.comment!.trim(),
+              createdByMemberId: ctx.memberId,
+            },
+          }),
+        ),
+      );
+
+      const updated = await prisma.workShift.update({
+        where: { id },
+        data,
+        include: SHIFT_INCLUDE,
+      });
+      return NextResponse.json(await enrichShiftResponse(updated));
+    }
+
+    return NextResponse.json({ error: "Нет изменений" }, { status: 400 });
+  } catch (e) {
+    const handled = handleAdminError(e);
+    if (handled) {
+      return NextResponse.json({ error: handled.error }, { status: handled.status });
+    }
+    console.error(e);
+    return NextResponse.json({ error: "Ошибка" }, { status: 500 });
+  }
+}
+
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const ctx = await requireAdminContext();
+    const { id } = await params;
+    const shift = await prisma.workShift.findUnique({
+      where: { id },
+      include: SHIFT_INCLUDE,
+    });
+    if (!shift || shift.organizationId !== ctx.organizationId) {
+      return NextResponse.json({ error: "Не найдено" }, { status: 404 });
+    }
+    assertShiftSelfOrAdmin(ctx, shift.memberId, shift.branchId);
+    return NextResponse.json(await enrichShiftResponse(shift));
+  } catch (e) {
+    const handled = handleAdminError(e);
+    if (handled) {
+      return NextResponse.json({ error: handled.error }, { status: handled.status });
+    }
+    return NextResponse.json({ error: "Ошибка" }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const ctx = await requireAdminContext();
+    if (!canReviewShifts(ctx)) {
+      return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
+    }
+    const { id } = await params;
+    const shift = await prisma.workShift.findUnique({ where: { id } });
+    if (!shift || shift.organizationId !== ctx.organizationId) {
+      return NextResponse.json({ error: "Не найдено" }, { status: 404 });
+    }
+    if (shift.status === "open") {
+      return NextResponse.json(
+        { error: "Нельзя удалить открытую смену — сначала закройте её" },
+        { status: 400 },
+      );
+    }
+    await prisma.workShift.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    const handled = handleAdminError(e);
+    if (handled) {
+      return NextResponse.json({ error: handled.error }, { status: handled.status });
+    }
+    console.error(e);
+    return NextResponse.json({ error: "Ошибка" }, { status: 500 });
+  }
+}

@@ -10,13 +10,17 @@ export async function GET() {
     return NextResponse.json({
       user: {
         id: ctx.user.id,
+        login: ctx.user.login,
         email: ctx.user.email,
         name: ctx.user.name,
+        lastName: ctx.user.lastName,
       },
       role: ctx.role,
       branchId: ctx.branchId,
       branchName: ctx.branchName,
       isSuperAdmin: ctx.isSuperAdmin,
+      isBranchAdmin: ctx.isBranchAdmin,
+      isBranchOperator: ctx.isBranchOperator,
     });
   } catch (e) {
     const handled = handleAdminError(e);

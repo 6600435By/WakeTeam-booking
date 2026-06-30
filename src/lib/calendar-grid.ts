@@ -257,6 +257,8 @@ function mergeAppointmentIntoGroup<
     startAt: string;
     endAt: string;
     durationMinutes: number;
+    status: string;
+    client: { phone: string };
   },
 >(current: ConsecutiveAppointmentGroup<T>, appt: T) {
   current.appointments.push(appt);
@@ -298,7 +300,7 @@ export function groupConsecutiveClientAppointments<
       last &&
       (appointmentsConsecutive(last, appt) || touchesOrOverlaps(last, appt))
     ) {
-      mergeAppointmentIntoGroup(current, appt);
+      mergeAppointmentIntoGroup(current!, appt);
     } else {
       current = {
         id: appt.id,

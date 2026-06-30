@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
   assertBranchAccess,
+  assertCatalogAccess,
   handleAdminError,
   requireAdminContext,
   resolveBranchFilter,
@@ -49,6 +50,7 @@ export async function GET(req: Request) {
 export async function POST(req: NextRequest) {
   try {
     const ctx = await requireAdminContext();
+    assertCatalogAccess(ctx);
     const body = createSchema.parse(await req.json());
     assertBranchAccess(ctx, body.branchId);
 

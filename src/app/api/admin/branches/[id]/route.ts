@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   assertBranchAccess,
+  assertBranchSettingsAccess,
   handleAdminError,
   requireAdminContext,
 } from "@/lib/admin-access";
 import { prisma } from "@/lib/db";
+import { ensureBranchRentalDefaults } from "@/lib/rental-pricing";
 
 export async function GET(
   _req: NextRequest,
@@ -12,6 +14,7 @@ export async function GET(
 ) {
   try {
     const ctx = await requireAdminContext();
+    assertBranchSettingsAccess(ctx);
     const { id } = await params;
     assertBranchAccess(ctx, id);
 
@@ -36,7 +39,13 @@ export async function GET(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ branch });
+    await ensureBranchRentalDefaults(prisma, id);
+    const rentalItems = await prisma.branchRentalItem.findMany({
+      where: { branchId: id },
+      orderBy: { sortOrder: "asc" },
+    });
+
+    return NextResponse.json({ branch: { ...branch, rentalItems } });
   } catch (e) {
     const handled = handleAdminError(e);
     if (handled) {

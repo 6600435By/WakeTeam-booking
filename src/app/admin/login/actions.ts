@@ -35,17 +35,17 @@ export async function loginAction(
   _prev: LoginState,
   formData: FormData,
 ): Promise<LoginState> {
-  const email = String(formData.get("email") ?? "").trim();
+  const login = String(formData.get("login") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   const from = safeRedirectPath(formData.get("from"));
 
-  if (!email || !password) {
-    return { error: "Введите email и пароль" };
+  if (!login || !password) {
+    return { error: "Введите логин и пароль" };
   }
 
-  const user = await verifyUser(email, password);
+  const user = await verifyUser(login, password);
   if (!user) {
-    return { error: "Неверный email или пароль" };
+    return { error: "Неверный логин или пароль" };
   }
 
   const token = await createSession(user.id);

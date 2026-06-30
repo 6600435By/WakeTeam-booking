@@ -1,6 +1,12 @@
+import { redirect } from "next/navigation";
 import { WidgetAdminPreview } from "@/components/admin/WidgetAdminPreview";
+import { canManageWidget, getAdminContext } from "@/lib/admin-access";
 
-export default function WidgetPreviewPage() {
+export default async function WidgetPreviewPage() {
+  const ctx = await getAdminContext();
+  if (!ctx) redirect("/admin/login?from=/admin/widget");
+  if (!canManageWidget(ctx)) redirect("/admin/journal");
+
   return (
     <div>
       <h1 className="text-2xl font-bold text-slate-900">Виджет записи</h1>

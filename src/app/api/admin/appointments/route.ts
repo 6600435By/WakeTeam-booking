@@ -14,6 +14,7 @@ import {
 } from "@/lib/memberships/deduct";
 import { createBooking } from "@/lib/slots/generateSlots";
 import { formatDateKey, parseTimeOnDate } from "@/lib/time";
+import { applyAppointmentRental } from "@/lib/rental-pricing";
 
 function rangeBounds(from: string, to: string) {
   const dayStart = parseTimeOnDate(from, "00:00");
@@ -38,6 +39,8 @@ const createSchema = z.object({
   membershipId: z.string().nullable().optional(),
   paymentMethod: z.enum(["cash", "card", "corporate"]).nullable().optional(),
   price: z.number().nonnegative().optional(),
+  rentalItemId: z.string().nullable().optional(),
+  rentalQuantity: z.number().int().nonnegative().optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -65,7 +68,7 @@ export async function GET(req: NextRequest) {
         startAt: { gte: dayStart, lt: dayEnd },
         ...(branchId ? { branchId } : {}),
       },
-      include: { client: true, service: true, staff: true },
+      include: { client: true, service: true, staff: true, rentalItem: true },
       orderBy: { startAt: "desc" },
     });
     return NextResponse.json({ appointments });
@@ -85,7 +88,7 @@ export async function POST(req: NextRequest) {
     await assertServiceAccess(ctx, body.serviceId);
     await assertStaffAccess(ctx, body.staffId);
 
-    const { membershipId, paymentMethod, status: desiredStatus, ...bookingBody } = body;
+    const { membershipId, paymentMethod, status: desiredStatus, rentalItemId, rentalQuantity, ...bookingBody } = body;
 
     const result = await createBooking(
       {
@@ -96,14 +99,26 @@ export async function POST(req: NextRequest) {
       { skipSlotCheck: true },
     );
 
-    if (body.price != null || paymentMethod !== undefined) {
-      await prisma.appointment.update({
-        where: { id: result.id },
-        data: {
-          ...(body.price != null ? { price: body.price } : {}),
-          ...(paymentMethod !== undefined ? { paymentMethod } : {}),
-        },
-      });
+    if (
+      rentalItemId !== undefined ||
+      rentalQuantity !== undefined ||
+      body.price != null ||
+      paymentMethod !== undefined
+    ) {
+      if (rentalItemId !== undefined || rentalQuantity !== undefined) {
+        await applyAppointmentRental(prisma, result.id, {
+          rentalItemId: rentalItemId ?? null,
+          rentalQuantity: rentalQuantity ?? 0,
+        }, { priceOverride: body.price ?? undefined });
+      } else if (body.price != null || paymentMethod !== undefined) {
+        await prisma.appointment.update({
+          where: { id: result.id },
+          data: {
+            ...(body.price != null ? { price: body.price } : {}),
+            ...(paymentMethod !== undefined ? { paymentMethod } : {}),
+          },
+        });
+      }
     }
 
     if (membershipId) {

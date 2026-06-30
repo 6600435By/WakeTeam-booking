@@ -62,6 +62,9 @@ type Appointment = {
   comment: string | null;
   membershipId?: string | null;
   paymentMethod?: string | null;
+  rentalItemId?: string | null;
+  rentalQuantity?: number;
+  rentalAmount?: number;
   cancelReason?: string | null;
   branchId: string;
   client: { firstName: string | null; lastName: string | null; phone: string };
@@ -85,6 +88,8 @@ type ModalInitial = {
   comment?: string;
   membershipId?: string | null;
   paymentMethod?: string | null;
+  rentalItemId?: string | null;
+  rentalQuantity?: number;
   totalPrice?: number;
   appointmentGroup?: GroupApptRef[];
 };
@@ -393,6 +398,8 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
         comment: editAppt.comment ?? "",
         membershipId: editAppt.membershipId ?? null,
         paymentMethod: editAppt.paymentMethod ?? null,
+        rentalItemId: editAppt.rentalItemId ?? null,
+        rentalQuantity: editAppt.rentalQuantity ?? 0,
         totalPrice: editGroup
           ? editGroup.reduce((sum, a) => sum + a.price, 0)
           : editAppt.price,

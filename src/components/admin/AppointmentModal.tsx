@@ -10,6 +10,7 @@ import {
 import { normalizeAdminDuration } from "@/lib/admin-duration";
 import { isSearchablePhone } from "@/lib/phone";
 import { resolveAppointmentPrice, type ServicePriceRuleDto } from "@/lib/service-pricing";
+import { serviceSupportsRental } from "@/lib/rental-pricing";
 import { PAYMENT_METHOD_OPTIONS, type PaymentMethod } from "@/lib/payment-method";
 import {
   deleteGroupAppointments,
@@ -26,6 +27,7 @@ function unlockReadOnlyInput(e: React.FocusEvent<HTMLInputElement>) {
   e.currentTarget.readOnly = false;
 }
 
+type RentalItem = { id: string; name: string; price: number };
 type Branch = { id: string; name: string };
 type Service = {
   id: string;
@@ -76,6 +78,8 @@ type Props = {
     comment?: string;
     membershipId?: string | null;
     paymentMethod?: string | null;
+    rentalItemId?: string | null;
+    rentalQuantity?: number;
   };
 };
 
@@ -137,6 +141,10 @@ export function AppointmentModal({
   const [priceInput, setPriceInput] = useState("0");
   const priceTouchedRef = useRef(false);
   const skipAutoPriceRef = useRef(true);
+  const [rentalItems, setRentalItems] = useState<RentalItem[]>([]);
+  const [rentalItemId, setRentalItemId] = useState("");
+  const [rentalQuantity, setRentalQuantity] = useState(1);
+  const [rentalHint, setRentalHint] = useState("");
   const [copyOpen, setCopyOpen] = useState(false);
   const [widgetSlug, setWidgetSlug] = useState("waketeam");
 
@@ -195,6 +203,9 @@ export function AppointmentModal({
     setCancelReason("");
     setMembershipId(initial?.membershipId ?? "");
     setPaymentMethod((initial?.paymentMethod as PaymentMethod | undefined) ?? "");
+    setRentalItemId(initial?.rentalItemId ?? "");
+    setRentalQuantity(initial?.rentalQuantity && initial.rentalQuantity > 0 ? initial.rentalQuantity : 1);
+    setRentalHint("");
     setMembershipOptions([]);
     setManualMembershipCode("");
     setManualMembershipError("");
@@ -217,6 +228,8 @@ export function AppointmentModal({
     initial?.comment,
     initial?.membershipId,
     initial?.paymentMethod,
+    initial?.rentalItemId,
+    initial?.rentalQuantity,
     totalPrice,
     branches[0]?.id,
   ]);
@@ -239,14 +252,43 @@ export function AppointmentModal({
     const membershipRate = membershipId
       ? membershipOptions.find((m) => m.id === membershipId)?.pricePerMinute
       : null;
-    setQuotedPrice(
-      resolveAppointmentPrice(
-        service,
-        new Date(iso),
-        duration,
-        membershipRate,
-      ),
+    const servicePrice = resolveAppointmentPrice(
+      service,
+      new Date(iso),
+      duration,
+      membershipRate,
     );
+
+    if (!serviceSupportsRental(service.kind) || !rentalItemId) {
+      setRentalHint("");
+      setQuotedPrice(servicePrice);
+      return;
+    }
+
+    let cancelled = false;
+    const params = new URLSearchParams({
+      branchId,
+      startAt: iso,
+      rentalItemId,
+      quantity: String(rentalQuantity),
+    });
+    if (appointmentId) params.set("appointmentId", appointmentId);
+    if (phone.trim()) params.set("phone", phone.trim());
+
+    adminFetch(`/api/admin/rental-quote?${params}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        setRentalHint(data.hint ?? "");
+        setQuotedPrice(servicePrice + (data.amount ?? 0));
+      })
+      .catch(() => {
+        if (!cancelled) setQuotedPrice(servicePrice);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     open,
     serviceId,
@@ -258,6 +300,11 @@ export function AppointmentModal({
     services,
     membershipId,
     membershipOptions,
+    branchId,
+    rentalItemId,
+    rentalQuantity,
+    phone,
+    appointmentId,
   ]);
 
   useEffect(() => {
@@ -295,6 +342,24 @@ export function AppointmentModal({
         setServices(mapped);
       })
       .finally(() => setServicesLoading(false));
+  }, [branchId, open]);
+
+  useEffect(() => {
+    if (!branchId || !open) return;
+    adminFetch(`/api/admin/branches/${branchId}/rental-items`)
+      .then((r) => r.json())
+      .then((d) => {
+        setRentalItems(
+          (d.items ?? [])
+            .filter((i: { isActive: boolean }) => i.isActive)
+            .map((i: { id: string; name: string; price: number }) => ({
+              id: i.id,
+              name: i.name,
+              price: i.price,
+            })),
+        );
+      })
+      .catch(() => setRentalItems([]));
   }, [branchId, open]);
 
   useEffect(() => {
@@ -430,6 +495,15 @@ export function AppointmentModal({
     return fromService;
   }, [services, serviceId, staffId, staffName]);
 
+  const selectedService = useMemo(
+    () => services.find((s) => s.id === serviceId) ?? null,
+    [services, serviceId],
+  );
+
+  const showRental = selectedService
+    ? serviceSupportsRental(selectedService.kind)
+    : false;
+
   const selectedMembership = membershipOptions.find((m) => m.id === membershipId);
 
   async function applyManualMembershipCode() {
@@ -533,6 +607,8 @@ export function AppointmentModal({
           comment,
           membershipId: membershipId || null,
           paymentMethod: paymentMethod || null,
+          rentalItemId: showRental && rentalItemId ? rentalItemId : null,
+          rentalQuantity: showRental && rentalItemId ? rentalQuantity : 0,
         });
         onSaved();
         onClose();
@@ -558,6 +634,8 @@ export function AppointmentModal({
           comment,
           membershipId: membershipId || null,
           paymentMethod: paymentMethod || null,
+          rentalItemId: showRental && rentalItemId ? rentalItemId : null,
+          rentalQuantity: showRental && rentalItemId ? rentalQuantity : 0,
           price: priceValue,
         }),
       });
@@ -791,6 +869,54 @@ export function AppointmentModal({
               />
             </div>
           </div>
+          {showRental && (
+            <div className="rounded-md border border-slate-200 bg-slate-50/80 p-2">
+              <p className="mb-1.5 text-[11px] font-medium text-slate-600">
+                Прокат инвентаря
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className={labelClass}>Инвентарь</label>
+                  <select
+                    value={rentalItemId}
+                    onChange={(e) => setRentalItemId(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="">Без инвентаря</option>
+                    {rentalItems.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} — {item.price} Br
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass}>Комплектов</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={99}
+                    value={rentalQuantity}
+                    onChange={(e) => {
+                      const n = parseInt(e.target.value, 10);
+                      setRentalQuantity(Number.isNaN(n) || n < 1 ? 1 : n);
+                    }}
+                    disabled={!rentalItemId}
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+              {rentalHint && (
+                <p className="mt-1 text-[10px] text-amber-700">{rentalHint}</p>
+              )}
+              {rentalItemId && !rentalHint && (
+                <p className="mt-1 text-[10px] text-slate-500">
+                  Стоимость проката не зависит от длительности и взимается один
+                  раз в день.
+                </p>
+              )}
+            </div>
+          )}
           <div>
             <label className={labelClass} htmlFor="client-phone">
               Телефон

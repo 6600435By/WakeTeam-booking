@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { normalizeStaffSchedules } from "@/lib/admin/service-staff-schedule";
 
-type ScheduleRow = {
+export type ScheduleRow = {
   weekday: number;
   isWorking: boolean;
   timeFrom: string;
@@ -22,9 +23,11 @@ const WEEKDAYS = [
 export function ScheduleEditor({
   staffId,
   embedded = false,
+  schedules: externalSchedules,
 }: {
   staffId: string;
   embedded?: boolean;
+  schedules?: ScheduleRow[];
 }) {
   const [schedules, setSchedules] = useState<ScheduleRow[]>([]);
   const [staffName, setStaffName] = useState("");
@@ -32,6 +35,10 @@ export function ScheduleEditor({
   const [message, setMessage] = useState("");
 
   useEffect(() => {
+    if (externalSchedules) {
+      setSchedules(normalizeStaffSchedules(externalSchedules));
+      return;
+    }
     fetch(`/api/admin/staff/${staffId}/schedule`)
       .then((r) => r.json())
       .then((d) => {
@@ -53,7 +60,7 @@ export function ScheduleEditor({
           }),
         );
       });
-  }, [staffId]);
+  }, [staffId, externalSchedules]);
 
   async function save() {
     setSaving(true);

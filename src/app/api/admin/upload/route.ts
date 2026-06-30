@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "fs/promises";
 import { NextRequest, NextResponse } from "next/server";
 import path from "path";
 import { randomBytes } from "crypto";
-import { handleAdminError, requireAdminContext } from "@/lib/admin-access";
+import { assertCatalogAccess, handleAdminError, requireAdminContext } from "@/lib/admin-access";
 import {
   extensionForMime,
   validateImageUpload,
@@ -12,7 +12,8 @@ const UPLOAD_SUBDIR = "uploads";
 
 export async function POST(req: NextRequest) {
   try {
-    await requireAdminContext();
+    const ctx = await requireAdminContext();
+    assertCatalogAccess(ctx);
     const form = await req.formData();
     const file = form.get("file");
     const kind = form.get("kind");

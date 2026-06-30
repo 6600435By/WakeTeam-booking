@@ -1,17 +1,32 @@
 import type { User } from "@prisma/client";
 import { getSessionUser } from "./auth";
 import { prisma } from "./db";
+import {
+  BRANCH_ADMIN_ROLE,
+  BRANCH_OPERATOR_ROLE,
+  SUPER_ADMIN_ROLE,
+  parseAdminRole,
+  type AdminRole,
+} from "./admin-roles";
 
-export const SUPER_ADMIN_ROLE = "super_admin";
-export const BRANCH_ADMIN_ROLE = "branch_admin";
+export {
+  SUPER_ADMIN_ROLE,
+  BRANCH_ADMIN_ROLE,
+  BRANCH_OPERATOR_ROLE,
+  parseAdminRole,
+  type AdminRole,
+} from "./admin-roles";
 
 export type AdminContext = {
   user: User;
+  memberId: string;
   organizationId: string;
-  role: typeof SUPER_ADMIN_ROLE | typeof BRANCH_ADMIN_ROLE;
+  role: AdminRole;
   branchId: string | null;
   branchName: string | null;
   isSuperAdmin: boolean;
+  isBranchAdmin: boolean;
+  isBranchOperator: boolean;
 };
 
 export class AdminAccessError extends Error {
@@ -33,17 +48,22 @@ export async function getAdminContext(): Promise<AdminContext | null> {
   });
   if (!membership) return null;
 
-  const isSuperAdmin =
-    membership.role === SUPER_ADMIN_ROLE || membership.role === "admin";
+  const role = parseAdminRole(membership.role);
+  if (!role) return null;
+
+  const isSuperAdmin = role === SUPER_ADMIN_ROLE;
   if (!isSuperAdmin && !membership.branchId) return null;
 
   return {
     user,
+    memberId: membership.id,
     organizationId: membership.organizationId,
-    role: isSuperAdmin ? SUPER_ADMIN_ROLE : BRANCH_ADMIN_ROLE,
+    role,
     branchId: membership.branchId,
     branchName: membership.branch?.name ?? null,
     isSuperAdmin,
+    isBranchAdmin: role === BRANCH_ADMIN_ROLE,
+    isBranchOperator: role === BRANCH_OPERATOR_ROLE,
   };
 }
 
@@ -53,6 +73,128 @@ export async function requireAdminContext(): Promise<AdminContext> {
   return ctx;
 }
 
+export function canManageJournal(ctx: AdminContext) {
+  return true;
+}
+
+export function canManageCatalog(ctx: AdminContext) {
+  return ctx.isSuperAdmin || ctx.isBranchAdmin;
+}
+
+export function canManageBranchSettings(ctx: AdminContext) {
+  return ctx.isSuperAdmin || ctx.isBranchAdmin;
+}
+
+export function canManageUsers(ctx: AdminContext) {
+  return ctx.isSuperAdmin;
+}
+
+export function canManageWidget(ctx: AdminContext) {
+  return ctx.isSuperAdmin;
+}
+
+export function canViewStatistics(ctx: AdminContext) {
+  return ctx.isSuperAdmin || ctx.isBranchAdmin;
+}
+
+export function canViewClients(ctx: AdminContext) {
+  return ctx.isSuperAdmin || ctx.isBranchAdmin;
+}
+
+export function canViewMemberships(ctx: AdminContext) {
+  return ctx.isSuperAdmin || ctx.isBranchAdmin;
+}
+
+export function canLogOwnShift(ctx: AdminContext) {
+  return ctx.isBranchOperator || ctx.isBranchAdmin;
+}
+
+export function canViewShiftCalendar(ctx: AdminContext) {
+  return ctx.isSuperAdmin || ctx.isBranchAdmin || ctx.isBranchOperator;
+}
+
+export function canEditShiftCalendar(ctx: AdminContext) {
+  return ctx.isSuperAdmin;
+}
+
+/** @deprecated use canEditShiftCalendar */
+export function canAssignSpotTasks(ctx: AdminContext) {
+  return canEditShiftCalendar(ctx);
+}
+
+export function canSetPayRates(ctx: AdminContext) {
+  return ctx.isSuperAdmin;
+}
+
+export function canReviewShifts(ctx: AdminContext) {
+  return ctx.isSuperAdmin;
+}
+
+export function canSubmitShiftChangeRequest(ctx: AdminContext) {
+  return ctx.isBranchAdmin || ctx.isBranchOperator;
+}
+
+export function canReviewShiftChangeRequests(ctx: AdminContext) {
+  return ctx.isSuperAdmin;
+}
+
+export function assertShiftSelfOrAdmin(
+  ctx: AdminContext,
+  shiftMemberId: string,
+  branchId: string,
+) {
+  if (ctx.isSuperAdmin) return;
+  if (ctx.memberId === shiftMemberId) return;
+  if (ctx.isBranchAdmin && ctx.branchId === branchId) return;
+  throw new AdminAccessError("FORBIDDEN", 403);
+}
+
+export async function assertMemberAccess(ctx: AdminContext, memberId: string) {
+  const member = await prisma.organizationMember.findUnique({
+    where: { id: memberId },
+    select: { id: true, organizationId: true, branchId: true },
+  });
+  if (!member || member.organizationId !== ctx.organizationId) {
+    throw new AdminAccessError("NOT_FOUND", 404);
+  }
+  if (!ctx.isSuperAdmin) {
+    if (member.id !== ctx.memberId && ctx.branchId !== member.branchId) {
+      throw new AdminAccessError("FORBIDDEN", 403);
+    }
+  }
+  return member;
+}
+
+export function assertSuperAdmin(ctx: AdminContext) {
+  if (!canManageUsers(ctx)) {
+    throw new AdminAccessError("FORBIDDEN", 403);
+  }
+}
+
+export function assertCatalogAccess(ctx: AdminContext) {
+  if (!canManageCatalog(ctx)) {
+    throw new AdminAccessError("FORBIDDEN", 403);
+  }
+}
+
+export function assertBranchSettingsAccess(ctx: AdminContext) {
+  if (!canManageBranchSettings(ctx)) {
+    throw new AdminAccessError("FORBIDDEN", 403);
+  }
+}
+
+export function assertJournalAccess(ctx: AdminContext) {
+  if (!canManageJournal(ctx)) {
+    throw new AdminAccessError("FORBIDDEN", 403);
+  }
+}
+
+export function assertStatisticsAccess(ctx: AdminContext) {
+  if (!canViewStatistics(ctx)) {
+    throw new AdminAccessError("FORBIDDEN", 403);
+  }
+}
+
 export function assertBranchAccess(ctx: AdminContext, branchId: string) {
   if (ctx.isSuperAdmin) return;
   if (ctx.branchId !== branchId) {
@@ -60,7 +202,7 @@ export function assertBranchAccess(ctx: AdminContext, branchId: string) {
   }
 }
 
-/** Для branch_admin всегда возвращает его филиал; для super — из запроса или null (все). */
+/** Для branch users всегда возвращает их филиал; для super — из запроса или null (все). */
 export function resolveBranchFilter(
   ctx: AdminContext,
   requested?: string | null,
@@ -121,6 +263,17 @@ export async function assertAppointmentAccess(ctx: AdminContext, appointmentId: 
   return appt;
 }
 
+export function roleLabel(role: AdminRole): string {
+  switch (role) {
+    case SUPER_ADMIN_ROLE:
+      return "Супер-админ";
+    case BRANCH_ADMIN_ROLE:
+      return "Админ филиала";
+    case BRANCH_OPERATOR_ROLE:
+      return "Оператор филиала";
+  }
+}
+
 export function handleAdminError(e: unknown) {
   if (e instanceof AdminAccessError) {
     if (e.message === "UNAUTHORIZED") {
@@ -129,7 +282,7 @@ export function handleAdminError(e: unknown) {
     if (e.message === "NOT_FOUND") {
       return { status: 404, error: "Not found" };
     }
-    return { status: e.status, error: "Нет доступа к этому филиалу" };
+    return { status: e.status, error: "Нет доступа" };
   }
   if (e instanceof Error && e.message === "UNAUTHORIZED") {
     return { status: 401, error: "Unauthorized" };

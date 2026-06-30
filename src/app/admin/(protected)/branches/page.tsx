@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { branchListWhere, getAdminContext } from "@/lib/admin-access";
+import { branchListWhere, canManageBranchSettings, getAdminContext } from "@/lib/admin-access";
 import { prisma } from "@/lib/db";
 
 export default async function BranchesPage() {
   const ctx = await getAdminContext();
   if (!ctx) {
     redirect("/admin/login?from=/admin/branches");
+  }
+  if (!canManageBranchSettings(ctx)) {
+    redirect("/admin/journal");
   }
 
   const branches = await prisma.branch.findMany({

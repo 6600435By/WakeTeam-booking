@@ -2,33 +2,86 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { AdminRole } from "@/lib/admin-roles";
 import { LogoutButton } from "./LogoutButton";
 import { useAdminViewport } from "./AdminViewportContext";
 
-const links = [
+type NavLink = {
+  href: string;
+  label: string;
+  short: string;
+};
+
+const ALL_LINKS: NavLink[] = [
   { href: "/admin/journal", label: "Журнал", short: "Журнал" },
   { href: "/admin/statistics", label: "Статистика", short: "Стат." },
   { href: "/admin/clients", label: "Клиенты", short: "Клиенты" },
   { href: "/admin/memberships", label: "Абонементы", short: "Абон." },
   { href: "/admin/branches", label: "Филиалы", short: "Филиал" },
+  { href: "/admin/users", label: "Сотрудники", short: "Сотр." },
   { href: "/admin/widget", label: "Виджет", short: "Виджет" },
 ];
 
+const SHIFT_LINK: NavLink = {
+  href: "/admin/shift",
+  label: "Учёт времени",
+  short: "Время",
+};
+
+const REVIEW_LINK: NavLink = {
+  href: "/admin/shift-review",
+  label: "Проверка смен",
+  short: "Смены",
+};
+
+const CALENDAR_LINK: NavLink = {
+  href: "/admin/shift",
+  label: "Календарь",
+  short: "Календ.",
+};
+
+function linksForRole(role: AdminRole): NavLink[] {
+  if (role === "super_admin") {
+    return [
+      ...ALL_LINKS.filter((l) => l.href !== "/admin/widget"),
+      CALENDAR_LINK,
+      REVIEW_LINK,
+    ];
+  }
+  if (role === "branch_admin") {
+    return [
+      ...ALL_LINKS.filter(
+        (l) => l.href !== "/admin/users" && l.href !== "/admin/widget",
+      ),
+      SHIFT_LINK,
+    ];
+  }
+  return [
+    ALL_LINKS.find((l) => l.href === "/admin/journal")!,
+    SHIFT_LINK,
+  ];
+}
+
 export type AdminNavInfo = {
   email: string;
+  login: string;
   name: string | null;
   branchName: string | null;
+  role: AdminRole;
   isSuperAdmin: boolean;
 };
 
 function isLinkActive(pathname: string, href: string) {
   if (href === "/admin/widget") return pathname.startsWith("/admin/widget");
+  if (href === "/admin/users") return pathname.startsWith("/admin/users");
+  if (href === "/admin/shift-review") return pathname.startsWith("/admin/shift-review");
+  if (href === "/admin/shift") return pathname.startsWith("/admin/shift");
   return pathname.startsWith(href);
 }
 
 function branchCaption(admin: AdminNavInfo) {
   if (admin.isSuperAdmin) return "Все филиалы";
-  return admin.branchName ?? admin.email;
+  return admin.branchName ?? admin.name ?? admin.login;
 }
 
 type Props = {
@@ -39,6 +92,7 @@ export function AdminNav({ admin }: Props) {
   const pathname = usePathname();
   const viewport = useAdminViewport();
   const isDesktop = viewport === "desktop";
+  const links = linksForRole(admin.role);
   const caption = branchCaption(admin);
 
   if (isDesktop) {

@@ -34,18 +34,17 @@ function LoginForm() {
           <form action={formAction} className="space-y-4" autoComplete="on">
             <input type="hidden" name="from" value={from} />
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="login">Логин</Label>
               <Input
-                id="email"
-                name="email"
-                type="email"
-                inputMode="email"
+                id="login"
+                name="login"
+                type="text"
                 autoComplete="username"
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}
-                defaultValue="admin@waketeam.by"
-                placeholder="admin@waketeam.by"
+                defaultValue="admin"
+                placeholder="Фамилия или логин"
                 className="min-h-[44px] text-base"
                 required
               />

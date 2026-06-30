@@ -8,6 +8,10 @@ import {
   StaffResourceEditor,
 } from "./StaffResourceEditor";
 import {
+  RentalItemsEditor,
+  type RentalItemRow,
+} from "./RentalItemsEditor";
+import {
   availableServiceKinds,
   catalogServices,
   isLegacyTariffService,
@@ -17,6 +21,9 @@ import {
 import {
   isLegacyTimeSlotStaff,
 } from "@/lib/admin/staff-catalog";
+import {
+  buildStaffSchedulesFromService,
+} from "@/lib/admin/service-staff-schedule";
 
 type ScheduleRow = {
   weekday: number;
@@ -47,6 +54,7 @@ type BranchDetail = {
   isActive: boolean;
   staff: StaffRow[];
   services: ServiceRow[];
+  rentalItems?: RentalItemRow[];
 };
 
 const inputClass =
@@ -194,8 +202,10 @@ export function BranchEditor({ branchId }: Props) {
     if (res.ok && data.service) {
       setBranch((b) => {
         if (!b) return b;
+        const merged = { ...service, ...data.service, staff: data.service.staff };
         return {
           ...b,
+          staff: applyServiceScheduleToLinkedStaff(b.staff, merged),
           services: b.services.map((s) =>
             s.id === service.id ? { ...s, ...data.service, staff: data.service.staff } : s,
           ),
@@ -204,12 +214,40 @@ export function BranchEditor({ branchId }: Props) {
     }
   }
 
+  function applyServiceScheduleToLinkedStaff(
+    staff: StaffRow[],
+    service: ServiceRow,
+    staffIds?: Set<string>,
+  ): StaffRow[] {
+    const linkedIds =
+      staffIds ?? new Set(service.staff.map((x) => x.staff.id));
+    if (linkedIds.size === 0) return staff;
+    const schedules = buildStaffSchedulesFromService(
+      service.weekdays,
+      service.bookableFrom,
+      service.bookableTo,
+    );
+    return staff.map((st) =>
+      linkedIds.has(st.id) ? { ...st, schedules } : st,
+    );
+  }
+
   function updateService(id: string, patch: Partial<ServiceRow>) {
     setBranch((b) => {
       if (!b) return b;
+      const current = b.services.find((s) => s.id === id);
+      if (!current) return b;
+      const updated = { ...current, ...patch };
+      const scheduleTouched =
+        patch.weekdays !== undefined ||
+        patch.bookableFrom !== undefined ||
+        patch.bookableTo !== undefined;
       return {
         ...b,
-        services: b.services.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+        staff: scheduleTouched
+          ? applyServiceScheduleToLinkedStaff(b.staff, updated)
+          : b.staff,
+        services: b.services.map((s) => (s.id === id ? updated : s)),
       };
     });
   }
@@ -217,24 +255,30 @@ export function BranchEditor({ branchId }: Props) {
   function toggleServiceStaff(serviceId: string, staffId: string) {
     setBranch((b) => {
       if (!b) return b;
+      const service = b.services.find((s) => s.id === serviceId);
+      if (!service) return b;
+      const has = service.staff.some((x) => x.staff.id === staffId);
+      const staff = has
+        ? service.staff.filter((x) => x.staff.id !== staffId)
+        : [
+            ...service.staff,
+            {
+              staff: {
+                id: staffId,
+                name: b.staff.find((st) => st.id === staffId)?.name ?? "",
+              },
+            },
+          ];
+      const updatedService = { ...service, staff };
+      const branchStaff = !has
+        ? applyServiceScheduleToLinkedStaff(b.staff, updatedService, new Set([staffId]))
+        : b.staff;
       return {
         ...b,
-        services: b.services.map((s) => {
-          if (s.id !== serviceId) return s;
-          const has = s.staff.some((x) => x.staff.id === staffId);
-          const staff = has
-            ? s.staff.filter((x) => x.staff.id !== staffId)
-            : [
-                ...s.staff,
-                {
-                  staff: {
-                    id: staffId,
-                    name: b.staff.find((st) => st.id === staffId)?.name ?? "",
-                  },
-                },
-              ];
-          return { ...s, staff };
-        }),
+        staff: branchStaff,
+        services: b.services.map((s) =>
+          s.id === serviceId ? updatedService : s,
+        ),
       };
     });
   }
@@ -508,6 +552,14 @@ export function BranchEditor({ branchId }: Props) {
         {branchMsg && <p className="mt-2 text-sm text-slate-600">{branchMsg}</p>}
       </section>
 
+      <RentalItemsEditor
+        branchId={branchId}
+        items={branch.rentalItems ?? []}
+        onSaved={(items) =>
+          setBranch((prev) => (prev ? { ...prev, rentalItems: items } : prev))
+        }
+      />
+
       <section>
         <h2 className="text-lg font-semibold text-slate-900">Услуги</h2>
         <p className="mt-1 text-xs text-slate-500">
@@ -644,6 +696,7 @@ export function BranchEditor({ branchId }: Props) {
               <StaffResourceEditor
                 key={st.id}
                 staff={st}
+                schedules={st.schedules}
                 open={expandedStaff === st.id}
                 onToggle={() =>
                   setExpandedStaff(expandedStaff === st.id ? null : st.id)
@@ -713,6 +766,7 @@ export function BranchEditor({ branchId }: Props) {
               <StaffResourceEditor
                 key={st.id}
                 staff={st}
+                schedules={st.schedules}
                 open={expandedStaff === st.id}
                 onToggle={() =>
                   setExpandedStaff(expandedStaff === st.id ? null : st.id)

@@ -21,12 +21,17 @@ model Organization {
 }
 
 model User {
-  id           String               @id @default(cuid())
-  email        String               @unique
-  passwordHash String
-  name         String?
-  createdAt    DateTime             @default(now())
-  memberships  OrganizationMember[]
+  id                  String               @id @default(cuid())
+  login               String               @unique
+  email               String?              @unique
+  passwordHash        String
+  name                String?
+  lastName            String?
+  phone               String?
+  passportNumber      String?
+  registrationAddress String?
+  createdAt           DateTime             @default(now())
+  memberships         OrganizationMember[]
 }
 
 model OrganizationMember {
@@ -38,6 +43,11 @@ model OrganizationMember {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  payRates       MemberPayRate[]
+  workShifts     WorkShift[]
+  spotTasksAssigned SpotTask[] @relation("SpotTaskAssignee")
+  spotTasksCreated  SpotTask[] @relation("SpotTaskAssigner")
+  shiftChangeRequests ShiftChangeRequest[]
 
   @@unique([organizationId, userId])
 }
@@ -56,7 +66,19 @@ model Branch {
   createdAt      DateTime @default(now())
   staff          Staff[]
   services       Service[]
+  rentalItems    BranchRentalItem[]
   members        OrganizationMember[]
+}
+
+model BranchRentalItem {
+  id           String        @id @default(cuid())
+  branchId     String
+  branch       Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  name         String
+  price        Float
+  sortOrder    Int           @default(0)
+  isActive     Boolean       @default(true)
+  appointments Appointment[]
 }
 
 model Staff {
@@ -77,6 +99,8 @@ model Staff {
   breaks         StaffBreak[]
   services       ServiceStaff[]
   appointments   Appointment[]
+  reverseAssignments ReverseAssignment[]
+  plannedWorkShifts  WorkShift[] @relation("PlannedReverse")
 }
 
 /// weekday: 1 = Monday … 7 = Sunday
@@ -184,6 +208,10 @@ model Appointment {
   membershipId              String?
   membership                Membership? @relation(fields: [membershipId], references: [id], onDelete: SetNull)
   membershipMinutesDeducted Int         @default(0)
+  rentalItemId              String?
+  rentalItem                BranchRentalItem? @relation(fields: [rentalItemId], references: [id], onDelete: SetNull)
+  rentalQuantity            Int         @default(0)
+  rentalAmount              Float       @default(0)
 
   @@unique([staffId, startAt])
   @@index([startAt])
@@ -230,5 +258,189 @@ model MembershipTransaction {
 
   @@index([membershipId])
   @@index([appointmentId])
+}
+
+/// panel | spot | idle | shift
+model MemberPayRate {
+  id                String             @id @default(cuid())
+  memberId          String
+  member            OrganizationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  kind              String
+  amount            Float
+  effectiveFrom     String
+  effectiveTo       String?
+  createdAt         DateTime           @default(now())
+  createdByMemberId String?
+
+  @@index([memberId, kind, effectiveFrom])
+}
+
+model WorkShift {
+  id                   String             @id @default(cuid())
+  organizationId       String
+  branchId             String
+  memberId             String
+  member               OrganizationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  date                 String
+  plannedStart         String?
+  plannedEnd           String?
+  actualStart          DateTime?
+  actualEnd            DateTime?
+  status               String             @default("open")
+  panelMinutesOverride Int?
+  idleMinutesOverride  Int?
+  ratesSnapshot        String?
+  plannedStaffId       String?
+  plannedStaff         Staff?             @relation("PlannedReverse", fields: [plannedStaffId], references: [id], onDelete: SetNull)
+  workAsAdmin          Boolean            @default(false)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  reverseAssignments   ReverseAssignment[]
+  spotEntries          SpotWorkEntry[]
+  adjustments          ShiftAdjustment[]
+  changeRequests       ShiftChangeRequest[]
+  baselineCompletions  ShiftBaselineCompletion[]
+  handoffNotes         ShiftHandoffNote[]
+
+  @@unique([memberId, date])
+  @@index([branchId, date, status])
+}
+
+model ReverseAssignment {
+  id        String    @id @default(cuid())
+  shiftId   String
+  shift     WorkShift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  staffId   String
+  staff     Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  startedAt DateTime
+  endedAt   DateTime?
+
+  @@index([shiftId])
+}
+
+model SpotWorkEntry {
+  id                String    @id @default(cuid())
+  shiftId           String
+  shift             WorkShift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  taskId            String?
+  task              SpotTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  category          String?
+  comment           String
+  startedAt         DateTime
+  endedAt           DateTime?
+  source            String    @default("manual")
+  isActive          Boolean   @default(false)
+  createdByMemberId String
+
+  @@index([shiftId])
+}
+
+model SpotTask {
+  id                 String             @id @default(cuid())
+  organizationId     String
+  branchId           String
+  assigneeMemberId   String
+  assignee           OrganizationMember @relation("SpotTaskAssignee", fields: [assigneeMemberId], references: [id], onDelete: Cascade)
+  assignedByMemberId String
+  assignedBy         OrganizationMember @relation("SpotTaskAssigner", fields: [assignedByMemberId], references: [id], onDelete: Cascade)
+  date               String
+  description        String
+  category           String?
+  plannedMinutes     Int?
+  plannedTimeFrom    String?
+  plannedTimeTo      String?
+  status             String             @default("pending")
+  spotEntryId        String?
+  branchWide         Boolean            @default(false)
+  groupId            String?
+  totalPlannedMinutes Int?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  spotEntries        SpotWorkEntry[]
+
+  @@index([assigneeMemberId, date])
+  @@index([branchId, date, status])
+  @@index([groupId])
+}
+
+model ShiftBaselineTask {
+  id                 String   @id @default(cuid())
+  organizationId     String
+  branchId           String
+  date               String
+  description        String
+  sortOrder          Int      @default(0)
+  assignedByMemberId String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  completions        ShiftBaselineCompletion[]
+
+  @@index([branchId, date])
+}
+
+model ShiftBaselineCompletion {
+  id          String            @id @default(cuid())
+  taskId      String
+  task        ShiftBaselineTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  workShiftId String
+  workShift   WorkShift         @relation(fields: [workShiftId], references: [id], onDelete: Cascade)
+  memberId    String
+  completedAt DateTime          @default(now())
+
+  @@unique([taskId, workShiftId])
+  @@index([workShiftId])
+}
+
+model ShiftHandoffNote {
+  id             String    @id @default(cuid())
+  organizationId String
+  branchId       String
+  targetDate     String
+  workShiftId    String
+  workShift      WorkShift @relation(fields: [workShiftId], references: [id], onDelete: Cascade)
+  memberId       String
+  comment        String
+  createdAt      DateTime  @default(now())
+
+  @@unique([workShiftId, targetDate])
+  @@index([branchId, targetDate])
+}
+
+model ShiftAdjustment {
+  id                String    @id @default(cuid())
+  shiftId           String
+  shift             WorkShift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  field             String
+  oldValue          String
+  newValue          String
+  comment           String
+  createdByMemberId String
+  createdAt         DateTime  @default(now())
+
+  @@index([shiftId])
+}
+
+model ShiftChangeRequest {
+  id                 String             @id @default(cuid())
+  organizationId     String
+  branchId           String
+  memberId           String
+  member             OrganizationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  workShiftId        String?
+  workShift          WorkShift?         @relation(fields: [workShiftId], references: [id], onDelete: SetNull)
+  date               String
+  requestType        String
+  message            String
+  proposedStart      String?
+  proposedEnd        String?
+  proposedStaffId    String?
+  status             String             @default("pending")
+  reviewComment      String?
+  reviewedByMemberId String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@index([memberId, status])
+  @@index([branchId, status, date])
 }
 

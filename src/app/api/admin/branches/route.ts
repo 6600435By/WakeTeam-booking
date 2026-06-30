@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
+  assertBranchSettingsAccess,
   assertBranchAccess,
   branchListWhere,
   handleAdminError,
@@ -20,6 +21,7 @@ const patchSchema = z.object({
 export async function GET() {
   try {
     const ctx = await requireAdminContext();
+    assertBranchSettingsAccess(ctx);
     const branches = await prisma.branch.findMany({
       where: branchListWhere(ctx),
       orderBy: { sortOrder: "asc" },
@@ -38,6 +40,7 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   try {
     const ctx = await requireAdminContext();
+    assertBranchSettingsAccess(ctx);
     const body = patchSchema.parse(await req.json());
     const id = req.nextUrl.searchParams.get("id");
     if (!id) {

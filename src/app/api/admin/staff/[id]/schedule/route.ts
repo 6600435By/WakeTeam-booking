@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
+  assertCatalogAccess,
   assertStaffAccess,
   handleAdminError,
   requireAdminContext,
@@ -34,6 +35,7 @@ export async function GET(
 ) {
   try {
     const ctx = await requireAdminContext();
+    assertCatalogAccess(ctx);
     const { id } = await params;
     await assertStaffAccess(ctx, id);
     const staff = await prisma.staff.findUnique({
@@ -59,6 +61,7 @@ export async function PATCH(
 ) {
   try {
     const ctx = await requireAdminContext();
+    assertCatalogAccess(ctx);
     const { id } = await params;
     await assertStaffAccess(ctx, id);
     const body = scheduleSchema.parse(await req.json());

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
+  assertCatalogAccess,
   assertStaffAccess,
   handleAdminError,
   requireAdminContext,
@@ -23,6 +24,7 @@ export async function PATCH(
 ) {
   try {
     const ctx = await requireAdminContext();
+    assertCatalogAccess(ctx);
     const { id } = await params;
     await assertStaffAccess(ctx, id);
     const body = patchSchema.parse(await req.json());
@@ -56,6 +58,7 @@ export async function DELETE(
 ) {
   try {
     const ctx = await requireAdminContext();
+    assertCatalogAccess(ctx);
     const { id } = await params;
     await assertStaffAccess(ctx, id);
 

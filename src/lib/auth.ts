@@ -8,8 +8,13 @@ export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10);
 }
 
-export async function verifyUser(email: string, password: string) {
-  const user = await prisma.user.findUnique({ where: { email } });
+export async function verifyUser(login: string, password: string) {
+  const normalized = login.trim();
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [{ login: normalized }, { email: normalized.toLowerCase() }],
+    },
+  });
   if (!user) return null;
   const ok = await bcrypt.compare(password, user.passwordHash);
   if (!ok) return null;

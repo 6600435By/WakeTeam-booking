@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
   assertBranchAccess,
+  assertCatalogAccess,
   handleAdminError,
   requireAdminContext,
 } from "@/lib/admin-access";
@@ -28,6 +29,7 @@ const DEFAULT_SCHEDULE = Array.from({ length: 7 }, (_, i) => ({
 export async function POST(req: NextRequest) {
   try {
     const ctx = await requireAdminContext();
+    assertCatalogAccess(ctx);
     const body = createSchema.parse(await req.json());
     assertBranchAccess(ctx, body.branchId);
 

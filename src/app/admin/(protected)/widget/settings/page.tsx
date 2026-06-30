@@ -1,7 +1,13 @@
-import { WidgetSettingsEditor } from "@/components/admin/WidgetSettingsEditor";
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { WidgetSettingsEditor } from "@/components/admin/WidgetSettingsEditor";
+import { canManageWidget, getAdminContext } from "@/lib/admin-access";
 
-export default function WidgetSettingsPage() {
+export default async function WidgetSettingsPage() {
+  const ctx = await getAdminContext();
+  if (!ctx) redirect("/admin/login?from=/admin/widget/settings");
+  if (!canManageWidget(ctx)) redirect("/admin/journal");
+
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3">
