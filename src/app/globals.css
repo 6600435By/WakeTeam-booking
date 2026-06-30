@@ -154,7 +154,7 @@ body {
 
 #waketeam-booking-root .widget-slot-grid {
   display: grid !important;
-  gap: 0.5rem !important;
+  gap: 0.375rem !important;
   grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
 }
 
@@ -171,8 +171,8 @@ body {
 }
 
 #waketeam-booking-root .widget-slot-grid-scroll {
-  height: 11.5rem !important;
-  max-height: 11.5rem !important;
+  height: 13rem !important;
+  max-height: 13rem !important;
   overflow-y: auto !important;
   overflow-x: hidden !important;
   overscroll-behavior: contain;
@@ -182,14 +182,14 @@ body {
   scrollbar-color: rgb(203 213 225) transparent;
   position: relative;
   contain: layout;
-  margin-top: 0.75rem;
+  margin-top: 0.5rem;
   padding-right: 2px;
 }
 
 @media (min-width: 640px) {
   #waketeam-booking-root .widget-slot-grid-scroll {
-    height: 12.5rem !important;
-    max-height: 12.5rem !important;
+    height: 13.5rem !important;
+    max-height: 13.5rem !important;
   }
 }
 
@@ -199,7 +199,7 @@ body {
 
 /* Admin: viewport modes (mobile / tablet / desktop) */
 .admin-shell[data-admin-viewport="desktop"] {
-  --admin-journal-grid-max-h: calc(100dvh - 11rem);
+  --admin-journal-grid-max-h: calc(100dvh - 8rem);
 }
 
 .admin-shell[data-admin-viewport="tablet"] {
@@ -210,8 +210,26 @@ body {
   --admin-journal-grid-max-h: min(60vh, calc(100dvh - 16rem));
 }
 
+.admin-shell[data-admin-viewport="tablet"] .admin-app-scroll,
+.admin-shell[data-admin-viewport="desktop"] .admin-app-scroll {
+  -webkit-overflow-scrolling: touch;
+  overflow-x: hidden;
+}
+
 .admin-journal-sticky-panel {
   isolation: isolate;
+}
+
+/* overflow-x на предках ломает position:sticky у строки заголовков сетки */
+.admin-journal-sticky-panel,
+.admin-journal-grid-root {
+  overflow: visible;
+}
+
+.admin-main {
+  display: block;
+  max-width: 100%;
+  overflow: visible;
 }
 
 .admin-mobile-tabbar {
@@ -223,26 +241,9 @@ body {
   touch-action: manipulation;
 }
 
-.admin-shell[data-admin-viewport="mobile"] .journal-mobile-toolbar {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  margin-left: -0.75rem;
-  margin-right: -0.75rem;
-  border-bottom: 1px solid rgb(226 232 240);
-  background: rgb(248 250 252 / 0.96);
-  padding: 0.75rem;
-  backdrop-filter: blur(8px);
-}
-
+.admin-shell[data-admin-viewport="mobile"] .journal-mobile-toolbar,
 .admin-shell[data-admin-viewport="tablet"] .journal-mobile-toolbar {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  margin-left: -1rem;
-  margin-right: -1rem;
+  margin-bottom: 0.75rem;
   border-bottom: 1px solid rgb(226 232 240);
-  background: rgb(248 250 252 / 0.96);
-  padding: 0.75rem 1rem;
-  backdrop-filter: blur(8px);
+  padding-bottom: 0.75rem;
 }

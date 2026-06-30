@@ -1,6 +1,6 @@
 import { SLOT_HEIGHT_PX } from "@/lib/calendar-grid";
 
-export const JOURNAL_GRID_SCALES = [0.75, 1, 1.25, 1.5] as const;
+export const JOURNAL_GRID_SCALES = [0.5, 0.65, 0.75, 1, 1.25, 1.5] as const;
 export type JournalGridScale = (typeof JOURNAL_GRID_SCALES)[number];
 
 const STORAGE_KEY = "journal-grid-scale";

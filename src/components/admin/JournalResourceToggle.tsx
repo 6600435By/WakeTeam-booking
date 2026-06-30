@@ -12,6 +12,7 @@ type Props = {
   onChange: (kind: JournalResourceKind) => void;
   className?: string;
   compact?: boolean;
+  dense?: boolean;
 };
 
 export function JournalResourceToggle({
@@ -19,14 +20,16 @@ export function JournalResourceToggle({
   onChange,
   className = "",
   compact = false,
+  dense = false,
 }: Props) {
   const isMobile = useAdminViewport() === "mobile";
 
   return (
     <div
       className={cn(
-        "inline-flex rounded-lg border border-slate-300 bg-slate-50 p-0.5",
+        "inline-flex rounded-md border border-slate-300 bg-slate-50 p-0.5",
         compact && "w-full",
+        dense && "p-px",
         className,
       )}
       role="group"
@@ -40,9 +43,13 @@ export function JournalResourceToggle({
             type="button"
             onClick={() => onChange(opt.value)}
             className={cn(
-              "touch-manipulation rounded-md font-medium transition-colors active:scale-[0.98]",
-              compact ? "min-h-[44px] flex-1 px-2 py-2 text-xs" : "min-h-[32px] px-3 py-1 text-sm",
-              isMobile && !compact && "min-h-[44px] px-2.5 py-2 text-xs",
+              "touch-manipulation rounded font-medium transition-colors active:scale-[0.98]",
+              dense
+                ? "h-6 px-2 text-[11px]"
+                : compact
+                  ? "min-h-[44px] flex-1 px-2 py-2 text-xs"
+                  : "min-h-[32px] px-3 py-1 text-sm",
+              isMobile && !compact && !dense && "min-h-[44px] px-2.5 py-2 text-xs",
               active
                 ? "bg-white text-lime-800 shadow-sm"
                 : "text-slate-600 hover:text-slate-900",

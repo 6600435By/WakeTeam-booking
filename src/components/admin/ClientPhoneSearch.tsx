@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { StatusBadge } from "./StatusBadge";
 import { cancelReasonLabel, JOURNAL_HIDDEN_STATUSES } from "@/lib/appointment-status";
 import { isSearchablePhone } from "@/lib/phone";
+import { cn } from "@/lib/utils";
 
 export type ClientLookupAppointment = {
   id: string;
@@ -41,6 +42,7 @@ type LookupResult = {
 type Props = {
   branchId?: string;
   onOpenAppointment: (appt: ClientLookupAppointment) => void;
+  compact?: boolean;
 };
 
 function clientName(client: ClientInfo | ClientLookupAppointment["client"]) {
@@ -59,7 +61,7 @@ function formatApptDate(startAt: string) {
     minute: "2-digit",
   });
 }
-export function ClientPhoneSearch({ branchId, onOpenAppointment }: Props) {
+export function ClientPhoneSearch({ branchId, onOpenAppointment, compact = false }: Props) {
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<LookupResult | null>(null);
@@ -131,9 +133,13 @@ export function ClientPhoneSearch({ branchId, onOpenAppointment }: Props) {
     hasClient &&
     (result!.upcoming.length > 0 || result!.history.length > 0);
 
+  const controlClass = compact
+    ? "h-8 rounded-md border border-slate-300 px-2 text-xs"
+    : "min-h-[44px] rounded-lg border border-slate-300 px-3 py-2 text-sm";
+
   return (
-    <div className="relative w-full sm:w-auto sm:min-w-[220px]">
-      <form onSubmit={handleSubmit} className="flex gap-2">
+    <div className={cn("relative", compact ? "w-[200px] shrink-0" : "w-full sm:w-auto sm:min-w-[220px]")}>
+      <form onSubmit={handleSubmit} className="flex gap-1.5">
         <input
           type="tel"
           inputMode="tel"
@@ -147,12 +153,20 @@ export function ClientPhoneSearch({ branchId, onOpenAppointment }: Props) {
           onFocus={() => {
             if (result?.client) setOpen(true);
           }}
-          className="min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm sm:min-w-[200px]"
+          className={cn(
+            controlClass,
+            "w-full bg-white",
+            compact ? "sm:min-w-0" : "sm:min-w-[200px]",
+          )}
         />
         <button
           type="submit"
           disabled={loading || !isSearchablePhone(phone)}
-          className="min-h-[44px] shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          className={cn(
+            controlClass,
+            "shrink-0 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50",
+            compact ? "px-2.5" : "",
+          )}
         >
           {loading ? "…" : "Найти"}
         </button>

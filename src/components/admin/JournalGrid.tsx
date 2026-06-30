@@ -45,6 +45,31 @@ import {
 
 const DRAG_THRESHOLD_PX = 6;
 const HEADER_HEIGHT_PX = 28;
+const JOURNAL_PAGE_SCROLL_SELECTOR = ".admin-app-scroll";
+
+function getJournalPageScrollEl(): HTMLElement | null {
+  if (typeof document === "undefined") return null;
+  return document.querySelector(JOURNAL_PAGE_SCROLL_SELECTOR);
+}
+
+function captureJournalScrollState(gridEl: HTMLDivElement | null) {
+  const pageScroll = getJournalPageScrollEl();
+  return {
+    left: gridEl?.scrollLeft ?? 0,
+    top: pageScroll?.scrollTop ?? gridEl?.scrollTop ?? 0,
+  };
+}
+
+function restoreJournalScrollState(
+  gridEl: HTMLDivElement | null,
+  left: number,
+  top: number,
+) {
+  const pageScroll = getJournalPageScrollEl();
+  if (gridEl) gridEl.scrollLeft = left;
+  if (pageScroll) pageScroll.scrollTop = top;
+  else if (gridEl) gridEl.scrollTop = top;
+}
 
 type StaffRow = {
   id: string;
@@ -164,13 +189,16 @@ function staffColumnWidthClass(
   collapsed: boolean,
   expandColumns: boolean,
   extra?: string,
+  fitViewport?: boolean,
 ) {
   return cn(
     "border-r border-slate-200 last:border-r-0",
     collapsed
       ? "w-10 shrink-0"
       : expandColumns
-        ? "min-w-[9rem] flex-1"
+        ? fitViewport
+          ? "min-w-[3.25rem] flex-1"
+          : "min-w-[9rem] flex-1"
         : "w-32 shrink-0 sm:w-36 md:w-40",
     extra,
   );
@@ -277,7 +305,7 @@ export function JournalGrid({
   );
 
   const gridHeight = timeLabels.length * slotHeightPx;
-  const expandColumns = resourceKind !== "all";
+  const expandColumns = fillViewport || resourceKind !== "all";
 
   const canDrop = useCallback(
     (staffId: string, startMinutes: number, durationMinutes: number) => {
@@ -335,8 +363,8 @@ export function JournalGrid({
       if (!canDrop(staffId, startMinutes, total)) return;
 
       const scrollEl = scrollContainerRef.current;
-      const scrollLeft = scrollEl?.scrollLeft ?? 0;
-      const scrollTop = scrollEl?.scrollTop ?? 0;
+      const { left: scrollLeft, top: scrollTop } =
+        captureJournalScrollState(scrollEl);
 
       await moveGroupAppointments(
         toGroupRefs(group),
@@ -357,8 +385,8 @@ export function JournalGrid({
       if (durationMinutes === currentTotal) return;
 
       const scrollEl = scrollContainerRef.current;
-      const scrollLeft = scrollEl?.scrollLeft ?? 0;
-      const scrollTop = scrollEl?.scrollTop ?? 0;
+      const { left: scrollLeft, top: scrollTop } =
+        captureJournalScrollState(scrollEl);
 
       await resizeGroupAppointments(
         toGroupRefs(group),
@@ -378,10 +406,7 @@ export function JournalGrid({
     const scrollEl = scrollContainerRef.current;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        if (scrollEl) {
-          scrollEl.scrollLeft = left;
-          scrollEl.scrollTop = top;
-        }
+        restoreJournalScrollState(scrollEl, left, top);
       });
     });
   }, [appointments]);
@@ -640,6 +665,7 @@ export function JournalGrid({
     );
   }
 
+
   function syncHeaderScrollLeft(scrollLeft: number) {
     if (headerScrollRef.current) {
       headerScrollRef.current.scrollLeft = scrollLeft;
@@ -655,7 +681,7 @@ export function JournalGrid({
     return (
       <div
         key={`header-${s.id}`}
-        className={staffColumnWidthClass(collapsed, expandColumns, "relative bg-white")}
+        className={staffColumnWidthClass(collapsed, expandColumns, "relative bg-white", fillViewport)}
         style={{ height: HEADER_HEIGHT_PX }}
       >
         {collapsed ? (
@@ -710,12 +736,7 @@ export function JournalGrid({
   }
 
   return (
-      <div
-        className={cn(
-          "select-none",
-          fillViewport && "flex min-h-0 flex-1 flex-col",
-        )}
-      >
+      <div className="select-none">
       {!fillViewport && (
         <>
       <label className="mb-3 flex items-center gap-2 text-sm text-slate-600">
@@ -758,15 +779,10 @@ export function JournalGrid({
         </>
       )}
 
-      <div
-        className={cn(
-          "flex min-h-0 flex-col",
-          fillViewport && "flex-1",
-        )}
-      >
+      <div className="admin-journal-grid-root w-full max-w-full">
         <div
           ref={headerScrollRef}
-          className="shrink-0 overflow-x-hidden rounded-t-lg border border-b-0 border-slate-200 bg-white shadow-sm"
+          className="admin-journal-grid-header sticky top-0 z-40 w-full shrink-0 overflow-x-hidden rounded-t-lg border border-b-0 border-slate-200 bg-white shadow-sm"
         >
           <div className={`flex ${expandColumns ? "w-full min-w-0" : "min-w-max"}`}>
             <div
@@ -786,12 +802,15 @@ export function JournalGrid({
           ref={scrollContainerRef}
           onScroll={(e) => syncHeaderScrollLeft(e.currentTarget.scrollLeft)}
           className={cn(
-            "admin-journal-grid-scroll overflow-auto rounded-b-lg border border-slate-200 bg-white shadow-sm [-webkit-overflow-scrolling:touch]",
+            "admin-journal-grid-scroll rounded-b-lg border border-slate-200 bg-white shadow-sm [-webkit-overflow-scrolling:touch]",
             fillViewport
-              ? "min-h-0 flex-1"
-              : isDesktop
-                ? "h-[calc(100dvh-11rem)] max-h-[calc(100dvh-11rem)]"
-                : "max-h-[var(--admin-journal-grid-max-h,min(72vh,calc(100dvh-14rem)))] min-h-[280px]",
+              ? "overflow-x-auto max-w-full"
+              : cn(
+                  "min-h-0 overflow-auto",
+                  isDesktop
+                    ? "h-[calc(100dvh-11rem)] max-h-[calc(100dvh-11rem)]"
+                    : "max-h-[var(--admin-journal-grid-max-h,min(72vh,calc(100dvh-14rem)))] min-h-[280px]",
+                ),
           )}
         >
         <div className={`flex ${expandColumns ? "w-full min-w-0" : "min-w-max"}`}>
@@ -849,6 +868,7 @@ export function JournalGrid({
                   collapsed,
                   expandColumns,
                   isDropColumn && drag?.valid ? "bg-lime-50/30" : "",
+                  fillViewport,
                 )}
               >
                 {collapsed ? (

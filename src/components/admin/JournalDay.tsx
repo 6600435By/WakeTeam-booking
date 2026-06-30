@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppointmentModal } from "./AppointmentModal";
 import { ClientPhoneSearch, type ClientLookupAppointment } from "./ClientPhoneSearch";
+import { JournalShiftBanner } from "./shift/JournalShiftBanner";
 import { JournalGrid } from "./JournalGrid";
 import {
   JournalGridStepPicker,
@@ -401,6 +402,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
 
   return (
     <div className="relative">
+      <JournalShiftBanner />
       {isMobile ? (
         <>
           <div className="journal-mobile-toolbar">
@@ -479,125 +481,123 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
             </div>
           </div>
 
-          <div className="mt-3 flex items-center justify-between gap-2">
-            <p className="text-sm text-slate-600">
-              {sortedAppointments.length > 0
-                ? `${sortedAppointments.length} ${sortedAppointments.length === 1 ? "запись" : sortedAppointments.length < 5 ? "записи" : "записей"}`
-                : "Нет записей"}
-            </p>
-            <StatusLegend compact />
-          </div>
+          <p className="mt-3 text-sm text-slate-600">
+            {sortedAppointments.length > 0
+              ? `${sortedAppointments.length} ${sortedAppointments.length === 1 ? "запись" : sortedAppointments.length < 5 ? "записи" : "записей"}`
+              : "Нет записей"}
+          </p>
         </>
       ) : (
-        <div className="journal-page-toolbar relative z-10">
-          <div className={cn("flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center")}>
-            <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">Журнал записей</h1>
-            <div className="flex flex-row flex-wrap items-center gap-2">
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setDate((d) => shiftDateStr(d, -1))}
-                  className="min-h-[44px] rounded-lg border border-slate-300 px-3 py-2 text-slate-600 hover:bg-slate-50"
-                  aria-label="Предыдущий день"
-                >
-                  ‹
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDate(todayStr())}
-                  className="min-h-[44px] rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
-                >
-                  Сегодня
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDate((d) => shiftDateStr(d, 1))}
-                  className="min-h-[44px] rounded-lg border border-slate-300 px-3 py-2 text-slate-600 hover:bg-slate-50"
-                  aria-label="Следующий день"
-                >
-                  ›
-                </button>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="min-h-[44px] rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                />
-                {isSuperAdmin ? (
-                  <select
-                    value={branchId}
-                    onChange={(e) => setBranchId(e.target.value)}
-                    disabled={branches.length === 0}
-                    className="min-h-[44px] min-w-[160px] rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"
-                  >
-                    {branches.length === 0 ? (
-                      <option value="">{loading ? "Загрузка…" : "Нет филиалов"}</option>
-                    ) : (
-                      branches.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.name}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                ) : (
-                  <div className="min-h-[44px] rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
-                    {branches.find((b) => b.id === branchId)?.name ??
-                      branches[0]?.name ??
-                      (loading ? "Загрузка…" : "Филиал…")}
-                  </div>
-                )}
-                <ClientPhoneSearch
-                  branchId={branchId || undefined}
-                  onOpenAppointment={openEditFromSearch}
-                />
-                <button
-                  type="button"
-                  onClick={() => openNew()}
-                  className="min-h-[44px] rounded-lg bg-lime-600 px-4 py-2 text-sm font-medium text-white hover:bg-lime-700"
-                >
-                  + Запись
-                </button>
-              </div>
+        <div className="journal-page-toolbar relative z-10 box-border w-full max-w-full border-b border-slate-200 bg-slate-50 pb-1.5">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+            <h1 className="mr-1 text-base font-bold text-slate-900">Журнал</h1>
+
+            <div className="inline-flex items-center rounded-md border border-slate-300 bg-white p-0.5">
+              <button
+                type="button"
+                onClick={() => setDate((d) => shiftDateStr(d, -1))}
+                className="flex h-7 w-7 items-center justify-center rounded text-sm text-slate-600 hover:bg-slate-50"
+                aria-label="Предыдущий день"
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                onClick={() => setDate(todayStr())}
+                className="h-7 rounded px-2 text-xs text-slate-700 hover:bg-slate-50"
+              >
+                Сегодня
+              </button>
+              <button
+                type="button"
+                onClick={() => setDate((d) => shiftDateStr(d, 1))}
+                className="flex h-7 w-7 items-center justify-center rounded text-sm text-slate-600 hover:bg-slate-50"
+                aria-label="Следующий день"
+              >
+                ›
+              </button>
             </div>
+
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="h-8 rounded-md border border-slate-300 px-2 text-xs"
+            />
+
+            {isSuperAdmin ? (
+              <select
+                value={branchId}
+                onChange={(e) => setBranchId(e.target.value)}
+                disabled={branches.length === 0}
+                className="h-8 max-w-[11rem] rounded-md border border-slate-300 px-2 text-xs disabled:bg-slate-100"
+              >
+                {branches.length === 0 ? (
+                  <option value="">{loading ? "Загрузка…" : "Нет филиалов"}</option>
+                ) : (
+                  branches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))
+                )}
+              </select>
+            ) : (
+              <div className="flex h-8 max-w-[11rem] items-center truncate rounded-md border border-slate-200 bg-slate-50 px-2 text-xs text-slate-700">
+                {branches.find((b) => b.id === branchId)?.name ??
+                  branches[0]?.name ??
+                  (loading ? "Загрузка…" : "Филиал…")}
+              </div>
+            )}
+
+            <JournalResourceToggle
+              value={resourceKind}
+              onChange={handleResourceKindChange}
+              dense
+            />
+
+            <ClientPhoneSearch
+              branchId={branchId || undefined}
+              onOpenAppointment={openEditFromSearch}
+              compact
+            />
+
+            <button
+              type="button"
+              onClick={() => openNew()}
+              className="h-8 shrink-0 rounded-md bg-lime-600 px-3 text-xs font-medium text-white hover:bg-lime-700"
+            >
+              + Запись
+            </button>
           </div>
 
           {showGrid ? (
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-slate-600">{formatDateTitle(date)}</p>
-              <div className="flex flex-wrap items-center gap-3">
-                <label className="flex items-center gap-2 text-sm text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={hideInactiveColumns}
-                    onChange={(e) => setHideInactiveColumns(e.target.checked)}
-                  />
-                  Скрыть нерабочие колонки
-                </label>
-                <JournalResourceToggle
-                  value={resourceKind}
-                  onChange={handleResourceKindChange}
+            <div className="mt-1.5 flex w-full min-w-0 items-center gap-x-2 gap-y-1">
+              <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-slate-600">
+                <input
+                  type="checkbox"
+                  className="size-3.5 rounded border-slate-300"
+                  checked={hideInactiveColumns}
+                  onChange={(e) => setHideInactiveColumns(e.target.checked)}
                 />
-                <JournalGridStepPicker value={gridStep} onChange={handleGridStepChange} />
+                Скрыть пустые
+              </label>
+              <div className="min-w-0 flex-1 overflow-x-auto">
+                <StatusLegend compact inline />
+              </div>
+              <div className="ml-auto flex shrink-0 items-center gap-2 pr-[0.5cm]">
+                <JournalGridStepPicker
+                  value={gridStep}
+                  onChange={handleGridStepChange}
+                  compact
+                />
+                <JournalGridZoomButtons
+                  value={gridScale}
+                  onChange={handleGridScaleChange}
+                />
               </div>
             </div>
-          ) : (
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm text-slate-600">{formatDateTitle(date)}</p>
-              <JournalResourceToggle
-                value={resourceKind}
-                onChange={handleResourceKindChange}
-              />
-            </div>
-          )}
-          {showGrid ? (
-            <p className="mt-1 text-xs text-slate-400">
-              Клик по свободному слоту — новая запись. Удерживайте запись и перетащите для смены времени.
-            </p>
           ) : null}
-          <StatusLegend />
         </div>
       )}
 
@@ -634,7 +634,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
       ) : (
         <>
           {isMobile && (
-        <div className="relative mt-3 pb-20">
+        <div className="relative mt-3 pb-16">
           {loading && (
             <div className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-white/40 pt-4">
               <span className="rounded-full bg-white px-3 py-1 text-xs text-slate-500 shadow">
@@ -690,9 +690,9 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
           {showGrid && (
           <div
             className={cn(
-              "admin-journal-sticky-panel relative mt-4",
+              "admin-journal-sticky-panel relative mt-2 w-full max-w-full",
               fillGridViewport &&
-                "admin-desktop:-mx-5 admin-desktop:px-5 admin-tablet:-mx-4 admin-tablet:px-4 sticky top-0 z-30 flex h-dvh flex-col bg-background",
+                "admin-desktop:px-0 admin-tablet:px-0",
             )}
           >
             {loading && (
@@ -702,14 +702,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
                 </span>
               </div>
             )}
-            <div className="relative min-h-0 flex-1">
-              <div className="absolute right-0 top-0 z-40 -translate-y-[calc(100%+4px)]">
-                <JournalGridZoomButtons
-                  value={gridScale}
-                  onChange={handleGridScaleChange}
-                />
-              </div>
-              <JournalGrid
+            <JournalGrid
               date={date}
               weekday={wd}
               branchId={branchId}
@@ -728,13 +721,16 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
                 void loadList();
               }}
             />
-            </div>
           </div>
           )}
         </>
       )}
 
-      <section className={cn(isMobile ? "mt-6" : "mt-10")}>
+      <section
+        className={cn(
+          isMobile ? "mt-6" : showGrid ? "mt-4 border-t border-slate-200 pt-4" : "mt-10",
+        )}
+      >
         <button
           type="button"
           onClick={() => setPeriodListOpen((v) => !v)}
@@ -937,7 +933,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
           type="button"
           onClick={() => openNew()}
           className="fixed right-4 z-40 flex h-14 w-14 touch-manipulation items-center justify-center rounded-full bg-lime-600 text-2xl font-light text-white shadow-lg active:scale-95 active:bg-lime-700"
-          style={{ bottom: "calc(4.75rem + env(safe-area-inset-bottom))" }}
+          style={{ bottom: "calc(1rem + env(safe-area-inset-bottom))" }}
           aria-label="Новая запись"
         >
           +

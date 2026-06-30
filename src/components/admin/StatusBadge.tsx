@@ -5,6 +5,7 @@ import {
   statusDotClass,
   statusLabel,
 } from "@/lib/appointment-status";
+import { cn } from "@/lib/utils";
 
 export function StatusBadge({ status }: { status: string }) {
   return (
@@ -17,12 +18,21 @@ export function StatusBadge({ status }: { status: string }) {
   );
 }
 
-export function StatusLegend({ compact = false }: { compact?: boolean }) {
+export function StatusLegend({
+  compact = false,
+  inline = false,
+}: {
+  compact?: boolean;
+  inline?: boolean;
+}) {
   return (
     <div
       className={
         compact
-          ? "flex max-w-[50%] flex-wrap justify-end gap-x-2 gap-y-1 text-[10px] text-slate-500"
+          ? cn(
+              "flex flex-wrap gap-x-1.5 gap-y-0.5 text-[10px] text-slate-500",
+              !inline && "max-w-[50%] justify-end",
+            )
           : "mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-600"
       }
     >
@@ -38,7 +48,7 @@ export function StatusLegend({ compact = false }: { compact?: boolean }) {
           <span
             className={`inline-block shrink-0 rounded-full ${compact ? "h-1.5 w-1.5" : "h-2 w-2"} ${s.dot}`}
           />
-          {compact ? s.label.slice(0, 4) : s.label}
+          {s.label}
         </span>
       ))}
     </div>
