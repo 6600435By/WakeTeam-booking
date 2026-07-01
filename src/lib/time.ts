@@ -2,11 +2,11 @@ import { formatInTimeZone, fromZonedTime, toZonedTime } from "date-fns-tz";
 
 export const TZ = "Europe/Minsk";
 
-export function parseTimeOnDate(dateStr: string, time: string): Date {
+export function parseTimeOnDate(dateStr: string, time: string, tz: string = TZ): Date {
   const [h, m] = time.split(":").map(Number);
-  const [y, mo, d] = dateStr.split("-").map(Number);
-  const local = new Date(y, mo - 1, d, h, m, 0, 0);
-  return fromZonedTime(local, TZ);
+  const hh = String(h).padStart(2, "0");
+  const mm = String(m).padStart(2, "0");
+  return fromZonedTime(`${dateStr}T${hh}:${mm}:00`, tz);
 }
 
 export function formatDateKey(date: Date): string {
@@ -55,12 +55,12 @@ export function toDatetimeLocalValue(iso: string): string {
   return formatInTimeZone(new Date(iso), TZ, "yyyy-MM-dd'T'HH:mm");
 }
 
-export function fromDatetimeLocalValue(value: string): string {
+export function fromDatetimeLocalValue(value: string, tz: string = TZ): string {
   const [datePart, timePart] = value.split("T");
-  const [y, mo, d] = datePart.split("-").map(Number);
   const [h, m] = (timePart ?? "00:00").split(":").map(Number);
-  const local = new Date(y, mo - 1, d, h, m, 0, 0);
-  return fromZonedTime(local, TZ).toISOString();
+  const hh = String(h).padStart(2, "0");
+  const mm = String(m).padStart(2, "0");
+  return fromZonedTime(`${datePart}T${hh}:${mm}:00`, tz).toISOString();
 }
 
 export function todayDatetimeLocalValue(): string {

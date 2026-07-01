@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { patchAdminAppointment } from "@/lib/admin/appointment-mutations";
 import {
   assertAppointmentAccess,
   assertServiceAccess,
@@ -8,13 +9,8 @@ import {
   requireAdminContext,
 } from "@/lib/admin-access";
 import { prisma } from "@/lib/db";
-import {
-  reconcileMembershipOnDelete,
-  reconcileMembershipOnStatusChange,
-  setAppointmentMembership,
-} from "@/lib/memberships/deduct";
-import { updateAppointment } from "@/lib/slots/generateSlots";
-import { applyAppointmentRental, reconcileDailyRentalCharges } from "@/lib/rental-pricing";
+import { reconcileMembershipOnDelete } from "@/lib/memberships/deduct";
+import { reconcileDailyRentalCharges } from "@/lib/rental-pricing";
 import { formatDateKey } from "@/lib/time";
 
 const patchSchema = z.object({
@@ -75,18 +71,23 @@ export async function PATCH(
     const oldDateKey = formatDateKey(existing.startAt);
     const { membershipId, rentalItemId, rentalQuantity, price, ...rest } = body;
 
-    await updateAppointment(id, rest, { skipSlotCheck: true });
-
-    if (rentalItemId !== undefined || rentalQuantity !== undefined) {
-      await applyAppointmentRental(prisma, id, {
-        rentalItemId: rentalItemId ?? null,
-        rentalQuantity: rentalQuantity ?? 0,
-      }, { priceOverride: price });
-    } else if (price != null) {
-      await prisma.appointment.update({
-        where: { id },
-        data: { price },
+    try {
+      await patchAdminAppointment(id, { status: existing.status }, {
+        membershipId,
+        status: body.status,
+        rentalItemId,
+        rentalQuantity,
+        price,
+        updateFields: rest,
       });
+    } catch (err) {
+      if (err instanceof Error && err.message === "MEMBERSHIP_INSUFFICIENT_MINUTES") {
+        return NextResponse.json(
+          { error: "Недостаточно минут на абонементе" },
+          { status: 409 },
+        );
+      }
+      throw err;
     }
 
     const updated = await prisma.appointment.findUniqueOrThrow({ where: { id } });
@@ -97,24 +98,6 @@ export async function PATCH(
         branchId: existing.branchId,
         dateKey: oldDateKey,
       });
-    }
-
-    if (membershipId !== undefined) {
-      await setAppointmentMembership(id, membershipId);
-    }
-
-    if (body.status && body.status !== existing.status) {
-      try {
-        await reconcileMembershipOnStatusChange(id, existing.status, body.status);
-      } catch (err) {
-        if (err instanceof Error && err.message === "MEMBERSHIP_INSUFFICIENT_MINUTES") {
-          return NextResponse.json(
-            { error: "Недостаточно минут на абонементе" },
-            { status: 409 },
-          );
-        }
-        throw err;
-      }
     }
 
     const fresh = await prisma.appointment.findUnique({

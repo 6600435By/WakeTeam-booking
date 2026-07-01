@@ -7,14 +7,10 @@ import {
   requireAdminContext,
   resolveBranchFilter,
 } from "@/lib/admin-access";
+import { finalizeAdminAppointmentCreate } from "@/lib/admin/appointment-mutations";
 import { prisma } from "@/lib/db";
-import {
-  applyMembershipDeductionIfNeeded,
-  setAppointmentMembership,
-} from "@/lib/memberships/deduct";
 import { createBooking } from "@/lib/slots/generateSlots";
 import { formatDateKey, parseTimeOnDate } from "@/lib/time";
-import { applyAppointmentRental } from "@/lib/rental-pricing";
 
 function rangeBounds(from: string, to: string) {
   const dayStart = parseTimeOnDate(from, "00:00");
@@ -99,48 +95,24 @@ export async function POST(req: NextRequest) {
       { skipSlotCheck: true },
     );
 
-    if (
-      rentalItemId !== undefined ||
-      rentalQuantity !== undefined ||
-      body.price != null ||
-      paymentMethod !== undefined
-    ) {
-      if (rentalItemId !== undefined || rentalQuantity !== undefined) {
-        await applyAppointmentRental(prisma, result.id, {
-          rentalItemId: rentalItemId ?? null,
-          rentalQuantity: rentalQuantity ?? 0,
-        }, { priceOverride: body.price ?? undefined });
-      } else if (body.price != null || paymentMethod !== undefined) {
-        await prisma.appointment.update({
-          where: { id: result.id },
-          data: {
-            ...(body.price != null ? { price: body.price } : {}),
-            ...(paymentMethod !== undefined ? { paymentMethod } : {}),
-          },
-        });
-      }
-    }
-
-    if (membershipId) {
-      await setAppointmentMembership(result.id, membershipId);
-    }
-
-    if (desiredStatus && desiredStatus !== "booked") {
-      await prisma.appointment.update({
-        where: { id: result.id },
-        data: { status: desiredStatus },
+    try {
+      await finalizeAdminAppointmentCreate(result.id, {
+        membershipId,
+        desiredStatus,
+        paymentMethod,
+        price: body.price,
+        rentalItemId,
+        rentalQuantity,
       });
-      try {
-        await applyMembershipDeductionIfNeeded(result.id, desiredStatus);
-      } catch (err) {
-        if (err instanceof Error && err.message === "MEMBERSHIP_INSUFFICIENT_MINUTES") {
-          return NextResponse.json(
-            { error: "Недостаточно минут на абонементе" },
-            { status: 409 },
-          );
-        }
-        throw err;
+    } catch (err) {
+      await prisma.appointment.delete({ where: { id: result.id } });
+      if (err instanceof Error && err.message === "MEMBERSHIP_INSUFFICIENT_MINUTES") {
+        return NextResponse.json(
+          { error: "Недостаточно минут на абонементе" },
+          { status: 409 },
+        );
       }
+      throw err;
     }
 
     const appt = await prisma.appointment.findUnique({

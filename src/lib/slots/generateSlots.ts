@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { formatInTimeZone } from "date-fns-tz";
 import { prisma } from "@/lib/db";
+import type { DbClient } from "@/lib/db-types";
 import {
   priceForDuration,
   resolveServicePrice,
@@ -20,7 +21,7 @@ import {
 import { ACTIVE_APPOINTMENT_STATUSES } from "@/lib/appointment-status";
 import { normalizeAdminDuration } from "@/lib/admin-duration";
 import { upsertClientByPhone } from "@/lib/clients/upsert";
-import { normalizePhone } from "@/lib/phone";
+import { parseWeekdays, serviceAllowedOnDate, subtractBreaks } from "@/lib/slots/slot-helpers";
 
 export type SlotDto = {
   startAt: string;
@@ -40,28 +41,11 @@ export type SupSlotDto = {
 const SUP_DURATION_MINUTES = 60;
 const SUP_SLOT_STEP = 60;
 
-function parseWeekdays(s: string): Set<number> {
-  return new Set(
-    s
-      .split(",")
-      .map((x) => parseInt(x.trim(), 10))
-      .filter((n) => !Number.isNaN(n)),
-  );
-}
-
 function parseDurations(s: string): number[] {
   return s
     .split(",")
     .map((x) => parseInt(x.trim(), 10))
     .filter((n) => !Number.isNaN(n) && n > 0);
-}
-
-function serviceAllowedOnDate(
-  service: { weekdays: string },
-  dateStr: string,
-): boolean {
-  const wd = weekdayMinsk(dateStr);
-  return parseWeekdays(service.weekdays).has(wd);
 }
 
 function maxTime(a: string, b: string): string {
@@ -70,30 +54,6 @@ function maxTime(a: string, b: string): string {
 
 function minTime(a: string, b: string): string {
   return a <= b ? a : b;
-}
-
-function subtractBreaks(
-  from: Date,
-  to: Date,
-  breaks: { timeFrom: string; timeTo: string }[],
-  dateStr: string,
-): { from: Date; to: Date }[] {
-  let intervals = [{ from, to }];
-  for (const br of breaks) {
-    const bStart = parseTimeOnDate(dateStr, br.timeFrom);
-    const bEnd = parseTimeOnDate(dateStr, br.timeTo);
-    const next: { from: Date; to: Date }[] = [];
-    for (const iv of intervals) {
-      if (!overlaps(iv.from, iv.to, bStart, bEnd)) {
-        next.push(iv);
-        continue;
-      }
-      if (iv.from < bStart) next.push({ from: iv.from, to: bStart });
-      if (bEnd < iv.to) next.push({ from: bEnd, to: iv.to });
-    }
-    intervals = next;
-  }
-  return intervals;
 }
 
 function staffFreeForInterval(
@@ -851,9 +811,10 @@ export async function updateAppointment(
     price?: number;
     paymentMethod?: string | null;
   },
-  opts?: { skipSlotCheck?: boolean },
+  opts?: { skipSlotCheck?: boolean; db?: DbClient },
 ) {
-  const existing = await prisma.appointment.findUniqueOrThrow({
+  const db = opts?.db ?? prisma;
+  const existing = await db.appointment.findUniqueOrThrow({
     where: { id },
     include: { client: true, service: true },
   });
@@ -884,7 +845,7 @@ export async function updateAppointment(
     );
   }
 
-  const service = await prisma.service.findUniqueOrThrow({
+  const service = await db.service.findUniqueOrThrow({
     where: { id: serviceId },
     include: { priceRules: { orderBy: { sortOrder: "asc" } } },
   });
@@ -923,7 +884,7 @@ export async function updateAppointment(
     resolveServicePrice(serviceWithRulesDto(service), startAt, duration);
 
   try {
-    return await prisma.appointment.update({
+    return await db.appointment.update({
       where: { id },
       data: {
         clientId,
