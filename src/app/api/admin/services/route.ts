@@ -148,12 +148,15 @@ export async function POST(req: NextRequest) {
           ]
         : defaultWakeLikePriceRules(basePrice);
 
+    const serviceName =
+      body.name?.trim() ?? (isWake ? "Вейкбординг" : isSup ? "Сапборд" : "Услуга");
+
     const service = await prisma.service.create({
       data: {
         branchId: body.branchId,
         kind: body.kind,
-        name: body.name?.trim() ?? (isWake ? "Вейкбординг" : isSup ? "Сапборд" : "Услуга"),
-        resourceLabel: isCustom ? body.name!.trim() : null,
+        name: serviceName,
+        resourceLabel: serviceName,
         price: basePrice,
         durationMinutes: isSup ? 60 : 10,
         allowedDurations: isSup ? "60" : "10,30,60",

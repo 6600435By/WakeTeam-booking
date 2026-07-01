@@ -8,7 +8,6 @@ import {
   toWidgetPhone,
   WIDGET_DEFAULT_PHONE,
 } from "@/lib/phone";
-import { cn } from "@/lib/utils";
 import { formatDateKey, parseTimeOnDate, TZ } from "@/lib/time";
 import { sessionRangeFromSlots } from "@/lib/calendar-ics";
 import { formatInTimeZone } from "date-fns-tz";
@@ -21,383 +20,66 @@ import {
 import { WidgetHelpBar } from "@/components/widget/WidgetHelpBar";
 import { WidgetPhotoCard } from "@/components/widget/WidgetPhotoCard";
 import {
-  WidgetBackButton,
-  WidgetCalendarLink,
-  WidgetChipButton,
-  WidgetChoiceButton,
-  WidgetDateNavButton,
   WidgetErrorState,
-  WidgetField,
+  WidgetBackButton,
   WidgetHeader,
   WidgetInlineError,
   WidgetLoadingSkeleton,
-  WidgetPanel,
-  WidgetPhoneInput,
-  WidgetPriceBadge,
-  WidgetPrimaryButton,
   WidgetShell,
-  WidgetStatusText,
   WidgetStepEnter,
   WidgetStepProgress,
   WidgetSuccessScreen,
-  WidgetSummaryCard,
-  WidgetTextArea,
-  WidgetTextInput,
 } from "@/components/widget/widget-primitives";
-import { Label } from "@/components/ui/label";
-import { ChevronDown, Sailboat, Waves } from "lucide-react";
+import {
+  branchHasFreeSlots,
+  fetchSupSlots,
+  fetchWakeSlots,
+  formatSessionStart,
+  formatSlotTime,
+  MAX_AUTO_DATE_SCAN_DAYS,
+  shiftDateStr,
+  supHasFree,
+  SUP_SLOT_MINUTES,
+  supStepToVisibleIndex,
+  supVisibleIndexToStep,
+  todayStr,
+  toggleInList,
+  useEmbedHeight,
+  wakeHasFree,
+  WAKE_CELL_MINUTES,
+} from "@/components/widget/widget-booking-utils";
+import {
+  TariffsBlock,
+  WidgetActivityCard,
+  WidgetContactsStep,
+  WidgetDateTimeStep,
+} from "@/components/widget/widget-step-components";
+import type {
+  ActivityKind,
+  SupSlot,
+  WakeSlot,
+  WidgetBranch,
+  WidgetConfig,
+  WidgetPrefill,
+  WidgetService,
+} from "@/components/widget/widget-types";
+import { isStaffPickActivity } from "@/components/widget/widget-types";
 
-type Branch = {
-  id: string;
-  name: string;
-  address?: string | null;
-  description?: string | null;
-  photoUrl?: string | null;
-};
+export type { WidgetPrefill } from "@/components/widget/widget-types";
 
-type PriceRule = {
-  weekdays: string;
-  timeFrom: string;
-  timeTo: string;
-  price: number;
-};
-
-type Service = {
-  id: string;
-  name: string;
-  kind: string;
-  durationMinutes: number;
-  allowedDurations: string;
-  price: number;
-  priceFrom: number;
-  priceRules: PriceRule[];
-  maxBoards?: number;
-  staff: { id: string; name: string; kind: string; description?: string | null; photoUrl?: string | null }[];
-};
-
-type WakeSlot = {
-  startAt: string;
-  endAt: string;
-  staffId: string;
-  staffName: string;
-  status: "free" | "busy";
-};
-
-type SupSlot = {
-  startAt: string;
-  endAt: string;
-  status: "free" | "busy";
-  availableBoards: number;
-};
-
-type ActivityKind = "wake" | "sup";
-
-export type WidgetPrefill = {
-  branchId: string;
-  serviceId: string;
-  staffId: string;
-  activityKind: ActivityKind;
-  firstName: string;
-  lastName?: string;
-  phone: string;
-  email?: string;
-  comment?: string;
-};
-
-type WidgetConfig = {
-  branches: Branch[];
-  servicesByBranch: Record<string, Service[]>;
-  settings: WidgetSettings;
-  organization: { currency: string };
-};
-
-function todayStr() {
-  return formatDateKey(new Date());
+function widgetServiceTitle(
+  service: WidgetService,
+  texts: WidgetSettings["texts"],
+): string {
+  if (service.kind === "wake") return texts.wakeLabel;
+  if (service.kind === "sup") return texts.supLabel;
+  return service.resourceLabel ?? service.name;
 }
 
-function postHeight(height: number) {
-  if (typeof window === "undefined") return;
-  window.parent.postMessage(
-    JSON.stringify({ height, type: "static", scroll: "no" }),
-    "*",
-  );
-}
-
-function useEmbedHeight(active: boolean) {
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!active || typeof window === "undefined") return;
-    const el = rootRef.current;
-    if (!el) return;
-
-    function report() {
-      const height = Math.ceil(el!.getBoundingClientRect().height);
-      postHeight(height);
-    }
-
-    report();
-    const ro = new ResizeObserver(report);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [active]);
-
-  return rootRef;
-}
-
-function formatTariffLine(rule: PriceRule, baseDuration: number): string {
-  const days =
-    rule.weekdays === "6,7"
-      ? "Сб–Вс"
-      : rule.weekdays === "1,2,3,4,5"
-        ? "Пн–Пт"
-        : rule.weekdays;
-  return `${days} ${rule.timeFrom}–${rule.timeTo} — ${rule.price} Br / ${baseDuration} мин`;
-}
-
-const WAKE_CELL_MINUTES = 10;
-
-function formatSlotTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Europe/Minsk",
-  });
-}
-
-function formatSessionStart(iso: string) {
-  return new Date(iso).toLocaleString("ru-RU", {
-    day: "numeric",
-    month: "long",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Europe/Minsk",
-  });
-}
-
-const SUP_SLOT_MINUTES = 60;
-
-function toggleInList(list: string[], value: string): string[] {
-  return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
-}
-
-function shiftDateStr(dateStr: string, days: number): string {
-  const d = new Date(dateStr + "T12:00:00");
-  d.setDate(d.getDate() + days);
-  return formatDateKey(d);
-}
-
-const MAX_AUTO_DATE_SCAN_DAYS = 45;
-
-function wakeHasFree(slots: WakeSlot[]) {
-  return slots.some((s) => s.status === "free");
-}
-
-function supHasFree(slots: SupSlot[]) {
-  return slots.some((s) => s.availableBoards > 0);
-}
-
-async function fetchWakeSlots(serviceId: string, staffId: string, date: string) {
-  const q = new URLSearchParams({ serviceId, staffId, date });
-  const r = await fetch(`/api/public/slots?${q}`);
-  const d = await r.json();
-  return (d.slots ?? []) as WakeSlot[];
-}
-
-async function fetchSupSlots(serviceId: string, date: string) {
-  const q = new URLSearchParams({ serviceId, date });
-  const r = await fetch(`/api/public/slots?${q}`);
-  const d = await r.json();
-  return (d.slots ?? []) as SupSlot[];
-}
-
-async function branchHasFreeSlots(
-  config: WidgetConfig,
-  targetBranchId: string,
-  kind: ActivityKind,
-  date: string,
-): Promise<boolean> {
-  const services = config.servicesByBranch[targetBranchId] ?? [];
-  const svc = services.find((s) => s.kind === kind);
-  if (!svc) return false;
-  if (kind === "sup") {
-    const slots = await fetchSupSlots(svc.id, date);
-    return supHasFree(slots);
-  }
-  for (const st of svc.staff) {
-    const slots = await fetchWakeSlots(svc.id, st.id, date);
-    if (wakeHasFree(slots)) return true;
-  }
-  return false;
-}
-
-const WEEKDAY_ABBR = ["", "ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"] as const;
-
-const CAROUSEL_RADIUS = 2;
-
-function weekdayAbbr(dateStr: string) {
-  const isoDow = Number(
-    formatInTimeZone(parseTimeOnDate(dateStr, "12:00"), TZ, "i"),
-  );
-  return WEEKDAY_ABBR[isoDow] ?? "";
-}
-
-const SLOT_SCROLL_HEIGHT_PX = 184;
-
-const slotGridScrollStyle: React.CSSProperties = {
-  height: SLOT_SCROLL_HEIGHT_PX,
-  maxHeight: SLOT_SCROLL_HEIGHT_PX,
-  overflowY: "auto",
-  overflowX: "hidden",
-  WebkitOverflowScrolling: "touch",
-  overscrollBehavior: "contain",
-  touchAction: "pan-y",
-  position: "relative",
-};
-
-const slotGridScrollClass = "widget-slot-grid-scroll";
-const slotGridClass = "widget-slot-grid";
-
-function buildCarouselDates(selected: string, today: string): string[] {
-  const offsets = Array.from(
-    { length: CAROUSEL_RADIUS * 2 + 1 },
-    (_, i) => i - CAROUSEL_RADIUS,
-  );
-  const dates = offsets
-    .map((o) => shiftDateStr(selected, o))
-    .filter((d) => d >= today);
-  let next = shiftDateStr(selected, CAROUSEL_RADIUS + 1);
-  while (dates.length < CAROUSEL_RADIUS * 2 + 1) {
-    if (!dates.includes(next)) dates.push(next);
-    next = shiftDateStr(next, 1);
-  }
-  return dates.slice(0, CAROUSEL_RADIUS * 2 + 1);
-}
-
-function CarouselDatePicker({
-  date,
-  onChange,
-}: {
-  date: string;
-  onChange: (d: string) => void;
-}) {
-  const today = todayStr();
-  const carouselDates = useMemo(
-    () => buildCarouselDates(date, today),
-    [date, today],
-  );
-  const monthLabel = formatInTimeZone(
-    parseTimeOnDate(date, "12:00"),
-    TZ,
-    "LLLL",
-    { locale: ru },
-  );
-  const monthCapitalized =
-    monthLabel.charAt(0).toLocaleUpperCase("ru") + monthLabel.slice(1);
-
-  const openCalendar = () => {
-    const input = document.createElement("input");
-    input.type = "date";
-    input.value = date;
-    input.min = today;
-    input.style.cssText =
-      "position:fixed;top:-100px;left:-100px;width:1px;height:1px;opacity:0;pointer-events:none";
-    document.body.appendChild(input);
-
-    const cleanup = () => {
-      input.remove();
-    };
-
-    input.addEventListener("change", () => {
-      if (input.value) onChange(input.value);
-      cleanup();
-    });
-    input.addEventListener("blur", cleanup, { once: true });
-
-    if (typeof input.showPicker === "function") {
-      void Promise.resolve(input.showPicker()).catch(cleanup);
-    } else {
-      input.click();
-    }
-  };
-
-  return (
-    <div className="mt-3">
-      <p className="text-center text-sm font-medium tracking-tight text-slate-800">
-        {monthCapitalized}
-      </p>
-      <WidgetCalendarLink onClick={openCalendar} />
-
-      <div className="mt-2 flex items-center gap-1">
-        <WidgetDateNavButton
-          direction="prev"
-          label="Предыдущий день"
-          disabled={date <= today}
-          onClick={() => date > today && onChange(shiftDateStr(date, -1))}
-        />
-
-        <div className="flex min-w-0 flex-1 items-stretch justify-between gap-1 px-0.5">
-          {carouselDates.map((d) => {
-            const selected = d === date;
-            const dayNum = formatInTimeZone(
-              parseTimeOnDate(d, "12:00"),
-              TZ,
-              "d",
-            );
-            const weekday = weekdayAbbr(d);
-
-            return (
-              <button
-                key={d}
-                type="button"
-                onClick={() => onChange(d)}
-                className={cn(
-                  "flex min-w-0 flex-1 flex-col items-center justify-center rounded-xl py-2 transition-all duration-200",
-                  selected
-                    ? "bg-[var(--widget-primary)]/12 text-slate-900 shadow-sm ring-1 ring-[var(--widget-primary)]/20"
-                    : "text-slate-400 hover:bg-slate-50 hover:text-slate-600",
-                )}
-              >
-                <span
-                  className={cn(
-                    "font-semibold tabular-nums leading-none",
-                    selected ? "text-lg sm:text-xl" : "text-sm",
-                  )}
-                >
-                  {dayNum}
-                </span>
-                <span
-                  className={cn(
-                    "mt-1 leading-none font-medium",
-                    selected ? "text-[10px] text-slate-700" : "text-[9px]",
-                  )}
-                >
-                  {weekday}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        <WidgetDateNavButton
-          direction="next"
-          label="Следующий день"
-          onClick={() => onChange(shiftDateStr(date, 1))}
-        />
-      </div>
-    </div>
-  );
-}
-
-function supVisibleIndexToStep(index: number): number {
-  if (index <= 1) return index;
-  return index === 2 ? 2 : 3;
-}
-
-function supStepToVisibleIndex(step: number): number {
-  if (step <= 1) return step;
-  if (step === 2) return 2;
-  return 3;
+function activityKindForService(kind: string): ActivityKind {
+  if (kind === "sup") return "sup";
+  if (kind === "custom") return "custom";
+  return "wake";
 }
 
 export function BookingWidget({
@@ -451,7 +133,7 @@ export function BookingWidget({
     [],
   );
   const [checkingAlternateStaff, setCheckingAlternateStaff] = useState(false);
-  const [availableOtherBranches, setAvailableOtherBranches] = useState<Branch[]>([]);
+  const [availableOtherBranches, setAvailableOtherBranches] = useState<WidgetBranch[]>([]);
   const [checkingOtherBranches, setCheckingOtherBranches] = useState(false);
 
   const embedRef = useEmbedHeight(!copyMode);
@@ -464,12 +146,8 @@ export function BookingWidget({
     [branchId, config],
   );
 
-  const wakeService = useMemo(
-    () => services.find((s) => s.kind === "wake"),
-    [services],
-  );
-  const supService = useMemo(
-    () => services.find((s) => s.kind === "sup"),
+  const bookableServices = useMemo(
+    () => services.filter((s) => s.staff.length > 0),
     [services],
   );
 
@@ -485,9 +163,11 @@ export function BookingWidget({
 
   const staffOptions = service?.staff ?? [];
 
+  const staffCellMinutes = service?.durationMinutes ?? WAKE_CELL_MINUTES;
+
   const displayPrice = useMemo(() => {
     if (!service) return null;
-    if (activityKind === "wake") {
+    if (isStaffPickActivity(activityKind)) {
       if (selectedWakeStarts.length === 0) return null;
       return selectedWakeStarts.reduce((sum, startAt) => {
         return (
@@ -499,7 +179,7 @@ export function BookingWidget({
               priceRules: service.priceRules,
             },
             new Date(startAt),
-            WAKE_CELL_MINUTES,
+            staffCellMinutes,
           )
         );
       }, 0);
@@ -517,7 +197,7 @@ export function BookingWidget({
       );
       return sum + unit * supQuantity;
     }, 0);
-  }, [service, activityKind, selectedWakeStarts, selectedSupStarts, supQuantity]);
+  }, [service, activityKind, selectedWakeStarts, selectedSupStarts, supQuantity, staffCellMinutes]);
 
   const selectedSupSlots = useMemo(
     () =>
@@ -615,12 +295,12 @@ export function BookingWidget({
     setSelectedSupStarts([]);
     setSupQuantity(1);
     userPickedDateRef.current = false;
-    setStep(prefill.activityKind === "wake" ? 3 : 2);
+    setStep(isStaffPickActivity(prefill.activityKind) ? 3 : 2);
   }, [config, prefill]);
 
   useEffect(() => {
     const onTimeStep =
-      (activityKind === "wake" && step === 3) ||
+      (isStaffPickActivity(activityKind) && step === 3) ||
       (activityKind === "sup" && step === 2);
     if (onTimeStep) {
       userPickedDateRef.current = false;
@@ -629,7 +309,7 @@ export function BookingWidget({
   }, [step, activityKind]);
 
   useEffect(() => {
-    if (activityKind !== "wake" || !serviceId || !staffId || !date) return;
+    if (!isStaffPickActivity(activityKind) || !serviceId || !staffId || !date) return;
     let cancelled = false;
     setSlotsLoading(true);
 
@@ -728,7 +408,7 @@ export function BookingWidget({
   }, [activityKind, serviceId, date]);
 
   useEffect(() => {
-    if (activityKind !== "wake" || !serviceId || !staffId || !date || slotsLoading) {
+    if (!isStaffPickActivity(activityKind) || !serviceId || !staffId || !date || slotsLoading) {
       return;
     }
     if (wakeSlots.length === 0 || wakeHasFree(wakeSlots)) {
@@ -767,14 +447,14 @@ export function BookingWidget({
   }, [activityKind, serviceId, staffId, date, slotsLoading, wakeSlots, staffOptions]);
 
   useEffect(() => {
-    if (!config || !activityKind || !date || slotsLoading) {
+    if (!config || !activityKind || !date || slotsLoading || !service) {
       setAvailableOtherBranches([]);
       setCheckingOtherBranches(false);
       return;
     }
 
     const onTimeStep =
-      (activityKind === "wake" && step === 3) ||
+      (isStaffPickActivity(activityKind) && step === 3) ||
       (activityKind === "sup" && step === 2);
     if (!onTimeStep) {
       setAvailableOtherBranches([]);
@@ -782,8 +462,9 @@ export function BookingWidget({
       return;
     }
 
-    const currentHasFree =
-      activityKind === "wake" ? wakeHasFree(wakeSlots) : supHasFree(supSlots);
+    const currentHasFree = isStaffPickActivity(activityKind)
+      ? wakeHasFree(wakeSlots)
+      : supHasFree(supSlots);
     if (currentHasFree || otherBranches.length === 0) {
       setAvailableOtherBranches([]);
       setCheckingOtherBranches(false);
@@ -793,10 +474,10 @@ export function BookingWidget({
     let cancelled = false;
     setCheckingOtherBranches(true);
     void (async () => {
-      const found: Branch[] = [];
+      const found: WidgetBranch[] = [];
       for (const b of otherBranches) {
         if (cancelled) return;
-        const ok = await branchHasFreeSlots(config, b.id, activityKind, date);
+        const ok = await branchHasFreeSlots(config, b.id, service, date);
         if (ok) found.push(b);
       }
       if (!cancelled) {
@@ -816,6 +497,7 @@ export function BookingWidget({
     wakeSlots,
     supSlots,
     otherBranches,
+    service,
     step,
   ]);
 
@@ -825,10 +507,8 @@ export function BookingWidget({
     }
   }, [maxSupQuantity, supQuantity]);
 
-  const pickActivity = (kind: ActivityKind) => {
-    const svc = kind === "wake" ? wakeService : supService;
-    if (!svc) return;
-    setActivityKind(kind);
+  const pickService = (svc: WidgetService) => {
+    setActivityKind(activityKindForService(svc.kind));
     setServiceId(svc.id);
     setStaffId("");
     setSelectedWakeStarts([]);
@@ -839,10 +519,9 @@ export function BookingWidget({
   const submit = useCallback(async () => {
     if (!serviceId || activityKind === null) return;
 
-    const slots =
-      activityKind === "wake"
-        ? selectedWakeStarts.map((startAt) => ({ startAt }))
-        : selectedSupStarts.map((startAt) => ({ startAt, quantity: supQuantity }));
+    const slots = isStaffPickActivity(activityKind)
+      ? selectedWakeStarts.map((startAt) => ({ startAt }))
+      : selectedSupStarts.map((startAt) => ({ startAt, quantity: supQuantity }));
 
     if (slots.length === 0) return;
 
@@ -859,7 +538,7 @@ export function BookingWidget({
         email: email || undefined,
         comment: comment || undefined,
       };
-      if (activityKind === "wake") {
+      if (isStaffPickActivity(activityKind)) {
         body.staffId = staffId;
       }
 
@@ -871,20 +550,20 @@ export function BookingWidget({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Ошибка записи");
 
-      const slotStarts =
-        activityKind === "wake" ? selectedWakeStarts : selectedSupStarts;
-      const cellMinutes =
-        activityKind === "wake" ? WAKE_CELL_MINUTES : SUP_SLOT_MINUTES;
+      const slotStarts = isStaffPickActivity(activityKind)
+        ? selectedWakeStarts
+        : selectedSupStarts;
+      const cellMinutes = isStaffPickActivity(activityKind)
+        ? staffCellMinutes
+        : SUP_SLOT_MINUTES;
       const range = sessionRangeFromSlots(slotStarts, cellMinutes);
       const earliestStart = range?.startIso;
-      const bookedMinutes =
-        activityKind === "wake"
-          ? selectedWakeStarts.length * WAKE_CELL_MINUTES
-          : selectedSupStarts.length * SUP_SLOT_MINUTES;
-      const resourceLabel =
-        activityKind === "wake"
-          ? settings.texts.wakeLabel
-          : settings.texts.supLabel;
+      const bookedMinutes = isStaffPickActivity(activityKind)
+        ? selectedWakeStarts.length * staffCellMinutes
+        : selectedSupStarts.length * SUP_SLOT_MINUTES;
+      const resourceLabel = service
+        ? widgetServiceTitle(service, settings.texts)
+        : "";
 
       setDone({
         publicNumber: data.publicNumber,
@@ -920,8 +599,9 @@ export function BookingWidget({
     copyMode,
     onCopyBookingDone,
     branch,
-    settings.texts.wakeLabel,
-    settings.texts.supLabel,
+    service,
+    staffCellMinutes,
+    settings.texts,
   ]);
 
   const stepLabels = settings?.texts.stepLabels ?? [
@@ -954,7 +634,7 @@ export function BookingWidget({
         if (index === 3) return selectedSupStarts.length > 0;
         return false;
       }
-      if (activityKind === "wake") {
+      if (isStaffPickActivity(activityKind)) {
         if (index === 2) return !!serviceId;
         if (index === 3) return !!staffId;
         if (index === 4) return selectedWakeStarts.length > 0;
@@ -988,7 +668,7 @@ export function BookingWidget({
       void submit();
       return;
     }
-    if (activityKind === "wake") setStep(4);
+    if (isStaffPickActivity(activityKind)) setStep(4);
     else setStep(3);
   }, [copyMode, activityKind, submit]);
 
@@ -1054,7 +734,7 @@ export function BookingWidget({
       {error && <WidgetInlineError message={error} />}
 
       {step === 0 && (
-        <WidgetStepEnter stepKey="branch" className="mt-5 space-y-3">
+        <WidgetStepEnter stepKey="branch" className="mt-3 space-y-2.5">
           {config!.branches.map((b) => (
             <WidgetPhotoCard
               key={b.id}
@@ -1069,54 +749,34 @@ export function BookingWidget({
       )}
 
       {step === 1 && (
-        <WidgetStepEnter stepKey="activity" className="mt-4 space-y-3">
-          <BackButton onClick={() => setStep(0)} />
-          {wakeService && (
-            <ActivityCard
-              title={settings.texts.wakeLabel}
-              priceHint={`от ${wakeService.priceFrom} Br`}
-              onClick={() => pickActivity("wake")}
+        <WidgetStepEnter stepKey="activity" className="mt-2.5 space-y-2.5">
+          <WidgetBackButton onClick={() => setStep(0)} />
+          {bookableServices.map((svc) => (
+            <WidgetActivityCard
+              key={svc.id}
+              title={widgetServiceTitle(svc, settings.texts)}
+              priceHint={`от ${svc.priceFrom} Br`}
+              onClick={() => pickService(svc)}
               theme={theme}
-              icon={Waves}
             >
               {settings.behavior.showTariffsExpandable &&
-                wakeService.priceRules.length > 0 && (
+                svc.priceRules.length > 0 && (
                   <TariffsBlock
                     open={tariffsOpen}
                     onToggle={() => setTariffsOpen((v) => !v)}
-                    rules={wakeService.priceRules}
-                    durationMinutes={wakeService.durationMinutes}
+                    rules={svc.priceRules}
+                    durationMinutes={svc.durationMinutes}
                     theme={theme}
                   />
                 )}
-            </ActivityCard>
-          )}
-          {supService && (
-            <ActivityCard
-              title={settings.texts.supLabel}
-              priceHint={`от ${supService.priceFrom} Br`}
-              onClick={() => pickActivity("sup")}
-              theme={theme}
-              icon={Sailboat}
-            >
-              {settings.behavior.showTariffsExpandable &&
-                supService.priceRules.length > 0 && (
-                  <TariffsBlock
-                    open={tariffsOpen}
-                    onToggle={() => setTariffsOpen((v) => !v)}
-                    rules={supService.priceRules}
-                    durationMinutes={supService.durationMinutes}
-                    theme={theme}
-                  />
-                )}
-            </ActivityCard>
-          )}
+            </WidgetActivityCard>
+          ))}
         </WidgetStepEnter>
       )}
 
-      {step === 2 && activityKind === "wake" && service && (
-        <WidgetStepEnter stepKey="staff" className="mt-3 space-y-3">
-          <BackButton onClick={() => setStep(1)} />
+      {step === 2 && isStaffPickActivity(activityKind) && service && (
+        <WidgetStepEnter stepKey="staff" className="mt-2 space-y-2.5">
+          <WidgetBackButton onClick={() => setStep(1)} />
           <p className="text-sm text-slate-500">{branch?.name}</p>
           {staffOptions.map((st) => (
             <WidgetPhotoCard
@@ -1135,7 +795,7 @@ export function BookingWidget({
       )}
 
       {step === 2 && activityKind === "sup" && service && (
-        <DateTimeStep
+        <WidgetDateTimeStep
           kind="sup"
           date={date}
           setDate={handleDateChange}
@@ -1160,11 +820,12 @@ export function BookingWidget({
           nextLabel={copyMode ? "Записать" : "Далее"}
           hideBack={copyMode}
           theme={theme}
+          slotMinutes={service.durationMinutes}
         />
       )}
 
-      {step === 3 && activityKind === "wake" && service && (
-        <DateTimeStep
+      {step === 3 && isStaffPickActivity(activityKind) && service && (
+        <WidgetDateTimeStep
           kind="wake"
           date={date}
           setDate={handleDateChange}
@@ -1189,11 +850,12 @@ export function BookingWidget({
           nextLabel={copyMode ? "Записать" : "Далее"}
           hideBack={copyMode}
           theme={theme}
+          slotMinutes={service.durationMinutes}
         />
       )}
 
       {step === 3 && activityKind === "sup" && !copyMode && selectedSupStarts.length > 0 && (
-        <ContactsStep
+        <WidgetContactsStep
           summary={`${branch?.name} · ${settings.texts.supLabel} · ${supQuantity} шт. × ${selectedSupStarts.length} сл. · ${[...selectedSupStarts]
             .sort()
             .map(formatSlotTime)
@@ -1217,9 +879,9 @@ export function BookingWidget({
         />
       )}
 
-      {step === 4 && activityKind === "wake" && !copyMode && selectedWakeStarts.length > 0 && service && (
-        <ContactsStep
-          summary={`${branch?.name} · ${settings.texts.wakeLabel} · ${selectedWakeStarts.length * WAKE_CELL_MINUTES} мин · ${[...selectedWakeStarts]
+      {step === 4 && isStaffPickActivity(activityKind) && !copyMode && selectedWakeStarts.length > 0 && service && (
+        <WidgetContactsStep
+          summary={`${branch?.name} · ${widgetServiceTitle(service, settings.texts)} · ${selectedWakeStarts.length * staffCellMinutes} мин · ${[...selectedWakeStarts]
             .sort()
             .map(formatSlotTime)
             .join(", ")}`}
@@ -1248,496 +910,5 @@ export function BookingWidget({
         compact={step === 3 || copyMode}
       />
     </WidgetShell>
-  );
-}
-
-function BackButton({ onClick }: { onClick: () => void }) {
-  return <WidgetBackButton onClick={onClick} />;
-}
-
-function TariffsBlock({
-  open,
-  onToggle,
-  rules,
-  durationMinutes,
-  theme,
-}: {
-  open: boolean;
-  onToggle: () => void;
-  rules: PriceRule[];
-  durationMinutes: number;
-  theme: WidgetSettings["theme"];
-}) {
-  return (
-    <div>
-      <button
-        type="button"
-        className="inline-flex items-center gap-1 text-xs font-medium transition-opacity hover:opacity-80"
-        style={{ color: theme.primaryColor }}
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggle();
-        }}
-      >
-        Тарифы
-        <ChevronDown
-          className={cn("size-3.5 transition-transform duration-200", open && "rotate-180")}
-          strokeWidth={2.25}
-        />
-      </button>
-      {open && (
-        <ul className="mt-2 space-y-1 rounded-lg bg-slate-50 px-2.5 py-2 text-xs leading-relaxed text-slate-600">
-          {rules.map((r, i) => (
-            <li key={i}>{formatTariffLine(r, durationMinutes)}</li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function ActivityCard({
-  title,
-  priceHint,
-  onClick,
-  theme,
-  icon: Icon,
-  children,
-}: {
-  title: string;
-  priceHint: string;
-  onClick: () => void;
-  theme: WidgetSettings["theme"];
-  icon: typeof Waves;
-  children?: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group flex w-full items-start gap-3 rounded-xl border border-slate-200/90 bg-white p-3.5 text-left shadow-sm ring-1 ring-black/[0.03] transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--widget-primary)]/30 hover:shadow-md active:translate-y-0 sm:items-center sm:gap-4 sm:p-4"
-      style={{ background: theme.cardBackground }}
-    >
-      <span
-        className="flex size-10 shrink-0 items-center justify-center rounded-xl transition-colors sm:size-11"
-        style={{ background: `${theme.primaryColor}18`, color: theme.primaryColor }}
-      >
-        <Icon className="size-5" strokeWidth={2} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-3">
-          <span className="font-semibold tracking-tight text-slate-900">{title}</span>
-          <WidgetPriceBadge>{priceHint}</WidgetPriceBadge>
-        </div>
-        <div className="mt-2">
-          {children ?? (
-            <span className="invisible text-xs" aria-hidden>
-              Тарифы
-            </span>
-          )}
-        </div>
-      </div>
-    </button>
-  );
-}
-
-function DateTimeStep(props: {
-  kind: ActivityKind;
-  date: string;
-  setDate: (d: string) => void;
-  durationMinutes?: number;
-  setDurationMinutes?: (d: number) => void;
-  allowedDurations?: number[];
-  showDurationPicker?: boolean;
-  slotsLoading: boolean;
-  wakeSlots?: WakeSlot[];
-  selectedWakeStarts?: string[];
-  onToggleWakeStart?: (startAt: string) => void;
-  supSlots?: SupSlot[];
-  selectedSupStarts?: string[];
-  onToggleSupStart?: (startAt: string) => void;
-  supQuantity?: number;
-  setSupQuantity?: (n: number) => void;
-  maxSupQuantity?: number;
-  displayPrice: number | null;
-  emptyHint?: string;
-  otherBranches?: Branch[];
-  showBranchAlternatives?: boolean;
-  checkingOtherBranches?: boolean;
-  onPickOtherBranch?: () => void;
-  alternateStaff?: { id: string; name: string }[];
-  checkingAlternateStaff?: boolean;
-  onSwitchStaff?: (staffId: string) => void;
-  onBack: () => void;
-  onNext?: () => void;
-  nextLoading?: boolean;
-  nextLabel?: string;
-  hideBack?: boolean;
-  theme: WidgetSettings["theme"];
-}) {
-  const slots =
-    props.kind === "wake"
-      ? (props.wakeSlots ?? [])
-      : (props.supSlots ?? []).filter((s) => s.availableBoards > 0);
-
-  const maxQty = props.maxSupQuantity ?? 0;
-  const selectedWakeCount = props.selectedWakeStarts?.length ?? 0;
-  const selectedSupCount = props.selectedSupStarts?.length ?? 0;
-  const wakeList = props.wakeSlots ?? [];
-  const wakeAllBusy = props.kind === "wake" && wakeList.length > 0 && !wakeHasFree(wakeList);
-  const branchAltList = props.otherBranches ?? [];
-  const showBranchFallback =
-    props.showBranchAlternatives &&
-    branchAltList.length > 0 &&
-    !!props.onPickOtherBranch &&
-    (props.kind === "sup"
-      ? !props.slotsLoading && !supHasFree(props.supSlots ?? [])
-      : !props.slotsLoading &&
-        !props.checkingAlternateStaff &&
-        !props.checkingOtherBranches &&
-        (wakeList.length === 0 || wakeAllBusy) &&
-        (props.alternateStaff?.length ?? 0) === 0);
-
-  return (
-    <WidgetStepEnter stepKey={`time-${props.kind}`} className="mt-3">
-      {!props.hideBack && <BackButton onClick={props.onBack} />}
-
-      {props.showDurationPicker && props.setDurationMinutes && props.allowedDurations && (
-        <>
-          <Label className="mt-3 block text-sm font-medium text-slate-700">
-            Длительность
-          </Label>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {props.allowedDurations.map((d) => (
-              <WidgetChoiceButton
-                key={d}
-                selected={props.durationMinutes === d}
-                onClick={() => props.setDurationMinutes!(d)}
-                theme={props.theme}
-              >
-                {d} мин
-              </WidgetChoiceButton>
-            ))}
-          </div>
-        </>
-      )}
-
-      <CarouselDatePicker date={props.date} onChange={props.setDate} />
-
-      {props.slotsLoading && (
-        <WidgetStatusText className="mt-3">Загрузка слотов…</WidgetStatusText>
-      )}
-
-      {!props.slotsLoading && props.kind === "wake" && wakeAllBusy && (
-        <WidgetStatusText tone="warning" className="mt-3">
-          На эту дату все слоты заняты
-        </WidgetStatusText>
-      )}
-
-      {props.kind === "wake" && props.checkingAlternateStaff && (
-        <WidgetStatusText className="mt-3">Проверяем другие реверсы…</WidgetStatusText>
-      )}
-
-      {props.kind === "wake" &&
-        wakeAllBusy &&
-        !props.checkingAlternateStaff &&
-        props.alternateStaff &&
-        props.alternateStaff.length > 0 &&
-        props.onSwitchStaff && (
-          <>
-            <WidgetStatusText className="mt-3 text-slate-600">
-              Свободное время на другом реверсе:
-            </WidgetStatusText>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {props.alternateStaff.map((st) => (
-                <WidgetChipButton
-                  key={st.id}
-                  onClick={() => props.onSwitchStaff!(st.id)}
-                >
-                  {st.name}
-                </WidgetChipButton>
-              ))}
-            </div>
-          </>
-        )}
-
-      {props.checkingOtherBranches && (
-        <WidgetStatusText className="mt-3">Проверяем другие филиалы…</WidgetStatusText>
-      )}
-
-      {showBranchFallback && (
-        <WidgetPanel className="mt-3">
-          <p className="text-sm text-slate-600">
-            {props.emptyHint ?? "Попробуйте другой филиал"}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {branchAltList.map((b) => (
-              <WidgetChipButton
-                key={b.id}
-                onClick={props.onPickOtherBranch}
-              >
-                {b.name}
-              </WidgetChipButton>
-            ))}
-          </div>
-          <button
-            type="button"
-            className="text-sm font-medium text-[var(--widget-primary)] transition-opacity hover:opacity-80"
-            onClick={props.onPickOtherBranch}
-          >
-            Выбрать другой филиал
-          </button>
-        </WidgetPanel>
-      )}
-
-      <div
-        className={slotGridScrollClass}
-        style={slotGridScrollStyle}
-        aria-label={
-          props.kind === "wake"
-            ? "Выберите один или несколько интервалов по 10 минут"
-            : "Выберите один или несколько интервалов по 60 минут"
-        }
-      >
-        <div className={slotGridClass}>
-        {props.kind === "wake" &&
-          (props.wakeSlots ?? []).map((sl) => {
-            const time = formatSlotTime(sl.startAt);
-            const free = sl.status === "free";
-            const selected = props.selectedWakeStarts?.includes(sl.startAt) ?? false;
-            return (
-              <WidgetChoiceButton
-                key={sl.startAt}
-                disabled={!free}
-                selected={selected}
-                aria-pressed={selected}
-                onClick={() => free && props.onToggleWakeStart?.(sl.startAt)}
-                theme={props.theme}
-                className="min-h-10 w-full px-1.5 py-2 text-xs sm:text-sm"
-              >
-                {time}
-              </WidgetChoiceButton>
-            );
-          })}
-
-        {props.kind === "sup" &&
-          (props.supSlots ?? [])
-            .filter((s) => s.availableBoards > 0)
-            .map((sl) => {
-            const time = formatSlotTime(sl.startAt);
-            const selected = props.selectedSupStarts?.includes(sl.startAt) ?? false;
-            return (
-              <WidgetChoiceButton
-                key={sl.startAt}
-                selected={selected}
-                aria-pressed={selected}
-                onClick={() => props.onToggleSupStart?.(sl.startAt)}
-                theme={props.theme}
-                className="min-h-[3.25rem] w-full flex-col gap-0.5 px-1.5 py-2 text-xs sm:min-h-11 sm:text-sm"
-              >
-                <span>{time}</span>
-                <span className="text-[10px] font-normal opacity-75">
-                  {sl.availableBoards} шт.
-                </span>
-              </WidgetChoiceButton>
-            );
-          })}
-        </div>
-      </div>
-
-      {!props.slotsLoading &&
-        slots.length === 0 &&
-        !showBranchFallback &&
-        props.kind === "wake" && (
-        <WidgetSummaryCard className="mt-3">
-          <p>Нет слотов на эту дату</p>
-        </WidgetSummaryCard>
-      )}
-
-      {!props.slotsLoading &&
-        slots.length === 0 &&
-        !showBranchFallback &&
-        props.kind === "sup" && (
-        <WidgetSummaryCard className="mt-3">
-          <p>Нет слотов на эту дату</p>
-        </WidgetSummaryCard>
-      )}
-
-      {props.kind === "sup" && selectedSupCount > 0 && (
-        <WidgetPanel className="mt-4">
-          <p className="text-sm text-slate-700">
-            Выбрано: <strong className="font-semibold">{selectedSupCount}</strong>{" "}
-            {selectedSupCount === 1 ? "слот" : "слота"}
-          </p>
-          <p className="text-sm font-medium text-slate-700">
-            Доступно сапов: {maxQty}
-            {selectedSupCount > 1 ? " (минимум по выбранным слотам)" : ""}
-          </p>
-          <Label className="text-sm font-medium text-slate-700">
-            {selectedSupCount > 1
-              ? "Количество сапов на каждый слот"
-              : "Количество сапов"}
-          </Label>
-          <div className="flex flex-wrap gap-2">
-            {Array.from({ length: maxQty }, (_, i) => i + 1).map((n) => (
-              <WidgetChoiceButton
-                key={n}
-                selected={props.supQuantity === n}
-                onClick={() => props.setSupQuantity?.(n)}
-                theme={props.theme}
-                className="min-w-10"
-              >
-                {n}
-              </WidgetChoiceButton>
-            ))}
-          </div>
-          {props.displayPrice != null && (
-            <p className="text-sm text-slate-700">
-              Стоимость:{" "}
-              <strong className="font-semibold tabular-nums">
-                {props.displayPrice} Br
-              </strong>
-            </p>
-          )}
-          <WidgetPrimaryButton
-            disabled={!props.supQuantity}
-            loading={props.nextLoading}
-            onClick={props.onNext}
-            theme={props.theme}
-          >
-            {props.nextLabel ?? "Далее"}
-          </WidgetPrimaryButton>
-        </WidgetPanel>
-      )}
-
-      {props.kind === "wake" && selectedWakeCount > 0 && (
-        <WidgetPanel className="mt-4">
-          <p className="text-sm text-slate-700">
-            Выбрано: <strong className="font-semibold">{selectedWakeCount}</strong>{" "}
-            интервалов ({selectedWakeCount * WAKE_CELL_MINUTES} мин)
-          </p>
-          {props.displayPrice != null && (
-            <p className="text-sm text-slate-700">
-              Стоимость:{" "}
-              <strong className="font-semibold tabular-nums">
-                {props.displayPrice} Br
-              </strong>
-            </p>
-          )}
-          {props.onNext && (
-            <WidgetPrimaryButton
-              loading={props.nextLoading}
-              onClick={props.onNext}
-              theme={props.theme}
-            >
-              {props.nextLabel ?? "Далее"}
-            </WidgetPrimaryButton>
-          )}
-        </WidgetPanel>
-      )}
-    </WidgetStepEnter>
-  );
-}
-
-function ContactsStep({
-  summary,
-  displayPrice,
-  firstName,
-  setFirstName,
-  lastName,
-  setLastName,
-  phone,
-  setPhone,
-  email,
-  setEmail,
-  comment,
-  setComment,
-  submitLabel,
-  loading,
-  onBack,
-  onSubmit,
-  theme,
-}: {
-  summary: string;
-  displayPrice: number | null;
-  firstName: string;
-  setFirstName: (v: string) => void;
-  lastName: string;
-  setLastName: (v: string) => void;
-  phone: string;
-  setPhone: (v: string) => void;
-  email: string;
-  setEmail: (v: string) => void;
-  comment: string;
-  setComment: (v: string) => void;
-  submitLabel: string;
-  loading: boolean;
-  onBack: () => void;
-  onSubmit: () => void;
-  theme: WidgetSettings["theme"];
-}) {
-  return (
-    <WidgetStepEnter stepKey="contacts" className="mt-4 space-y-4">
-      <WidgetBackButton onClick={onBack} />
-      <WidgetSummaryCard>{summary}</WidgetSummaryCard>
-      {displayPrice != null && (
-        <p className="text-sm text-slate-700">
-          Стоимость:{" "}
-          <strong className="font-semibold tabular-nums">{displayPrice} Br</strong>
-        </p>
-      )}
-      <div className="space-y-3">
-        <WidgetField id="widget-first-name" label="Имя" required>
-          <WidgetTextInput
-            id="widget-first-name"
-            value={firstName}
-            onChange={(e) => setFirstName(e.target.value)}
-            autoComplete="given-name"
-          />
-        </WidgetField>
-        <WidgetField id="widget-last-name" label="Фамилия">
-          <WidgetTextInput
-            id="widget-last-name"
-            value={lastName}
-            onChange={(e) => setLastName(e.target.value)}
-            autoComplete="family-name"
-          />
-        </WidgetField>
-        <WidgetField id="widget-phone" label="Телефон" required>
-          <WidgetPhoneInput
-            id="widget-phone"
-            value={phone}
-            onChange={setPhone}
-          />
-        </WidgetField>
-        <WidgetField id="widget-email" label="Email">
-          <WidgetTextInput
-            id="widget-email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
-            inputMode="email"
-          />
-        </WidgetField>
-        <WidgetField id="widget-comment" label="Комментарий">
-          <WidgetTextArea
-            id="widget-comment"
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-            rows={3}
-          />
-        </WidgetField>
-      </div>
-      <WidgetPrimaryButton
-        onClick={onSubmit}
-        disabled={!firstName || !isCompletePhone(phone)}
-        loading={loading}
-        loadingLabel="Отправка…"
-        theme={theme}
-      >
-        {submitLabel}
-      </WidgetPrimaryButton>
-    </WidgetStepEnter>
   );
 }

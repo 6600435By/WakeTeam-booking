@@ -1,15 +1,18 @@
 "use client";
 
-import {
-  RESOURCE_KIND_OPTIONS,
-  type JournalResourceKind,
-} from "@/lib/journal-resources";
+import type { JournalResourceFilter } from "@/lib/journal-resources";
 import { useAdminViewport } from "./AdminViewportContext";
 import { cn } from "@/lib/utils";
 
+type Option = {
+  value: JournalResourceFilter;
+  label: string;
+};
+
 type Props = {
-  value: JournalResourceKind;
-  onChange: (kind: JournalResourceKind) => void;
+  value: JournalResourceFilter;
+  onChange: (kind: JournalResourceFilter) => void;
+  options: Option[];
   className?: string;
   compact?: boolean;
   dense?: boolean;
@@ -18,6 +21,7 @@ type Props = {
 export function JournalResourceToggle({
   value,
   onChange,
+  options,
   className = "",
   compact = false,
   dense = false,
@@ -27,7 +31,7 @@ export function JournalResourceToggle({
   return (
     <div
       className={cn(
-        "inline-flex rounded-md border border-slate-300 bg-slate-50 p-0.5",
+        "inline-flex max-w-full flex-wrap rounded-md border border-slate-300 bg-slate-50 p-0.5",
         compact && "w-full",
         dense && "p-px",
         className,
@@ -35,7 +39,7 @@ export function JournalResourceToggle({
       role="group"
       aria-label="Тип ресурсов"
     >
-      {RESOURCE_KIND_OPTIONS.map((opt) => {
+      {options.map((opt) => {
         const active = value === opt.value;
         return (
           <button

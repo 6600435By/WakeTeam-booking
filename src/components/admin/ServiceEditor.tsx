@@ -12,6 +12,12 @@ import {
 } from "./StaffResourceEditor";
 import type { ScheduleRow } from "./ScheduleEditor";
 import {
+  bookingDurationOptions,
+  normalizeAllowedDurationsForSlot,
+  parseAllowedDurations,
+  SERVICE_SLOT_DURATIONS,
+} from "@/lib/service-durations";
+import {
   ServicePriceRulesEditor,
   WeekdayPicker,
   type PriceRuleRow,
@@ -105,6 +111,30 @@ export function ServiceEditor({
       )
     : [];
 
+  const slotDurationOptions =
+    service.kind === "sup" ? [60] : [...SERVICE_SLOT_DURATIONS];
+  const bookingOptions = bookingDurationOptions(service.durationMinutes);
+  const selectedBookingDurations = parseAllowedDurations(service.allowedDurations);
+
+  function setSlotDuration(minutes: number) {
+    onUpdate({
+      durationMinutes: minutes,
+      allowedDurations: normalizeAllowedDurationsForSlot(
+        service.allowedDurations,
+        minutes,
+      ),
+    });
+  }
+
+  function toggleBookingDuration(minutes: number) {
+    const current = parseAllowedDurations(service.allowedDurations);
+    const next = current.includes(minutes)
+      ? current.filter((d) => d !== minutes)
+      : [...current, minutes].sort((a, b) => a - b);
+    if (next.length === 0) return;
+    onUpdate({ allowedDurations: next.join(",") });
+  }
+
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -139,17 +169,33 @@ export function ServiceEditor({
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <label className="block">
+        <div className="block">
           <span className="mb-1 block text-xs text-slate-500">
-            Длительности записи, мин
+            Интервал тарифа, мин
           </span>
-          <input
-            className={inputClass}
-            value={service.allowedDurations}
-            onChange={(e) => onUpdate({ allowedDurations: e.target.value })}
-            placeholder="10,30,60"
-          />
-        </label>
+          <div className="flex flex-wrap gap-2">
+            {slotDurationOptions.map((minutes) => {
+              const active = service.durationMinutes === minutes;
+              return (
+                <button
+                  key={minutes}
+                  type="button"
+                  onClick={() => setSlotDuration(minutes)}
+                  className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                    active
+                      ? "border-lime-600 bg-lime-50 text-lime-800"
+                      : "border-slate-300 text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  {minutes}
+                </button>
+              );
+            })}
+          </div>
+          <span className="mt-1 block text-[11px] text-slate-400">
+            Цена в тарифах и минимальный шаг слота в журнале
+          </span>
+        </div>
         <label className="block">
           <span className="mb-1 block text-xs text-slate-500">
             Базовая цена, Br / {service.durationMinutes} мин
@@ -167,6 +213,39 @@ export function ServiceEditor({
           </span>
         </label>
       </div>
+
+      {service.kind !== "sup" && bookingOptions.length > 1 && (
+        <div className="mt-3">
+          <span className="mb-1 block text-xs text-slate-500">
+            Длительности записи в виджете, мин
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {bookingOptions.map((minutes) => {
+              const active = selectedBookingDurations.includes(minutes);
+              return (
+                <button
+                  key={minutes}
+                  type="button"
+                  onClick={() => toggleBookingDuration(minutes)}
+                  className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                    active
+                      ? "border-lime-600 bg-lime-50 text-lime-800"
+                      : "border-slate-300 text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  {minutes}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {service.kind === "sup" && (
+        <p className="mt-3 text-xs text-slate-500">
+          Длительность записи на сапборд — 60 мин
+        </p>
+      )}
 
       {dedicated ? (
         <div className="mt-6">

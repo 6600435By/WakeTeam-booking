@@ -4,6 +4,7 @@ import {
   resolveBranchFilter,
 } from "@/lib/admin-access";
 import { JOURNAL_HIDDEN_STATUSES } from "@/lib/appointment-status";
+import { isLegacyTariffServiceName } from "@/lib/admin/service-catalog";
 import { prisma } from "@/lib/db";
 import { formatDateKey, parseTimeOnDate } from "@/lib/time";
 
@@ -21,7 +22,7 @@ export async function queryCalendarDay(
   const nextKey = formatDateKey(nextDate);
   const dayEnd = parseTimeOnDate(nextKey, "00:00");
 
-  const [staff, appointments, branches] = await Promise.all([
+  const [staff, appointments, branches, services] = await Promise.all([
     prisma.staff.findMany({
       where: {
         isActive: true,
@@ -51,12 +52,31 @@ export async function queryCalendarDay(
       orderBy: { sortOrder: "asc" },
       select: { id: true, name: true },
     }),
+    prisma.service.findMany({
+      where: {
+        isActive: true,
+        ...(branchId ? { branchId } : { branch: { organizationId: ctx.organizationId } }),
+      },
+      orderBy: [{ branchId: "asc" }, { sortOrder: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        kind: true,
+        resourceLabel: true,
+        isActive: true,
+        branchId: true,
+        staff: { select: { staffId: true } },
+      },
+    }),
   ]);
+
+  const catalogServices = services.filter((s) => !isLegacyTariffServiceName(s.name));
 
   return {
     staff,
     appointments,
     branches,
+    services: catalogServices,
     date,
     admin: {
       role: ctx.role,

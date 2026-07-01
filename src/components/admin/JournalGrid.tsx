@@ -15,6 +15,9 @@ import {
   isStaffWorkingAt,
   minutesFromIso,
   minutesToTime,
+  appointmentGroupCellMinutes,
+  appointmentGroupSpanMinutes,
+  snapDurationToCell,
   type JournalGridStep,
 } from "@/lib/calendar-grid";
 import { formatTimeMinsk } from "@/lib/time";
@@ -27,7 +30,7 @@ import {
   loadJournalCollapsedColumns,
   saveJournalCollapsedColumns,
   staffMatchesResourceFilter,
-  type JournalResourceKind,
+  type JournalResourceFilter,
 } from "@/lib/journal-resources";
 import {
   moveGroupAppointments,
@@ -122,6 +125,7 @@ type ResizeState = {
   staffId: string;
   startMinutes: number;
   durationMinutes: number;
+  cellMinutes: number;
   height: number;
 };
 
@@ -138,7 +142,8 @@ type Props = {
   weekday: number;
   branchId: string;
   staff: StaffRow[];
-  resourceKind?: JournalResourceKind;
+  resourceKind?: JournalResourceFilter;
+  staffServiceLinks?: Map<string, Set<string>>;
   appointments: Appointment[];
   gridStep: JournalGridStep;
   gridScale?: JournalGridScale;
@@ -148,12 +153,14 @@ type Props = {
   onSlotClick: (initial: ModalInitial) => void;
   onAppointmentClick: (appt: Appointment, group: Appointment[]) => void;
   onMoved: () => void | Promise<void>;
+  onActionError?: (message: string) => void;
 };
 
 function toGroupRefs(appts: Appointment[]): GroupApptRef[] {
   return appts.map((a) => ({
     id: a.id,
     startAt: a.startAt,
+    endAt: a.endAt,
     durationMinutes: a.durationMinutes,
     price: a.price,
   }));
@@ -172,11 +179,7 @@ function groupCreateTemplate(first: Appointment) {
 }
 
 function groupTotalMinutes(group: Appointment[]): number {
-  if (!group.length) return 0;
-  if (group.length === 1) return group[0].durationMinutes;
-  const start = new Date(group[0].startAt).getTime();
-  const end = Math.max(...group.map((a) => new Date(a.endAt).getTime()));
-  return Math.round((end - start) / 60_000);
+  return appointmentGroupSpanMinutes(group);
 }
 function collapsedStaffLabel(name: string): string {
   const label = journalStaffDisplayName(name);
@@ -219,6 +222,7 @@ export function JournalGrid({
   branchId,
   staff,
   resourceKind = "all",
+  staffServiceLinks,
   appointments,
   gridStep,
   gridScale = 1,
@@ -228,6 +232,7 @@ export function JournalGrid({
   onSlotClick,
   onAppointmentClick,
   onMoved,
+  onActionError,
 }: Props) {
   const [hideInactiveInternal, setHideInactiveInternal] = useState(true);
   const hideInactive = hideInactiveProp ?? hideInactiveInternal;
@@ -252,6 +257,7 @@ export function JournalGrid({
   const pendingScrollRestore = useRef<{ left: number; top: number } | null>(
     null,
   );
+  const isMutatingRef = useRef(false);
   dragRef.current = drag;
   resizeRef.current = resize;
   pointerStartRef.current = pointerStart;
@@ -278,14 +284,18 @@ export function JournalGrid({
     });
   }
 
+  const staffLinks = staffServiceLinks ?? new Map<string, Set<string>>();
+
   const visibleStaff = useMemo(() => {
     const list = catalogStaff(
       staff.filter((s) => !branchId || s.branchId === branchId),
     );
-    let filtered = list.filter((s) => staffMatchesResourceFilter(s, resourceKind));
+    let filtered = list.filter((s) =>
+      staffMatchesResourceFilter(s, resourceKind, staffLinks),
+    );
     if (!hideInactive) return filtered;
     return filtered.filter((s) => getStaffRule(s.schedules, weekday));
-  }, [staff, branchId, hideInactive, weekday, resourceKind]);
+  }, [staff, branchId, hideInactive, weekday, resourceKind, staffLinks]);
 
   const bounds = useMemo(
     () =>
@@ -341,16 +351,23 @@ export function JournalGrid({
   );
 
   const resolveDurationFromPointer = useCallback(
-    (clientY: number, staffId: string, startMinutes: number) => {
+    (
+      clientY: number,
+      staffId: string,
+      startMinutes: number,
+      cellMinutes: number,
+    ) => {
       const el = columnRefs.current.get(staffId);
       if (!el) return null;
       const rect = el.getBoundingClientRect();
       const relY = Math.max(0, Math.min(clientY - rect.top, gridHeight));
       const slotIndex = Math.max(1, Math.ceil(relY / slotHeightPx));
       const endMinutes = bounds.start + slotIndex * gridStep;
-      const duration = Math.max(gridStep, endMinutes - startMinutes);
+      const rawDuration = Math.max(gridStep, endMinutes - startMinutes);
       const maxDuration = bounds.end - startMinutes;
-      return Math.min(duration, maxDuration);
+      const capped = Math.min(rawDuration, maxDuration);
+      const cell = cellMinutes > 0 ? cellMinutes : gridStep;
+      return snapDurationToCell(capped, cell, { minCells: 1, maxMinutes: maxDuration });
     },
     [gridHeight, bounds.start, bounds.end, gridStep, slotHeightPx],
   );
@@ -358,45 +375,63 @@ export function JournalGrid({
   const moveGroupBlock = useCallback(
     async (group: Appointment[], staffId: string, startMinutes: number) => {
       const first = group[0];
-      if (!first) return;
+      if (!first || isMutatingRef.current) return;
       const total = groupTotalMinutes(group);
       if (!canDrop(staffId, startMinutes, total)) return;
 
-      const scrollEl = scrollContainerRef.current;
-      const { left: scrollLeft, top: scrollTop } =
-        captureJournalScrollState(scrollEl);
+      isMutatingRef.current = true;
+      try {
+        const scrollEl = scrollContainerRef.current;
+        const { left: scrollLeft, top: scrollTop } =
+          captureJournalScrollState(scrollEl);
 
-      await moveGroupAppointments(
-        toGroupRefs(group),
-        isoAtMinutes(date, startMinutes),
-        staffId,
-      );
-      pendingScrollRestore.current = { left: scrollLeft, top: scrollTop };
-      await onMoved();
+        await moveGroupAppointments(
+          toGroupRefs(group),
+          isoAtMinutes(date, startMinutes),
+          staffId,
+        );
+        pendingScrollRestore.current = { left: scrollLeft, top: scrollTop };
+        await onMoved();
+      } catch (e) {
+        onActionError?.(
+          e instanceof Error ? e.message : "Не удалось переместить запись",
+        );
+      } finally {
+        isMutatingRef.current = false;
+      }
     },
-    [canDrop, date, onMoved],
+    [canDrop, date, onMoved, onActionError],
   );
 
   const resizeGroupBlock = useCallback(
     async (group: Appointment[], durationMinutes: number) => {
       const first = group[0];
-      if (!first) return;
+      if (!first || isMutatingRef.current) return;
       const currentTotal = groupTotalMinutes(group);
       if (durationMinutes === currentTotal) return;
 
-      const scrollEl = scrollContainerRef.current;
-      const { left: scrollLeft, top: scrollTop } =
-        captureJournalScrollState(scrollEl);
+      isMutatingRef.current = true;
+      try {
+        const scrollEl = scrollContainerRef.current;
+        const { left: scrollLeft, top: scrollTop } =
+          captureJournalScrollState(scrollEl);
 
-      await resizeGroupAppointments(
-        toGroupRefs(group),
-        durationMinutes,
-        groupCreateTemplate(first),
-      );
-      pendingScrollRestore.current = { left: scrollLeft, top: scrollTop };
-      await onMoved();
+        await resizeGroupAppointments(
+          toGroupRefs(group),
+          durationMinutes,
+          groupCreateTemplate(first),
+        );
+        pendingScrollRestore.current = { left: scrollLeft, top: scrollTop };
+        await onMoved();
+      } catch (e) {
+        onActionError?.(
+          e instanceof Error ? e.message : "Не удалось изменить длительность",
+        );
+      } finally {
+        isMutatingRef.current = false;
+      }
     },
-    [onMoved],
+    [onMoved, onActionError],
   );
 
   useEffect(() => {
@@ -430,6 +465,7 @@ export function JournalGrid({
           e.clientY,
           current.staffId,
           current.startMinutes,
+          current.cellMinutes,
         );
         if (nextDuration === null || nextDuration === current.durationMinutes) {
           return;
@@ -513,14 +549,13 @@ export function JournalGrid({
         window.setTimeout(() => {
           suppressClickRef.current = false;
         }, 400);
-        if (resizing.durationMinutes !== groupTotalMinutes(resizing.group)) {
-          void resizeGroupBlockRef.current(
-            resizing.group,
-            resizing.durationMinutes,
-          );
-        }
+        const { group, durationMinutes } = resizing;
+        const changed = durationMinutes !== groupTotalMinutes(group);
         setResize(null);
         setPointerStart(null);
+        if (changed) {
+          void resizeGroupBlockRef.current(group, durationMinutes);
+        }
         return;
       }
 
@@ -530,21 +565,18 @@ export function JournalGrid({
           suppressClickRef.current = false;
         }, 400);
 
-        if (current.valid) {
-          const originMin = minutesFromIso(date, current.group[0].startAt);
-          const moved =
-            current.staffId !== current.group[0].staff.id ||
-            originMin !== current.startMinutes;
-          if (moved) {
-            void moveGroupBlockRef.current(
-              current.group,
-              current.staffId,
-              current.startMinutes,
-            );
-          }
-        }
+        const { group, staffId, startMinutes, valid } = current;
         setDrag(null);
         setPointerStart(null);
+
+        if (valid) {
+          const originMin = minutesFromIso(date, group[0].startAt);
+          const moved =
+            staffId !== group[0].staff.id || originMin !== startMinutes;
+          if (moved) {
+            void moveGroupBlockRef.current(group, staffId, startMinutes);
+          }
+        }
         return;
       }
       if (pending) {
@@ -975,6 +1007,7 @@ export function JournalGrid({
                         data-appointment-block
                         onPointerDown={(e) => {
                           if (e.button !== 0) return;
+                          if (isMutatingRef.current) return;
                           if ((e.target as HTMLElement).closest("[data-resize-handle]")) {
                             return;
                           }
@@ -1048,10 +1081,14 @@ export function JournalGrid({
                           title="Потяните для изменения длительности"
                           onPointerDown={(e) => {
                             if (e.button !== 0) return;
+                            if (isMutatingRef.current) return;
                             e.preventDefault();
                             e.stopPropagation();
                             const startMin = minutesFromIso(date, block.startAt);
                             if (startMin === null) return;
+                            const cellMinutes = appointmentGroupCellMinutes(
+                              block.appointments,
+                            );
                             (e.currentTarget as HTMLElement).setPointerCapture(
                               e.pointerId,
                             );
@@ -1060,6 +1097,7 @@ export function JournalGrid({
                               staffId: s.id,
                               startMinutes: startMin,
                               durationMinutes: block.durationMinutes,
+                              cellMinutes: cellMinutes > 0 ? cellMinutes : gridStep,
                               height: layout.height,
                             });
                             setPointerStart(null);

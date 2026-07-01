@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { catalogServices, serviceResourceLabel } from "@/lib/admin/service-catalog";
 import { minPriceFromRules } from "@/lib/service-pricing";
 import {
   DEFAULT_WIDGET_SETTINGS,
@@ -19,7 +20,7 @@ export async function getOrganizationBySlug(slug: string) {
 }
 
 export async function getPublicServices(branchId: string) {
-  const services = await prisma.service.findMany({
+  const rows = await prisma.service.findMany({
     where: {
       branchId,
       isActive: true,
@@ -47,7 +48,7 @@ export async function getPublicServices(branchId: string) {
     },
   });
 
-  return services.map((s) => {
+  return catalogServices(rows).map((s) => {
     const staff = s.staff
       .map((x) => x.staff)
       .filter((st) => st.isActive && st.isVisible)
@@ -64,6 +65,7 @@ export async function getPublicServices(branchId: string) {
       id: s.id,
       name: s.name,
       kind: s.kind,
+      resourceLabel: serviceResourceLabel(s),
       durationMinutes: s.durationMinutes,
       allowedDurations: s.allowedDurations,
       price: s.price,

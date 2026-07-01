@@ -244,13 +244,6 @@ function appointmentsConsecutive(
   return new Date(prev.endAt).getTime() === new Date(next.startAt).getTime();
 }
 
-function touchesOrOverlaps(
-  prev: { endAt: string },
-  next: { startAt: string },
-): boolean {
-  return new Date(next.startAt).getTime() < new Date(prev.endAt).getTime();
-}
-
 function mergeAppointmentIntoGroup<
   T extends {
     id: string;
@@ -268,7 +261,45 @@ function mergeAppointmentIntoGroup<
   current.durationMinutes = spanDurationMinutes(current.startAt, current.endAt);
 }
 
-/** Объединяет подряд идущие и пересекающиеся записи одного клиента в один блок. */
+export function appointmentGroupSpanMinutes<
+  T extends { startAt: string; endAt: string; durationMinutes: number },
+>(appointments: T[]): number {
+  if (!appointments.length) return 0;
+  if (appointments.length === 1) return appointments[0].durationMinutes;
+  const sorted = [...appointments].sort((a, b) =>
+    a.startAt.localeCompare(b.startAt),
+  );
+  const start = new Date(sorted[0].startAt).getTime();
+  const end = Math.max(...sorted.map((a) => new Date(a.endAt).getTime()));
+  return Math.round((end - start) / 60_000);
+}
+
+export function appointmentGroupCellMinutes<
+  T extends { durationMinutes: number },
+>(appointments: T[]): number {
+  if (!appointments.length) return 0;
+  return Math.min(...appointments.map((a) => a.durationMinutes));
+}
+
+export function snapDurationToCell(
+  rawMinutes: number,
+  cellMinutes: number,
+  options?: { minCells?: number; maxMinutes?: number },
+): number {
+  if (cellMinutes <= 0) return rawMinutes;
+  const minCells = options?.minCells ?? 1;
+  const cells = Math.max(minCells, Math.round(rawMinutes / cellMinutes));
+  let duration = cells * cellMinutes;
+  const maxMinutes = options?.maxMinutes;
+  if (maxMinutes != null) {
+    duration = Math.min(duration, maxMinutes);
+    duration =
+      Math.max(cellMinutes, Math.floor(duration / cellMinutes) * cellMinutes);
+  }
+  return duration;
+}
+
+/** Объединяет подряд идущие записи одного клиента в один блок. */
 export function groupConsecutiveClientAppointments<
   T extends {
     id: string;
@@ -295,11 +326,7 @@ export function groupConsecutiveClientAppointments<
       current.appointments[0].status === appt.status &&
       current.appointments[0].client.phone === appt.client.phone;
 
-    if (
-      sameClientGroup &&
-      last &&
-      (appointmentsConsecutive(last, appt) || touchesOrOverlaps(last, appt))
-    ) {
+    if (sameClientGroup && last && appointmentsConsecutive(last, appt)) {
       mergeAppointmentIntoGroup(current!, appt);
     } else {
       current = {

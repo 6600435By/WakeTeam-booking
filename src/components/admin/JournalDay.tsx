@@ -17,10 +17,12 @@ import {
 } from "./JournalGridScalePicker";
 import { JournalResourceToggle } from "./JournalResourceToggle";
 import {
-  loadJournalResourceKind,
+  buildJournalResourceOptions,
+  buildStaffServiceLinks,
+  loadJournalResourceFilter,
   matchesResourceKind,
-  saveJournalResourceKind,
-  type JournalResourceKind,
+  saveJournalResourceFilter,
+  type JournalResourceFilter,
 } from "@/lib/journal-resources";
 import { StatusBadge, StatusLegend } from "./StatusBadge";
 import { cancelReasonLabel, JOURNAL_HIDDEN_STATUSES } from "@/lib/appointment-status";
@@ -73,6 +75,16 @@ type Appointment = {
 };
 
 type Branch = { id: string; name: string };
+
+type BranchService = {
+  id: string;
+  name: string;
+  kind?: string;
+  resourceLabel?: string | null;
+  isActive?: boolean;
+  branchId: string;
+  staff: { staffId: string }[];
+};
 
 type ModalInitial = {
   branchId?: string;
@@ -155,6 +167,7 @@ function toGroupRefs(group: Appointment[]): GroupApptRef[] {
   return group.map((a) => ({
     id: a.id,
     startAt: a.startAt,
+    endAt: a.endAt,
     durationMinutes: a.durationMinutes,
     price: a.price,
   }));
@@ -170,6 +183,7 @@ function journalInitialState(initial?: JournalDayInitial) {
       staff: [] as StaffRow[],
       appointments: [] as Appointment[],
       branches: [] as Branch[],
+      services: [] as BranchService[],
       isSuperAdmin: true,
       loading: true,
     };
@@ -181,6 +195,7 @@ function journalInitialState(initial?: JournalDayInitial) {
     staff: (initial.staff ?? []) as StaffRow[],
     appointments: (initial.appointments ?? []) as Appointment[],
     branches: initial.branches ?? [],
+    services: (initial.services ?? []) as BranchService[],
     isSuperAdmin: initial.admin?.isSuperAdmin ?? true,
     loading: false,
   };
@@ -197,6 +212,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   const [listTo, setListTo] = useState(() => periodToday().to);
   const [listLoading, setListLoading] = useState(false);
   const [branches, setBranches] = useState<Branch[]>(boot.branches);
+  const [services, setServices] = useState<BranchService[]>(boot.services);
   const [loading, setLoading] = useState(boot.loading);
   const [error, setError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
@@ -207,7 +223,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   const [skipInitialLoad, setSkipInitialLoad] = useState(Boolean(initial));
   const [gridStep, setGridStep] = useState<JournalGridStep>(15);
   const [gridScale, setGridScale] = useState<JournalGridScale>(1);
-  const [resourceKind, setResourceKind] = useState<JournalResourceKind>("all");
+  const [resourceKind, setResourceKind] = useState<JournalResourceFilter>("all");
   const [periodListOpen, setPeriodListOpen] = useState(false);
   const [hideInactiveColumns, setHideInactiveColumns] = useState(true);
   const viewport = useAdminViewport();
@@ -220,17 +236,40 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
     setGridScale(loadJournalGridScale());
   }, []);
 
+  const branchServices = useMemo(
+    () => services.filter((s) => !branchId || s.branchId === branchId),
+    [services, branchId],
+  );
+
+  const resourceOptions = useMemo(
+    () => buildJournalResourceOptions(branchServices),
+    [branchServices],
+  );
+
+  const staffServiceLinks = useMemo(
+    () => buildStaffServiceLinks(branchServices),
+    [branchServices],
+  );
+
   useEffect(() => {
     if (!branchId) {
       setResourceKind("all");
       return;
     }
-    setResourceKind(loadJournalResourceKind(branchId));
-  }, [branchId]);
+    setResourceKind(loadJournalResourceFilter(branchId, branchServices));
+  }, [branchId, branchServices]);
 
-  function handleResourceKindChange(kind: JournalResourceKind) {
+  useEffect(() => {
+    if (resourceKind === "all") return;
+    if (!resourceOptions.some((option) => option.value === resourceKind)) {
+      setResourceKind("all");
+      if (branchId) saveJournalResourceFilter(branchId, "all");
+    }
+  }, [resourceKind, resourceOptions, branchId]);
+
+  function handleResourceKindChange(kind: JournalResourceFilter) {
     setResourceKind(kind);
-    if (branchId) saveJournalResourceKind(branchId, kind);
+    if (branchId) saveJournalResourceFilter(branchId, kind);
   }
 
   function handleGridStepChange(step: JournalGridStep) {
@@ -264,6 +303,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
       setStaff((d.staff ?? []) as StaffRow[]);
       setAppointments((d.appointments ?? []) as Appointment[]);
       setBranches(d.branches ?? []);
+      setServices((d.services ?? []) as BranchService[]);
 
       if (d.admin) {
         setIsSuperAdmin(d.admin.isSuperAdmin);
@@ -327,29 +367,24 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
 
   const wd = weekdayMinsk(date);
 
-  const staffKindById = useMemo(
-    () => new Map(staff.map((s) => [s.id, s.kind])),
-    [staff],
-  );
-
   const sortedAppointments = useMemo(
     () =>
       [...appointments]
         .filter((a) =>
-          matchesResourceKind(staffKindById.get(a.staff.id) ?? "", resourceKind),
+          matchesResourceKind(a.staff.id, resourceKind, staffServiceLinks),
         )
         .sort(
           (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
         ),
-    [appointments, resourceKind, staffKindById],
+    [appointments, resourceKind, staffServiceLinks],
   );
 
   const filteredListRecords = useMemo(
     () =>
       listRecords.filter((a) =>
-        matchesResourceKind(staffKindById.get(a.staff.id) ?? "", resourceKind),
+        matchesResourceKind(a.staff.id, resourceKind, staffServiceLinks),
       ),
-    [listRecords, resourceKind, staffKindById],
+    [listRecords, resourceKind, staffServiceLinks],
   );
 
   function openNew(initial: ModalInitial = {}) {
@@ -483,6 +518,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
               <JournalResourceToggle
                 value={resourceKind}
                 onChange={handleResourceKindChange}
+                options={resourceOptions}
                 compact
               />
             </div>
@@ -560,6 +596,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
             <JournalResourceToggle
               value={resourceKind}
               onChange={handleResourceKindChange}
+              options={resourceOptions}
               dense
             />
 
@@ -715,6 +752,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
               branchId={branchId}
               staff={staff}
               resourceKind={resourceKind}
+              staffServiceLinks={staffServiceLinks}
               appointments={sortedAppointments}
               gridStep={gridStep}
               gridScale={gridScale}
@@ -727,6 +765,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
                 void load({ silent: true });
                 void loadList();
               }}
+              onActionError={setError}
             />
           </div>
           )}

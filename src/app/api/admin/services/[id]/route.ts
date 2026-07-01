@@ -10,6 +10,7 @@ import { prisma } from "@/lib/db";
 import {
   buildStaffSchedulesFromService,
 } from "@/lib/admin/service-staff-schedule";
+import { isServiceSlotDuration } from "@/lib/service-durations";
 
 async function syncLinkedStaffSchedules(
   staffIds: string[],
@@ -72,6 +73,28 @@ export async function PATCH(
     await assertServiceAccess(ctx, id);
     const body = patchSchema.parse(await req.json());
     const { staffIds, priceRules, ...data } = body;
+
+    if (data.durationMinutes !== undefined && !isServiceSlotDuration(data.durationMinutes)) {
+      return NextResponse.json(
+        { error: "Интервал тарифа должен быть 10, 30 или 60 минут" },
+        { status: 400 },
+      );
+    }
+
+    const existingService = await prisma.service.findUniqueOrThrow({
+      where: { id },
+      select: { kind: true, staff: { select: { staffId: true } } },
+    });
+    if (
+      data.durationMinutes !== undefined &&
+      existingService.kind === "sup" &&
+      data.durationMinutes !== 60
+    ) {
+      return NextResponse.json(
+        { error: "Для сапборда интервал тарифа — 60 минут" },
+        { status: 400 },
+      );
+    }
 
     if (priceRules) {
       await prisma.servicePriceRule.deleteMany({ where: { serviceId: id } });
@@ -138,6 +161,16 @@ export async function PATCH(
         service.bookableFrom,
         service.bookableTo,
       );
+    }
+
+    if (body.durationMinutes !== undefined) {
+      const linkedStaffIds = service.staff.map((link) => link.staff.id);
+      if (linkedStaffIds.length > 0) {
+        await prisma.staff.updateMany({
+          where: { id: { in: linkedStaffIds } },
+          data: { slotMinutes: body.durationMinutes },
+        });
+      }
     }
 
     return NextResponse.json({ ok: true, service });

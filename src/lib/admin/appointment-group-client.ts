@@ -1,9 +1,14 @@
 import { adminFetch } from "@/lib/admin-fetch";
+import {
+  appointmentGroupCellMinutes,
+  appointmentGroupSpanMinutes,
+} from "@/lib/calendar-grid";
 import { addMinutes } from "@/lib/time";
 
 export type GroupApptRef = {
   id: string;
   startAt: string;
+  endAt?: string;
   durationMinutes: number;
   price?: number;
 };
@@ -89,34 +94,31 @@ export async function moveGroupAppointments(
   const sorted = sortGroup(group);
   const delta =
     new Date(isoStart).getTime() - new Date(sorted[0].startAt).getTime();
-  await Promise.all(
-    sorted.map((appt) =>
-      adminPatch(appt.id, {
-        startAt: new Date(
-          new Date(appt.startAt).getTime() + delta,
-        ).toISOString(),
-        staffId,
-        durationMinutes: appt.durationMinutes,
-      }),
-    ),
-  );
+  for (const appt of sorted) {
+    await adminPatch(appt.id, {
+      startAt: new Date(
+        new Date(appt.startAt).getTime() + delta,
+      ).toISOString(),
+      staffId,
+      durationMinutes: appt.durationMinutes,
+    });
+  }
 }
 
 export async function deleteGroupAppointments(group: GroupApptRef[]): Promise<void> {
-  await Promise.all(group.map((a) => adminDelete(a.id)));
+  for (const a of group) {
+    await adminDelete(a.id);
+  }
 }
 
 function groupSpanMinutes(group: GroupApptRef[]): number {
-  const sorted = sortGroup(group);
-  if (!sorted.length) return 0;
-  if (sorted.length === 1) return sorted[0].durationMinutes;
-  const start = new Date(sorted[0].startAt).getTime();
-  const end = sorted.reduce((max, appt) => {
-    const apptEnd =
-      new Date(appt.startAt).getTime() + appt.durationMinutes * 60_000;
-    return Math.max(max, apptEnd);
-  }, start);
-  return Math.round((end - start) / 60_000);
+  return appointmentGroupSpanMinutes(
+    group.map((a) => ({
+      startAt: a.startAt,
+      endAt: a.endAt ?? addMinutes(new Date(a.startAt), a.durationMinutes).toISOString(),
+      durationMinutes: a.durationMinutes,
+    })),
+  );
 }
 
 export async function resizeGroupAppointments(
@@ -133,7 +135,7 @@ export async function resizeGroupAppointments(
     return [{ ...sorted[0], durationMinutes: newTotalDuration }];
   }
 
-  const cell = sorted[0].durationMinutes;
+  const cell = appointmentGroupCellMinutes(sorted);
   if (cell <= 0 || newTotalDuration % cell !== 0) {
     throw new Error(`Длительность должна быть кратна ${cell} мин`);
   }
@@ -161,7 +163,9 @@ export async function resizeGroupAppointments(
   }
 
   const toRemove = sorted.slice(targetCount);
-  await Promise.all(toRemove.map((a) => adminDelete(a.id)));
+  for (const a of toRemove) {
+    await adminDelete(a.id);
+  }
   return sorted.slice(0, targetCount);
 }
 
@@ -223,28 +227,27 @@ export async function saveAppointmentEdit(params: {
   const deltaMs = newFirst.getTime() - oldFirst.getTime();
   const prices = distributeTotalPrice(params.totalPrice, group.length);
 
-  await Promise.all(
-    group.map((appt, i) =>
-      adminPatch(appt.id, {
-        startAt: new Date(new Date(appt.startAt).getTime() + deltaMs).toISOString(),
-        staffId: params.newStaffId,
-        serviceId: params.newServiceId,
-        durationMinutes: appt.durationMinutes,
-        price: prices[i],
-        firstName: params.firstName,
-        lastName: params.lastName,
-        phone: params.phone,
-        status: params.status,
-        comment: params.comment,
-        ...(i === 0
-          ? {
-              membershipId: params.membershipId ?? null,
-              paymentMethod: params.paymentMethod ?? null,
-              rentalItemId: params.rentalItemId ?? null,
-              rentalQuantity: params.rentalQuantity ?? 0,
-            }
-          : {}),
-      }),
-    ),
-  );
+  for (let i = 0; i < group.length; i++) {
+    const appt = group[i];
+    await adminPatch(appt.id, {
+      startAt: new Date(new Date(appt.startAt).getTime() + deltaMs).toISOString(),
+      staffId: params.newStaffId,
+      serviceId: params.newServiceId,
+      durationMinutes: appt.durationMinutes,
+      price: prices[i],
+      firstName: params.firstName,
+      lastName: params.lastName,
+      phone: params.phone,
+      status: params.status,
+      comment: params.comment,
+      ...(i === 0
+        ? {
+            membershipId: params.membershipId ?? null,
+            paymentMethod: params.paymentMethod ?? null,
+            rentalItemId: params.rentalItemId ?? null,
+            rentalQuantity: params.rentalQuantity ?? 0,
+          }
+        : {}),
+    });
+  }
 }

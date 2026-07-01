@@ -63,7 +63,7 @@ export function minPriceFromRules(service: {
   priceRules?: ServicePriceRuleDto[];
 }): number {
   if (!service.priceRules?.length) return service.price;
-  return Math.min(service.price, ...service.priceRules.map((r) => r.price));
+  return Math.min(...service.priceRules.map((r) => r.price));
 }
 
 /** Цена записи: по тарифу абонемента (Br/мин) или по тарифу услуги. */
