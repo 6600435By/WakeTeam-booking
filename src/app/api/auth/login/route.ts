@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createSession, SESSION_COOKIE, sessionCookieOptions, verifyUser } from "@/lib/auth";
+import { enforceLoginLimit } from "@/lib/public-api-guard";
+import { rateLimitResponse } from "@/lib/rate-limit";
 
 const schema = z.object({
   login: z.string().min(1),
@@ -16,6 +18,11 @@ function safeRedirectPath(from?: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  const loginLimit = enforceLoginLimit(req.headers);
+  if (loginLimit.blocked) {
+    return rateLimitResponse(loginLimit.retryAfterSec);
+  }
+
   try {
     const body = schema.parse(await req.json());
     const user = await verifyUser(body.login.trim(), body.password);

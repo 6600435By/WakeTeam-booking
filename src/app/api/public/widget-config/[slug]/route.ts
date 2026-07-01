@@ -1,10 +1,14 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { enforcePublicReadLimit } from "@/lib/public-api-guard";
 import { getWidgetConfig } from "@/lib/services-public";
 
 export async function GET(
-  _req: Request,
+  req: NextRequest,
   { params }: { params: Promise<{ slug: string }> },
 ) {
+  const limited = enforcePublicReadLimit(req);
+  if (limited) return limited;
+
   try {
     const { slug } = await params;
     const config = await getWidgetConfig(slug);

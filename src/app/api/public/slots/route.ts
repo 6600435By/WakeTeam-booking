@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { enforcePublicReadLimit } from "@/lib/public-api-guard";
 import { getDaySlots, getSupDaySlots } from "@/lib/slots/generateSlots";
 import { prisma } from "@/lib/db";
 
 export async function GET(req: NextRequest) {
+  const limited = enforcePublicReadLimit(req);
+  if (limited) return limited;
+
   const serviceId = req.nextUrl.searchParams.get("serviceId");
   const staffId = req.nextUrl.searchParams.get("staffId");
   const date = req.nextUrl.searchParams.get("date");
@@ -17,9 +21,9 @@ export async function GET(req: NextRequest) {
 
   const service = await prisma.service.findUnique({
     where: { id: serviceId },
-    select: { kind: true },
+    select: { kind: true, isActive: true, isOnlineBookable: true },
   });
-  if (!service) {
+  if (!service || !service.isActive || !service.isOnlineBookable) {
     return NextResponse.json({ error: "Service not found" }, { status: 404 });
   }
 

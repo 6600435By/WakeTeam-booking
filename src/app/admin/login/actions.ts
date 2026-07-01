@@ -8,6 +8,7 @@ import {
   sessionCookieOptions,
   verifyUser,
 } from "@/lib/auth";
+import { enforceLoginLimit } from "@/lib/public-api-guard";
 
 export type LoginState = { error?: string } | null;
 
@@ -41,6 +42,11 @@ export async function loginAction(
 
   if (!login || !password) {
     return { error: "Введите логин и пароль" };
+  }
+
+  const loginLimit = enforceLoginLimit(await headers());
+  if (loginLimit.blocked) {
+    return { error: "Слишком много попыток входа. Повторите позже." };
   }
 
   const user = await verifyUser(login, password);

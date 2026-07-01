@@ -425,6 +425,21 @@ async function loadServiceWithRules(serviceId: string) {
   });
 }
 
+function assertServiceBookableForBooking(
+  service: Awaited<ReturnType<typeof loadServiceWithRules>>,
+  input: CreateBookingInput,
+) {
+  if (service.branch.organizationId !== input.organizationId) {
+    throw new Error("SERVICE_ORG_MISMATCH");
+  }
+  if (!service.isActive) {
+    throw new Error("SERVICE_NOT_BOOKABLE");
+  }
+  if (input.source === "widget" && !service.isOnlineBookable) {
+    throw new Error("SERVICE_NOT_BOOKABLE");
+  }
+}
+
 function serviceWithRulesDto(service: {
   price: number;
   durationMinutes: number;
@@ -442,6 +457,7 @@ export async function createBooking(
   opts?: { skipSlotCheck?: boolean },
 ): Promise<{ id: string; publicNumber: number; price: number; count?: number }> {
   const service = await loadServiceWithRules(input.serviceId);
+  assertServiceBookableForBooking(service, input);
 
   if (input.slots?.length) {
     return createBatchBooking(input, service, opts);

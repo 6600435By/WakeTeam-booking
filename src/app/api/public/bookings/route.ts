@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { enforcePublicWriteLimit } from "@/lib/public-api-guard";
 import { createBooking } from "@/lib/slots/generateSlots";
 import { getOrganizationBySlug } from "@/lib/services-public";
 
@@ -31,6 +32,9 @@ const schema = z
   );
 
 export async function POST(req: NextRequest) {
+  const limited = enforcePublicWriteLimit(req);
+  if (limited) return limited;
+
   try {
     const body = schema.parse(await req.json());
     const org = await getOrganizationBySlug(body.slug);
@@ -66,6 +70,12 @@ export async function POST(req: NextRequest) {
     }
     if (e instanceof Error && e.message === "STAFF_REQUIRED") {
       return NextResponse.json({ error: "Выберите реверс" }, { status: 400 });
+    }
+    if (
+      e instanceof Error &&
+      (e.message === "SERVICE_NOT_BOOKABLE" || e.message === "SERVICE_ORG_MISMATCH")
+    ) {
+      return NextResponse.json({ error: "Услуга недоступна" }, { status: 400 });
     }
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.flatten() }, { status: 400 });
