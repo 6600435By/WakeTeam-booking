@@ -61,16 +61,54 @@ export function parsePriceField(raw: string): number | null {
   return Math.round(n * 100) / 100;
 }
 
+function dateFromYmd(year: number, month: number, day: number): Date | null {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const dt = new Date(year, month - 1, day);
+  if (
+    Number.isNaN(dt.getTime()) ||
+    dt.getFullYear() !== year ||
+    dt.getMonth() !== month - 1 ||
+    dt.getDate() !== day
+  ) {
+    return null;
+  }
+  return dt;
+}
+
+/** Google Sheets serial date (days since 1899-12-30). */
+function parseGoogleSheetSerial(raw: string): Date | null {
+  if (!/^\d{4,5}(\.\d+)?$/.test(raw)) return null;
+  const serial = parseFloat(raw);
+  if (serial < 1 || serial > 200_000) return null;
+  const ms = Date.UTC(1899, 11, 30) + Math.round(serial) * 86_400_000;
+  const dt = new Date(ms);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
 export function parseSaleDate(raw: string): Date | null {
   const s = raw.trim();
   if (!s) return null;
-  const d = new Date(s);
-  if (!Number.isNaN(d.getTime())) return d;
-  const m = s.match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$/);
-  if (m) {
-    const year = m[3].length === 2 ? 2000 + parseInt(m[3], 10) : parseInt(m[3], 10);
-    const dt = new Date(year, parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+
+  // DD.MM.YYYY / DD/MM/YYYY — формат Google-таблицы; `new Date("12.04.2026")` даёт 4 декабря
+  const dmy = s.match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$/);
+  if (dmy) {
+    const year = dmy[3].length === 2 ? 2000 + parseInt(dmy[3], 10) : parseInt(dmy[3], 10);
+    return dateFromYmd(year, parseInt(dmy[2], 10), parseInt(dmy[1], 10));
+  }
+
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) {
+    return dateFromYmd(parseInt(iso[1], 10), parseInt(iso[2], 10), parseInt(iso[3], 10));
+  }
+
+  const serial = parseGoogleSheetSerial(s);
+  if (serial) return serial;
+
+  // Только полный ISO datetime — без `new Date("12.04.2026")` и прочих неоднозначных строк
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+    const dt = new Date(s);
     if (!Number.isNaN(dt.getTime())) return dt;
   }
+
   return null;
 }

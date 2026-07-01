@@ -13,6 +13,16 @@ export function formatDateKey(date: Date): string {
   return formatInTimeZone(date, TZ, "yyyy-MM-dd");
 }
 
+export function formatDateMinsk(
+  iso: string | Date | null | undefined,
+  empty = "—",
+): string {
+  if (!iso) return empty;
+  const d = iso instanceof Date ? iso : new Date(iso);
+  if (Number.isNaN(d.getTime())) return empty;
+  return formatInTimeZone(d, TZ, "dd.MM.yyyy");
+}
+
 export function weekdayMinsk(dateStr: string): number {
   const d = toZonedTime(parseTimeOnDate(dateStr, "12:00"), TZ);
   const js = d.getDay();

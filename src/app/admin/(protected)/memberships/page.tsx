@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDateMinsk } from "@/lib/time";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Membership = {
@@ -44,13 +45,6 @@ const SORT_DEFAULT_DESC: SortKey[] = [
 function formatPricePerMinute(value: number | null) {
   if (value == null || value <= 0) return "—";
   return `${value} Br`;
-}
-
-function formatSaleDate(iso: string | null) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("ru-RU");
 }
 
 function formatSyncedAt(iso: string) {
@@ -399,7 +393,7 @@ export default function MembershipsPage() {
                   displayedMemberships.map((m) => (
                     <tr key={m.id} className="border-b border-slate-100">
                       <td className="py-2 pr-2 font-mono text-xs">{m.externalCode}</td>
-                      <td className="pr-2 whitespace-nowrap">{formatSaleDate(m.saleDate)}</td>
+                      <td className="pr-2 whitespace-nowrap">{formatDateMinsk(m.saleDate)}</td>
                       <td className="pr-2">{m.ownerName ?? "—"}</td>
                       <td className="pr-2">{m.phone}</td>
                       <td className="pr-2">{m.category ?? "—"}</td>
