@@ -75,7 +75,7 @@ export function WidgetPhotoCard({
     <div
       className={cn(
         "relative w-full overflow-hidden",
-        isLarge ? "min-h-[7.5rem] sm:min-h-[9rem]" : "min-h-[4.75rem] sm:min-h-[5.25rem]",
+        isLarge ? "min-h-[7.5rem] sm:min-h-[9rem]" : "min-h-[4.25rem] sm:min-h-[4.75rem]",
       )}
       style={widgetPhotoAspectStyle(kind)}
     >
@@ -93,7 +93,7 @@ export function WidgetPhotoCard({
       <div
         className={cn(
           "absolute inset-0 flex flex-col justify-end overflow-hidden",
-          isLarge ? "p-4 sm:p-5" : "p-3 sm:p-3.5",
+          isLarge ? "p-4 sm:p-5" : "p-2.5 sm:p-3",
         )}
       >
         <div className="flex max-h-full items-center justify-between gap-3">

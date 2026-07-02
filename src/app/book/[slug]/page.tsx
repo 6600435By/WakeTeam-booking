@@ -16,7 +16,7 @@ export default async function BookPage({
       className={
         isEmbed
           ? "p-1 sm:p-2"
-          : "mx-auto max-w-lg px-3 py-6 sm:max-w-xl sm:px-4 sm:py-8"
+          : "mx-auto max-w-lg px-3 py-4 sm:max-w-xl sm:px-4 sm:py-6"
       }
     >
       <BookingWidget slug={slug} />

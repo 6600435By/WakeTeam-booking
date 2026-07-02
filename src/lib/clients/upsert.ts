@@ -8,6 +8,7 @@ export type UpsertClientInput = {
   firstName: string;
   lastName?: string | null;
   email?: string | null;
+  notes?: string | null;
 };
 
 export async function upsertClientByPhone(input: UpsertClientInput) {
@@ -35,6 +36,7 @@ export async function upsertClientByPhone(input: UpsertClientInput) {
         firstName: input.firstName,
         lastName: input.lastName ?? undefined,
         email: input.email ?? undefined,
+        notes: input.notes ?? undefined,
         ...(phoneUpdate ? { phone: phoneUpdate } : {}),
       },
     });
@@ -47,6 +49,7 @@ export async function upsertClientByPhone(input: UpsertClientInput) {
       firstName: input.firstName,
       lastName: input.lastName ?? undefined,
       email: input.email ?? undefined,
+      notes: input.notes ?? undefined,
     },
   });
 }

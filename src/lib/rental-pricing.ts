@@ -1,5 +1,5 @@
-import type { PrismaClient } from "@prisma/client";
 import { formatDateKey, parseTimeOnDate } from "@/lib/time";
+import type { DbClient } from "@/lib/db-types";
 
 export type RentalItemDto = {
   id: string;
@@ -57,7 +57,7 @@ export function rentalAmountForSlot(
 }
 
 export async function loadDailyRentalAppointments(
-  db: PrismaClient,
+  db: DbClient,
   params: {
     clientId: string;
     branchId: string;
@@ -86,7 +86,7 @@ export async function loadDailyRentalAppointments(
 }
 
 export async function computeRentalAmount(
-  db: PrismaClient,
+  db: DbClient,
   params: {
     appointmentId?: string;
     startAt: Date;
@@ -165,7 +165,7 @@ export async function computeRentalAmount(
 }
 
 export async function applyAppointmentRental(
-  db: PrismaClient,
+  db: DbClient,
   appointmentId: string,
   rental: { rentalItemId: string | null; rentalQuantity: number },
   opts?: { priceOverride?: number },
@@ -199,7 +199,7 @@ export async function applyAppointmentRental(
 }
 
 export async function reconcileDailyRentalCharges(
-  db: PrismaClient,
+  db: DbClient,
   params: {
     clientId: string;
     branchId: string;
@@ -237,7 +237,7 @@ export async function reconcileDailyRentalCharges(
 }
 
 export async function ensureBranchRentalDefaults(
-  db: PrismaClient,
+  db: DbClient,
   branchId: string,
 ) {
   const count = await db.branchRentalItem.count({ where: { branchId } });

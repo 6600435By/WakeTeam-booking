@@ -1,14 +1,10 @@
-import { mkdir, writeFile } from "fs/promises";
 import { NextRequest, NextResponse } from "next/server";
-import path from "path";
-import { randomBytes } from "crypto";
 import { assertCatalogAccess, handleAdminError, requireAdminContext } from "@/lib/admin-access";
+import { uploadImage } from "@/lib/storage";
 import {
   extensionForMime,
   validateImageUpload,
 } from "@/lib/upload-image";
-
-const UPLOAD_SUBDIR = "uploads";
 
 export async function POST(req: NextRequest) {
   try {
@@ -35,14 +31,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Неподдерживаемый формат" }, { status: 400 });
     }
 
-    const dir = path.join(process.cwd(), "public", UPLOAD_SUBDIR, kind);
-    await mkdir(dir, { recursive: true });
-
-    const filename = `${Date.now()}-${randomBytes(8).toString("hex")}.${ext}`;
     const buffer = Buffer.from(await file.arrayBuffer());
-    await writeFile(path.join(dir, filename), buffer);
+    const url = await uploadImage(buffer, {
+      kind,
+      ext,
+      contentType: file.type,
+    });
 
-    const url = `/${UPLOAD_SUBDIR}/${kind}/${filename}`;
     return NextResponse.json({ ok: true, url });
   } catch (e) {
     const handled = handleAdminError(e);

@@ -64,7 +64,7 @@ export function WidgetShell({
       )}
       style={style}
     >
-      <div className="px-4 py-4 sm:px-5 sm:py-5">{children}</div>
+      <div className="px-3.5 py-3 sm:px-4 sm:py-3.5">{children}</div>
     </div>
   );
 }
@@ -93,12 +93,12 @@ export function WidgetHeader({
   subtitle?: string;
 }) {
   return (
-    <header className="space-y-1">
-      <h1 className="text-lg font-semibold tracking-tight text-slate-900 sm:text-xl">
+    <header className="space-y-0.5">
+      <h1 className="text-base font-semibold tracking-tight text-slate-900 sm:text-lg">
         {title}
       </h1>
       {subtitle ? (
-        <p className="text-sm leading-relaxed text-slate-500">{subtitle}</p>
+        <p className="text-sm leading-snug text-slate-500">{subtitle}</p>
       ) : null}
     </header>
   );
@@ -118,7 +118,7 @@ export function WidgetStepProgress({
   canNavigateTo: (index: number) => boolean;
 }) {
   return (
-    <nav aria-label="Шаги записи" className="mt-4">
+    <nav aria-label="Шаги записи" className="mt-2.5">
       <ol className="flex items-start gap-0">
         {steps.map((label, i) => {
           const isActive = i === activeIndex;
@@ -136,7 +136,7 @@ export function WidgetStepProgress({
               {i < steps.length - 1 && (
                 <span
                   aria-hidden
-                  className="absolute top-[15px] left-[calc(50%+16px)] h-px w-[calc(100%-32px)]"
+                  className="absolute top-[13px] left-[calc(50%+14px)] h-px w-[calc(100%-28px)]"
                   style={{
                     background: isDone
                       ? theme.stepInactiveBg
@@ -149,7 +149,7 @@ export function WidgetStepProgress({
                 disabled={!clickable}
                 onClick={() => onStepClick(i)}
                 className={cn(
-                  "relative z-[1] flex flex-col items-center gap-1.5 transition-opacity",
+                  "relative z-[1] flex flex-col items-center gap-1 transition-opacity",
                   clickable
                     ? "cursor-pointer"
                     : "cursor-not-allowed opacity-45",
@@ -157,7 +157,7 @@ export function WidgetStepProgress({
               >
                 <span
                   className={cn(
-                    "flex size-8 items-center justify-center rounded-full text-xs font-semibold tabular-nums transition-all duration-200 sm:size-9 sm:text-sm",
+                    "flex size-7 items-center justify-center rounded-full text-xs font-semibold tabular-nums transition-all duration-200 sm:size-8",
                     isActive && "scale-105 shadow-sm ring-2 ring-black/5",
                   )}
                   style={{
@@ -188,7 +188,7 @@ export function WidgetStepProgress({
           );
         })}
       </ol>
-      <p className="mt-2 text-center text-xs font-medium text-slate-600 sm:hidden">
+      <p className="mt-1 text-center text-xs font-medium text-slate-600 sm:hidden">
         {steps[activeIndex]}
       </p>
     </nav>
@@ -202,7 +202,7 @@ export function WidgetBackButton({ onClick }: { onClick: () => void }) {
       variant="ghost"
       size="sm"
       onClick={onClick}
-      className="-ml-2 mb-1 h-9 gap-1 px-2 text-slate-600 hover:text-slate-900"
+      className="-ml-2 h-8 gap-1 px-2 text-slate-600 hover:text-slate-900"
     >
       <ChevronLeft className={WIDGET_ICON_SM} strokeWidth={2.25} />
       Назад
@@ -277,7 +277,7 @@ export function WidgetChoiceButton({
       aria-pressed={ariaPressed}
       onClick={onClick}
       className={cn(
-        "inline-flex items-center justify-center rounded-xl border px-3 text-sm font-medium tabular-nums transition-all duration-150",
+        "inline-flex items-center justify-center rounded-lg border px-2.5 text-sm font-medium tabular-nums transition-all duration-150",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--widget-primary)]/35",
         disabled && "cursor-not-allowed opacity-40",
         selected && "scale-[1.02] shadow-sm ring-2 ring-[var(--widget-primary)]/25",
@@ -350,7 +350,7 @@ export function WidgetPanel({
   return (
     <div
       className={cn(
-        "space-y-3 rounded-xl border border-slate-200/80 bg-white p-3.5 sm:p-4",
+        "space-y-2 rounded-xl border border-slate-200/80 bg-white p-3",
         className,
       )}
     >
@@ -464,7 +464,7 @@ export function WidgetErrorState({ message }: { message: string }) {
 
 export function WidgetInlineError({ message }: { message: string }) {
   return (
-    <Alert variant="destructive" className="mt-3 rounded-xl py-2.5">
+    <Alert variant="destructive" className="mt-2 rounded-xl py-2.5">
       <AlertDescription className="text-sm">{message}</AlertDescription>
     </Alert>
   );
@@ -643,7 +643,7 @@ export function WidgetCalendarLink({
     <button
       type="button"
       onClick={onClick}
-      className="mx-auto mt-1 flex items-center gap-1.5 text-xs font-medium text-[var(--widget-primary)] transition-opacity hover:opacity-80"
+      className="mx-auto mt-0.5 flex items-center gap-1.5 text-xs font-medium text-[var(--widget-primary)] transition-opacity hover:opacity-80"
     >
       <CalendarDays className="size-3.5 shrink-0" strokeWidth={2.25} />
       Выбрать дату в календаре
@@ -669,7 +669,7 @@ export function WidgetDateNavButton({
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
-      className="flex size-9 shrink-0 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:opacity-25 disabled:hover:bg-transparent"
+      className="flex size-8 shrink-0 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:opacity-25 disabled:hover:bg-transparent"
     >
       <Icon className={WIDGET_ICON_MD} strokeWidth={2} />
     </button>
@@ -692,8 +692,8 @@ export function WidgetHelpFooter({
   onToggle: () => void;
 }) {
   return (
-    <div className={cn(compact ? "mt-4" : "mt-6")}>
-      <Separator className="mb-3 bg-slate-200/80" />
+    <div className={cn(compact ? "mt-3" : "mt-4")}>
+      <Separator className="mb-2 bg-slate-200/80" />
       <div className="text-center">
         <button
           type="button"
