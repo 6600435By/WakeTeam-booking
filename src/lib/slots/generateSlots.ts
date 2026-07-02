@@ -72,6 +72,8 @@ export async function getDaySlots(params: {
   staffId: string;
   date: string;
   durationMinutes?: number;
+  forAdmin?: boolean;
+  excludeAppointmentId?: string;
 }): Promise<{ slots: SlotDto[]; allowedDurations: number[] }> {
   const service = await prisma.service.findUnique({
     where: { id: params.serviceId },
@@ -79,7 +81,10 @@ export async function getDaySlots(params: {
       staff: { include: { staff: { include: { schedules: true, breaks: true } } } },
     },
   });
-  if (!service || !service.isActive || !service.isOnlineBookable) {
+  if (!service || !service.isActive) {
+    return { slots: [], allowedDurations: [] };
+  }
+  if (!params.forAdmin && !service.isOnlineBookable) {
     return { slots: [], allowedDurations: [] };
   }
   if (!serviceAllowedOnDate(service, params.date)) {
@@ -88,7 +93,12 @@ export async function getDaySlots(params: {
 
   const staff = service.staff
     .map((s) => s.staff)
-    .find((s) => s.id === params.staffId && s.isActive && s.isVisible);
+    .find(
+      (s) =>
+        s.id === params.staffId &&
+        s.isActive &&
+        (params.forAdmin || s.isVisible),
+    );
   if (!staff) return { slots: [], allowedDurations: [] };
 
   const allowedDurations = parseDurations(service.allowedDurations);
@@ -101,6 +111,9 @@ export async function getDaySlots(params: {
       staffId: staff.id,
       startAt: { gte: dayStart, lte: dayEnd },
       status: { in: ACTIVE_APPOINTMENT_STATUSES },
+      ...(params.excludeAppointmentId
+        ? { id: { not: params.excludeAppointmentId } }
+        : {}),
     },
   });
 
@@ -193,6 +206,8 @@ export async function getDaySlots(params: {
 export async function getSupDaySlots(params: {
   serviceId: string;
   date: string;
+  forAdmin?: boolean;
+  excludeAppointmentId?: string;
 }): Promise<{ slots: SupSlotDto[]; allowedDurations: number[] }> {
   const service = await prisma.service.findUnique({
     where: { id: params.serviceId },
@@ -200,7 +215,10 @@ export async function getSupDaySlots(params: {
       staff: { include: { staff: { include: { schedules: true, breaks: true } } } },
     },
   });
-  if (!service || !service.isActive || !service.isOnlineBookable) {
+  if (!service || !service.isActive) {
+    return { slots: [], allowedDurations: [] };
+  }
+  if (!params.forAdmin && !service.isOnlineBookable) {
     return { slots: [], allowedDurations: [] };
   }
   if (!serviceAllowedOnDate(service, params.date)) {
@@ -209,7 +227,7 @@ export async function getSupDaySlots(params: {
 
   const boards = service.staff
     .map((s) => s.staff)
-    .filter((s) => s.isActive && s.isVisible);
+    .filter((s) => s.isActive && (params.forAdmin || s.isVisible));
   if (boards.length === 0) {
     return { slots: [], allowedDurations: [SUP_DURATION_MINUTES] };
   }
@@ -222,6 +240,9 @@ export async function getSupDaySlots(params: {
       staffId: { in: boardIds },
       startAt: { gte: dayStart, lte: dayEnd },
       status: { in: ACTIVE_APPOINTMENT_STATUSES },
+      ...(params.excludeAppointmentId
+        ? { id: { not: params.excludeAppointmentId } }
+        : {}),
     },
     select: { staffId: true, startAt: true, endAt: true },
   });

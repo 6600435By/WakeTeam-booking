@@ -25,6 +25,7 @@ import {
   type GroupApptRef,
 } from "@/lib/admin/appointment-group-client";
 import { adminFetch } from "@/lib/admin-fetch";
+import { AdminFreeSlotPicker } from "./AdminFreeSlotPicker";
 import type { WidgetPrefill } from "@/components/widget/BookingWidget";
 
 const BookingWidget = dynamic(
@@ -511,6 +512,30 @@ export function AppointmentModal({
     return fromService;
   }, [services, serviceId, staffId, staffName]);
 
+  const selectedStartAt = useMemo(() => {
+    if (!date || !time) return undefined;
+    return fromDatetimeLocalValue(`${date}T${time}`) ?? undefined;
+  }, [date, time]);
+
+  const slotDuration = useMemo(() => {
+    const parsed = parseInt(durationInput, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+    return durationMinutes;
+  }, [durationInput, durationMinutes]);
+
+  function handleSlotPick(pick: {
+    startAt: string;
+    staffId?: string;
+    staffName?: string;
+  }) {
+    const local = toDatetimeLocalValue(pick.startAt);
+    const [d, t] = local.split("T");
+    if (d) setDate(d);
+    if (t) setTime(t);
+    if (pick.staffId) setStaffId(pick.staffId);
+    if (pick.staffName) setStaffName(pick.staffName);
+  }
+
   const selectedService = useMemo(
     () => services.find((s) => s.id === serviceId) ?? null,
     [services, serviceId],
@@ -780,7 +805,7 @@ export function AppointmentModal({
               </select>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="space-y-2">
             <div>
               <label className={labelClass} htmlFor="wt-booking-date">
                 Дата
@@ -799,23 +824,35 @@ export function AppointmentModal({
               />
             </div>
             <div>
-              <label className={labelClass} htmlFor="wt-booking-time">
-                Время
-              </label>
+              <span className={labelClass}>Свободное время</span>
+              {serviceId && date ? (
+                <AdminFreeSlotPicker
+                  className="mt-1"
+                  compact
+                  serviceId={serviceId}
+                  serviceKind={selectedService?.kind ?? "wake"}
+                  date={date}
+                  staffId={staffId || undefined}
+                  staffOptions={staffOptions}
+                  durationMinutes={slotDuration}
+                  selectedStartAt={selectedStartAt}
+                  excludeAppointmentId={appointmentId}
+                  onPick={handleSlotPick}
+                />
+              ) : (
+                <p className="mt-1 text-xs text-slate-500">
+                  Выберите услугу и дату
+                </p>
+              )}
               <input
-                id="wt-booking-time"
+                type="hidden"
                 name="wt-booking-time"
-                type="time"
                 value={time}
-                onChange={(e) => setTime(e.target.value)}
-                className={inputClass}
-                step={300}
-                autoComplete="off"
-                readOnly
-                onFocus={unlockReadOnlyInput}
                 required
               />
             </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
             <div>
               <label className={labelClass} htmlFor="wt-booking-duration">
                 Мин

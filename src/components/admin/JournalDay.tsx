@@ -16,6 +16,7 @@ import {
   saveJournalGridScale,
 } from "./JournalGridScalePicker";
 import { JournalResourceToggle } from "./JournalResourceToggle";
+import { AdminFreeSlotPicker } from "./AdminFreeSlotPicker";
 import {
   buildJournalResourceOptions,
   buildStaffServiceLinks,
@@ -227,6 +228,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   const [resourceKind, setResourceKind] = useState<JournalResourceFilter>("all");
   const [periodListOpen, setPeriodListOpen] = useState(false);
   const [hideInactiveColumns, setHideInactiveColumns] = useState(true);
+  const [freeSlotsOpen, setFreeSlotsOpen] = useState(false);
   const viewport = useAdminViewport();
   const isCompactJournal = isAdminCompact(viewport);
   const showGrid = !isCompactJournal;
@@ -251,6 +253,23 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
     () => buildStaffServiceLinks(branchServices),
     [branchServices],
   );
+
+  const selectedService = useMemo(() => {
+    if (resourceKind === "all") return null;
+    return branchServices.find((s) => s.id === resourceKind) ?? null;
+  }, [branchServices, resourceKind]);
+
+  const selectedServiceStaff = useMemo(() => {
+    if (!selectedService) return [];
+    const linked = new Set(selectedService.staff.map((row) => row.staffId));
+    return staff
+      .filter((row) => linked.has(row.id))
+      .map((row) => ({ id: row.id, name: row.name }));
+  }, [selectedService, staff]);
+
+  useEffect(() => {
+    if (resourceKind === "all") setFreeSlotsOpen(false);
+  }, [resourceKind]);
 
   useEffect(() => {
     if (!branchId) {
@@ -388,6 +407,20 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
     [listRecords, resourceKind, staffServiceLinks],
   );
 
+  function handleFreeSlotPick(pick: {
+    startAt: string;
+    staffId?: string;
+    staffName?: string;
+  }) {
+    openNew({
+      branchId: branchId || branches[0]?.id,
+      serviceId: selectedService?.id,
+      staffId: pick.staffId,
+      staffName: pick.staffName,
+      startAt: pick.startAt,
+    });
+  }
+
   function openNew(initial: ModalInitial = {}) {
     setEditAppt(null);
     setEditGroup(null);
@@ -523,13 +556,40 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
                 compact
               />
             </div>
+
+            <button
+              type="button"
+              disabled={!selectedService}
+              onClick={() => setFreeSlotsOpen((open) => !open)}
+              className="mt-2 flex h-11 w-full touch-manipulation items-center justify-center rounded-lg border border-lime-600 bg-lime-50 px-3 text-sm font-semibold text-lime-800 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+            >
+              {freeSlotsOpen ? "← К записям" : "Свободное время"}
+            </button>
           </div>
 
-          <p className="mt-3 text-sm text-slate-600">
-            {sortedAppointments.length > 0
-              ? `${sortedAppointments.length} ${sortedAppointments.length === 1 ? "запись" : sortedAppointments.length < 5 ? "записи" : "записей"}`
-              : "Нет записей"}
-          </p>
+          {freeSlotsOpen && selectedService ? (
+            <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <p className="text-sm font-medium text-slate-900">Свободное время</p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Нажмите на слот, чтобы создать запись
+              </p>
+              <AdminFreeSlotPicker
+                className="mt-3"
+                compact
+                serviceId={selectedService.id}
+                serviceKind={selectedService.kind ?? "wake"}
+                date={date}
+                staffOptions={selectedServiceStaff}
+                onPick={handleFreeSlotPick}
+              />
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-slate-600">
+              {sortedAppointments.length > 0
+                ? `${sortedAppointments.length} ${sortedAppointments.length === 1 ? "запись" : sortedAppointments.length < 5 ? "записи" : "записей"}`
+                : "Нет записей"}
+            </p>
+          )}
         </>
       ) : (
         <div className="journal-page-toolbar relative z-10 box-border w-full max-w-full border-b border-slate-200 bg-slate-50 pb-1.5">
@@ -678,7 +738,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
         <p className="mt-8 text-slate-500">Загрузка…</p>
       ) : (
         <>
-          {isCompactJournal && (
+          {isCompactJournal && !freeSlotsOpen && (
         <div className="relative mt-3 pb-16">
           {loading && (
             <div className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-white/40 pt-4">
