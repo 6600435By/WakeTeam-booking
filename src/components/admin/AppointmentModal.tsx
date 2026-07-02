@@ -1,6 +1,13 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { APPOINTMENT_STATUS_OPTIONS, CANCEL_REASON_OPTIONS, type CancelReason } from "@/lib/appointment-status";
 import {
   fromDatetimeLocalValue,
@@ -18,10 +25,19 @@ import {
   type GroupApptRef,
 } from "@/lib/admin/appointment-group-client";
 import { adminFetch } from "@/lib/admin-fetch";
-import {
-  BookingWidget,
-  type WidgetPrefill,
-} from "@/components/widget/BookingWidget";
+import type { WidgetPrefill } from "@/components/widget/BookingWidget";
+
+const BookingWidget = dynamic(
+  () =>
+    import("@/components/widget/BookingWidget").then((m) => ({
+      default: m.BookingWidget,
+    })),
+  {
+    loading: () => (
+      <p className="p-4 text-center text-sm text-slate-500">Загрузка виджета…</p>
+    ),
+  },
+);
 
 function unlockReadOnlyInput(e: React.FocusEvent<HTMLInputElement>) {
   e.currentTarget.readOnly = false;
@@ -683,27 +699,22 @@ export function AppointmentModal({
 
   return (
     <>
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 font-sans sm:items-center sm:p-4"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="w-full rounded-t-2xl bg-white p-4 shadow-xl sm:max-w-md sm:rounded-xl">
-        <div className="relative pr-8">
-          <h2 className="text-base font-bold text-slate-900">
-            {appointmentId ? "Редактировать запись" : "Новая запись"}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="absolute right-0 top-0 flex h-7 w-7 items-center justify-center rounded-md text-xl leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-            aria-label="Закрыть"
-          >
-            ×
-          </button>
-        </div>
-        <form onSubmit={handleSubmit} className="mt-3 space-y-2" autoComplete="off">
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) onClose();
+        }}
+      >
+        <DialogContent
+          showCloseButton
+          className="max-h-[min(92dvh,92svh)] w-full max-w-md overflow-y-auto overscroll-contain p-4 font-sans sm:max-w-md"
+        >
+          <DialogHeader className="pr-8 text-left">
+            <DialogTitle className="text-base font-bold text-slate-900">
+              {appointmentId ? "Редактировать запись" : "Новая запись"}
+            </DialogTitle>
+          </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-2" autoComplete="off">
           <div>
             <label className={labelClass}>Филиал</label>
             <select
@@ -1161,35 +1172,33 @@ export function AppointmentModal({
             </div>
           )}
         </form>
-      </div>
-    </div>
-    {copyOpen && copyPrefill && (
-      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-3 sm:p-4">
-        <div className="relative flex max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
-          <button
-            type="button"
-            onClick={() => setCopyOpen(false)}
-            className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full text-xl leading-none text-slate-500 hover:bg-slate-100"
-            aria-label="Закрыть"
-          >
-            ×
-          </button>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={copyOpen && !!copyPrefill} onOpenChange={setCopyOpen}>
+        <DialogContent
+          showCloseButton
+          className="flex max-h-[min(92dvh,92svh)] w-full max-w-md flex-col overflow-hidden p-0 sm:max-w-md"
+        >
+          <DialogHeader className="sr-only">
+            <DialogTitle>Копировать запись</DialogTitle>
+          </DialogHeader>
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <BookingWidget
-              key={`copy-${appointmentId}`}
-              slug={widgetSlug}
-              prefill={copyPrefill}
-              copyMode
-              onCopyBookingDone={() => {
-                setCopyOpen(false);
-                onSaved();
-                onClose();
-              }}
-            />
+            {copyPrefill && (
+              <BookingWidget
+                key={`copy-${appointmentId}`}
+                slug={widgetSlug}
+                prefill={copyPrefill}
+                copyMode
+                onCopyBookingDone={() => {
+                  setCopyOpen(false);
+                  onSaved();
+                  onClose();
+                }}
+              />
+            )}
           </div>
-        </div>
-      </div>
-    )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

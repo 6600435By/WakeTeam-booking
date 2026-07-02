@@ -38,6 +38,7 @@ import type { JournalGridStep } from "@/lib/calendar-grid";
 import type { JournalGridScale } from "@/lib/journal-grid-scale";
 import { cn } from "@/lib/utils";
 import { useAdminViewport } from "./AdminViewportContext";
+import { isAdminCompact } from "@/lib/admin-viewport";
 import { journalStaffDisplayName } from "@/lib/journal-staff-label";
 import {
   loadAppointmentsListAction,
@@ -227,8 +228,8 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   const [periodListOpen, setPeriodListOpen] = useState(false);
   const [hideInactiveColumns, setHideInactiveColumns] = useState(true);
   const viewport = useAdminViewport();
-  const isMobile = viewport === "mobile";
-  const showGrid = !isMobile;
+  const isCompactJournal = isAdminCompact(viewport);
+  const showGrid = !isCompactJournal;
   const fillGridViewport = showGrid;
 
   useEffect(() => {
@@ -445,7 +446,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   return (
     <div className="relative">
       <JournalShiftBanner />
-      {isMobile ? (
+      {isCompactJournal ? (
         <>
           <div className="journal-mobile-toolbar">
             <div className="flex items-center gap-1">
@@ -645,7 +646,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
         </div>
       )}
 
-      {isMobile && (
+      {isCompactJournal && (
         <p className="mt-1 text-xs text-slate-400">Нажмите на запись для редактирования.</p>
       )}
 
@@ -677,7 +678,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
         <p className="mt-8 text-slate-500">Загрузка…</p>
       ) : (
         <>
-          {isMobile && (
+          {isCompactJournal && (
         <div className="relative mt-3 pb-16">
           {loading && (
             <div className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-white/40 pt-4">
@@ -774,7 +775,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
 
       <section
         className={cn(
-          isMobile ? "mt-6" : showGrid ? "mt-4 border-t border-slate-200 pt-4" : "mt-10",
+          isCompactJournal ? "mt-6" : showGrid ? "mt-4 border-t border-slate-200 pt-4" : "mt-10",
         )}
       >
         <button
@@ -869,7 +870,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
           <p className="mt-4 text-sm text-slate-400">Нет записей за выбранный период</p>
         ) : (
           <>
-            {isMobile ? (
+            {isCompactJournal ? (
             <div className="mt-4 space-y-2">
               {filteredListRecords.map((a) => {
                 const name =
@@ -974,7 +975,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
         )}
       </section>
 
-      {isMobile && (
+      {isCompactJournal && (
         <button
           type="button"
           onClick={() => openNew()}

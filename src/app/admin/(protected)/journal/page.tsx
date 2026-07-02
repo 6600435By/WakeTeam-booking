@@ -18,16 +18,25 @@ export default async function JournalPage() {
   let initial;
 
   try {
-    const overview = await queryCalendarDay(ctx, date);
-    const branchId = resolveInitialBranchId(ctx, overview.branches);
-    const data = branchId
-      ? await queryCalendarDay(ctx, date, branchId)
-      : overview;
+    if (!ctx.isSuperAdmin && ctx.branchId) {
+      const data = await queryCalendarDay(ctx, date, ctx.branchId);
+      initial = {
+        ...serializeCalendarDay(data),
+        branchId: ctx.branchId,
+      };
+    } else {
+      const overview = await queryCalendarDay(ctx, date);
+      const branchId = resolveInitialBranchId(ctx, overview.branches);
+      const data =
+        branchId && ctx.isSuperAdmin
+          ? await queryCalendarDay(ctx, date, branchId)
+          : overview;
 
-    initial = {
-      ...serializeCalendarDay(data),
-      branchId,
-    };
+      initial = {
+        ...serializeCalendarDay(data),
+        branchId,
+      };
+    }
   } catch {
     initial = undefined;
   }

@@ -1,58 +1,51 @@
-"use client";
+import { redirect } from "next/navigation";
+import { canViewClients, getAdminContext } from "@/lib/admin-access";
+import { prisma } from "@/lib/db";
 
-import { useEffect, useState } from "react";
+export default async function ClientsPage() {
+  const ctx = await getAdminContext();
+  if (!ctx) {
+    redirect("/admin/login?from=/admin/clients");
+  }
+  if (!canViewClients(ctx)) {
+    return <p className="mt-4 text-red-600">Нет доступа</p>;
+  }
 
-type Client = {
-  id: string;
-  firstName: string | null;
-  lastName: string | null;
-  phone: string;
-  email: string | null;
-  createdAt: string;
-  _count: { appointments: number };
-};
-
-export default function ClientsPage() {
-  const [clients, setClients] = useState<Client[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch("/api/admin/clients")
-      .then((r) => r.json())
-      .then((d) => setClients(d.clients ?? []))
-      .finally(() => setLoading(false));
-  }, []);
+  const clients = await prisma.client.findMany({
+    where: { organizationId: ctx.organizationId },
+    orderBy: { createdAt: "desc" },
+    take: 200,
+    include: {
+      _count: { select: { appointments: true } },
+    },
+  });
 
   return (
     <div>
       <h1 className="text-xl font-bold sm:text-2xl">Клиенты</h1>
-      {loading ? (
-        <p className="mt-4 text-slate-500">Загрузка…</p>
+      {clients.length === 0 ? (
+        <p className="mt-4 text-slate-500">Нет клиентов</p>
       ) : (
         <>
           <div className="mt-4 space-y-2 md:hidden">
-            {clients.length === 0 ? (
-              <p className="text-sm text-slate-400">Нет клиентов</p>
-            ) : (
-              clients.map((c) => (
-                <div
-                  key={c.id}
-                  className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm"
-                >
-                  <p className="font-semibold text-slate-900">{c.phone}</p>
-                  <p className="mt-0.5 text-sm text-slate-600">
-                    {[c.firstName, c.lastName].filter(Boolean).join(" ") || "—"}
-                  </p>
-                  {c.email && (
-                    <p className="mt-0.5 truncate text-sm text-slate-500">{c.email}</p>
-                  )}
-                  <p className="mt-1 text-xs text-slate-400">
-                    Записей: {c._count.appointments} ·{" "}
-                    {new Date(c.createdAt).toLocaleDateString("ru-RU")}
-                  </p>
-                </div>
-              ))
-            )}
+            {clients.map((c) => (
+              <div
+                key={c.id}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm"
+              >
+                <p className="font-semibold text-slate-900">{c.phone}</p>
+                <p className="mt-0.5 text-sm text-slate-600">
+                  {[c.firstName, c.lastName].filter(Boolean).join(" ") || "—"}
+                </p>
+                {c.email && (
+                  <p className="mt-0.5 truncate text-sm text-slate-500">{c.email}</p>
+                )}
+                <p className="mt-1 text-xs text-slate-400">
+                  Записей: {c._count.appointments} ·{" "}
+                  {c.createdAt.toLocaleDateString("ru-RU")}
+                </p>
+              </div>
+            ))}
           </div>
 
           <div className="mt-6 hidden overflow-x-auto md:block">
@@ -75,7 +68,7 @@ export default function ClientsPage() {
                     </td>
                     <td>{c.email ?? "—"}</td>
                     <td>{c._count.appointments}</td>
-                    <td>{new Date(c.createdAt).toLocaleDateString("ru-RU")}</td>
+                    <td>{c.createdAt.toLocaleDateString("ru-RU")}</td>
                   </tr>
                 ))}
               </tbody>

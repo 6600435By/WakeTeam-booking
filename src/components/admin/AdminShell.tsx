@@ -14,7 +14,7 @@ function AdminShellInner({ children }: { children: React.ReactNode }) {
         viewport === "mobile" &&
           "px-3 pb-6 pt-3 pt-[max(0.75rem,env(safe-area-inset-top))]",
         viewport === "tablet" &&
-          "mx-auto max-w-5xl px-4 pb-6 pt-3 pt-[max(0.75rem,env(safe-area-inset-top))]",
+          "mx-auto max-w-5xl overflow-x-hidden px-3 pb-6 pt-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-4",
         viewport === "desktop" &&
           "flex h-dvh max-h-dvh flex-col overflow-hidden px-4 py-3 pb-4",
       )}

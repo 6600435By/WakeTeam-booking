@@ -3,29 +3,27 @@
 import {
   createContext,
   useContext,
-  useEffect,
-  useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { getAdminViewport, type AdminViewport } from "@/lib/admin-viewport";
+import {
+  readAdminViewport,
+  subscribeAdminViewport,
+  type AdminViewport,
+} from "@/lib/admin-viewport";
 
-const AdminViewportContext = createContext<AdminViewport>("desktop");
+const AdminViewportContext = createContext<AdminViewport>("mobile");
+
+function getServerSnapshot(): AdminViewport {
+  return "mobile";
+}
 
 export function AdminViewportProvider({ children }: { children: ReactNode }) {
-  const [viewport, setViewport] = useState<AdminViewport>(() =>
-    typeof window !== "undefined"
-      ? getAdminViewport(window.innerWidth)
-      : "desktop",
+  const viewport = useSyncExternalStore(
+    subscribeAdminViewport,
+    readAdminViewport,
+    getServerSnapshot,
   );
-
-  useEffect(() => {
-    function sync() {
-      setViewport(getAdminViewport(window.innerWidth));
-    }
-    sync();
-    window.addEventListener("resize", sync);
-    return () => window.removeEventListener("resize", sync);
-  }, []);
 
   return (
     <AdminViewportContext.Provider value={viewport}>

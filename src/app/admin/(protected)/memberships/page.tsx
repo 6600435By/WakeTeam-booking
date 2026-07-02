@@ -1,5 +1,6 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
 import { formatDateMinsk } from "@/lib/time";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -159,19 +160,19 @@ export default function MembershipsPage() {
     setLoading(true);
     const trimmed = query?.trim();
     const q = trimmed ? `?q=${encodeURIComponent(trimmed)}` : "";
-    fetch(`/api/admin/memberships${q}`)
+    adminFetch(`/api/admin/memberships${q}`)
       .then((r) => r.json())
       .then((d) => setMemberships(d.memberships ?? []))
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
-    fetch("/api/admin/memberships/sync")
+    adminFetch("/api/admin/memberships/sync")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d?.lastSyncedAt) setLastSyncedAt(d.lastSyncedAt);
       });
-    fetch("/api/admin/memberships/sync?ifStale=1", { method: "POST" })
+    adminFetch("/api/admin/memberships/sync?ifStale=1", { method: "POST" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d?.lastSyncedAt) setLastSyncedAt(d.lastSyncedAt);
@@ -191,7 +192,7 @@ export default function MembershipsPage() {
     setSyncing(true);
     setMessage("");
     try {
-      const res = await fetch("/api/admin/memberships/sync", { method: "POST" });
+      const res = await adminFetch("/api/admin/memberships/sync", { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Ошибка");
       setMessage(

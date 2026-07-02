@@ -2,6 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   clampPan,
   coverScale,
   cropImageForWidget,
@@ -157,12 +164,14 @@ export function PhotoCropModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center">
-      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-4 shadow-xl">
-        <h3 className="text-lg font-semibold text-slate-900">Кадрирование для виджета</h3>
-        <p className="mt-1 text-xs text-slate-500">
-          Перетащите фото и измените масштаб. Рамка совпадает с карточкой в виджете.
-        </p>
+    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent className="max-h-[92vh] w-full max-w-lg overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Кадрирование для виджета</DialogTitle>
+          <DialogDescription>
+            Перетащите фото и измените масштаб. Рамка совпадает с карточкой в виджете.
+          </DialogDescription>
+        </DialogHeader>
 
         <div
           ref={cropRef}
@@ -246,7 +255,7 @@ export function PhotoCropModal({
             Отмена
           </button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

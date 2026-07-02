@@ -210,6 +210,12 @@ body {
   --admin-journal-grid-max-h: min(60vh, calc(100dvh - 16rem));
 }
 
+.admin-shell[data-admin-viewport="mobile"],
+.admin-shell[data-admin-viewport="tablet"] {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
 .admin-shell[data-admin-viewport="tablet"] .admin-app-scroll,
 .admin-shell[data-admin-viewport="desktop"] .admin-app-scroll {
   -webkit-overflow-scrolling: touch;

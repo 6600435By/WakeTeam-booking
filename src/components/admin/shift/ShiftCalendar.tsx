@@ -1,5 +1,6 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { SPOT_CATEGORIES } from "@/lib/payroll/spot-categories";
 import {
@@ -250,7 +251,7 @@ export function ShiftCalendar({
 
   useEffect(() => {
     if (role === SUPER_ADMIN_ROLE && !branchId) {
-      fetch("/api/admin/branches")
+      adminFetch("/api/admin/branches")
         .then((r) => r.json())
         .then((d) => {
           setBranches(d.branches ?? []);
@@ -262,7 +263,7 @@ export function ShiftCalendar({
   }, [role, branchId, calendarBranchId]);
 
   const loadBranchResources = useCallback(async (bid: string) => {
-    const r = await fetch(`/api/admin/shift-resources?branchId=${bid}`);
+    const r = await adminFetch(`/api/admin/shift-resources?branchId=${bid}`);
     const d = await r.json();
     if (r.ok) {
       setOperators(d.operators ?? []);
@@ -283,7 +284,7 @@ export function ShiftCalendar({
       const q = new URLSearchParams({ month });
       const bid = calendarBranchId || branchId;
       if (bid) q.set("branchId", bid);
-      const r = await fetch(`/api/admin/shift-calendar?${q}`);
+      const r = await adminFetch(`/api/admin/shift-calendar?${q}`);
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Ошибка");
       setData({
@@ -334,7 +335,7 @@ export function ShiftCalendar({
   async function loadShiftDefaults(date: string): Promise<{ plannedStart: string; plannedEnd: string }> {
     const bid = calendarBranchId || branchId;
     if (!bid) return { plannedStart: "10:00", plannedEnd: "22:00" };
-    const r = await fetch(
+    const r = await adminFetch(
       `/api/admin/shift-schedule?branchId=${bid}&date=${date}`,
     );
     const d = await r.json();
@@ -386,12 +387,12 @@ export function ShiftCalendar({
         workAsAdmin: shiftForm.workAsAdmin,
       };
       const r = shiftForm.id
-        ? await fetch(`/api/admin/shift-schedule/${shiftForm.id}`, {
+        ? await adminFetch(`/api/admin/shift-schedule/${shiftForm.id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           })
-        : await fetch("/api/admin/shift-schedule", {
+        : await adminFetch("/api/admin/shift-schedule", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
@@ -419,7 +420,7 @@ export function ShiftCalendar({
 
   async function deleteShift(id: string) {
     if (!window.confirm("Убрать сотрудника из графика на этот день?")) return;
-    const r = await fetch(`/api/admin/shift-schedule/${id}`, { method: "DELETE" });
+    const r = await adminFetch(`/api/admin/shift-schedule/${id}`, { method: "DELETE" });
     const d = await r.json();
     if (!r.ok) {
       setError(d.error ?? "Ошибка");
@@ -480,7 +481,7 @@ export function ShiftCalendar({
     setSaving(true);
     setError("");
     try {
-      const r = await fetch(
+      const r = await adminFetch(
         baselineForm.id
           ? `/api/admin/shift-baseline-tasks/${baselineForm.id}`
           : "/api/admin/shift-baseline-tasks",
@@ -507,7 +508,7 @@ export function ShiftCalendar({
 
   async function deleteBaseline(id: string) {
     if (!window.confirm("Удалить базовое задание?")) return;
-    const r = await fetch(`/api/admin/shift-baseline-tasks/${id}`, {
+    const r = await adminFetch(`/api/admin/shift-baseline-tasks/${id}`, {
       method: "DELETE",
     });
     const d = await r.json();
@@ -542,7 +543,7 @@ export function ShiftCalendar({
             };
 
       if (taskForm.id) {
-        const r = await fetch(`/api/admin/spot-tasks/${taskForm.id}`, {
+        const r = await adminFetch(`/api/admin/spot-tasks/${taskForm.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -557,7 +558,7 @@ export function ShiftCalendar({
         const d = await r.json();
         if (!r.ok) throw new Error(d.error ?? "Ошибка");
       } else {
-        const r = await fetch("/api/admin/spot-tasks", {
+        const r = await adminFetch("/api/admin/spot-tasks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -583,7 +584,7 @@ export function ShiftCalendar({
 
   async function cancelTask(id: string) {
     if (!window.confirm("Отменить задание?")) return;
-    const r = await fetch(`/api/admin/spot-tasks/${id}`, { method: "DELETE" });
+    const r = await adminFetch(`/api/admin/spot-tasks/${id}`, { method: "DELETE" });
     const d = await r.json();
     if (!r.ok) {
       setError(d.error ?? "Ошибка");

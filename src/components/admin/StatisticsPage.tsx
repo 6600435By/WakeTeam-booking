@@ -1,5 +1,6 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StatisticsChart } from "./StatisticsChart";
 import { StatusBadge } from "./StatusBadge";
@@ -153,7 +154,7 @@ export function StatisticsPage() {
     }
 
     try {
-      const res = await fetch(`/api/admin/statistics?${q}`);
+      const res = await adminFetch(`/api/admin/statistics?${q}`);
       const d = await res.json();
       if (!res.ok) throw new Error(d.error ?? "Ошибка загрузки");
       setSummary(d.summary);

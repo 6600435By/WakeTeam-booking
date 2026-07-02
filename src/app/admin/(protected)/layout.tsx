@@ -16,7 +16,7 @@ export default async function AdminProtectedLayout({
 
   return (
     <AdminShell>
-        <div className="admin-app-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+        <div className="admin-app-scroll min-h-0 flex-1 overflow-x-hidden admin-desktop:overflow-y-auto">
         <AdminNav
           admin={{
             email: ctx.user.email ?? "",
