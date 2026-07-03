@@ -148,14 +148,15 @@ model Service {
 }
 
 model ServicePriceRule {
-  id        String  @id @default(cuid())
-  serviceId String
-  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  weekdays  String
-  timeFrom  String
-  timeTo    String
-  price     Float
-  sortOrder Int     @default(0)
+  id                String  @id @default(cuid())
+  serviceId         String
+  service           Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  weekdays          String
+  timeFrom          String
+  timeTo            String
+  price             Float
+  pricesByDuration  String?
+  sortOrder         Int     @default(0)
 }
 
 model ServiceStaff {

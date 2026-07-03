@@ -37,9 +37,10 @@ import {
   formatSessionStart,
   formatSlotTime,
   MAX_AUTO_DATE_SCAN_DAYS,
+  serviceBookingDurations,
   shiftDateStr,
+  shouldShowWidgetTariffs,
   supHasFree,
-  SUP_SLOT_MINUTES,
   supStepToVisibleIndex,
   supVisibleIndexToStep,
   todayStr,
@@ -47,6 +48,7 @@ import {
   useEmbedHeight,
   wakeHasFree,
   WAKE_CELL_MINUTES,
+  widgetTariffRulesForService,
 } from "@/components/widget/widget-booking-utils";
 import {
   TariffsBlock,
@@ -105,12 +107,14 @@ export function BookingWidget({
   const [selectedWakeStarts, setSelectedWakeStarts] = useState<string[]>([]);
   const [selectedSupStarts, setSelectedSupStarts] = useState<string[]>([]);
   const [supQuantity, setSupQuantity] = useState(1);
+  const [supDurationMinutes, setSupDurationMinutes] = useState(30);
   const [configLoading, setConfigLoading] = useState(true);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [configError, setConfigError] = useState("");
   const [error, setError] = useState("");
   const [tariffsOpen, setTariffsOpen] = useState(false);
+  const [supTariffsOpen, setSupTariffsOpen] = useState(false);
   const [done, setDone] = useState<{
     publicNumber: number;
     price: number;
@@ -165,6 +169,11 @@ export function BookingWidget({
 
   const staffCellMinutes = service?.durationMinutes ?? WAKE_CELL_MINUTES;
 
+  const supBookingDurations = useMemo(() => {
+    if (!service || service.kind !== "sup") return [30];
+    return serviceBookingDurations(service);
+  }, [service]);
+
   const displayPrice = useMemo(() => {
     if (!service) return null;
     if (isStaffPickActivity(activityKind)) {
@@ -193,11 +202,19 @@ export function BookingWidget({
           priceRules: service.priceRules,
         },
         new Date(startAt),
-        60,
+        supDurationMinutes,
       );
       return sum + unit * supQuantity;
     }, 0);
-  }, [service, activityKind, selectedWakeStarts, selectedSupStarts, supQuantity, staffCellMinutes]);
+  }, [
+    service,
+    activityKind,
+    selectedWakeStarts,
+    selectedSupStarts,
+    supQuantity,
+    staffCellMinutes,
+    supDurationMinutes,
+  ]);
 
   const selectedSupSlots = useMemo(
     () =>
@@ -368,7 +385,7 @@ export function BookingWidget({
 
       for (let i = 0; i < attempts; i++) {
         if (cancelled) return;
-        const slots = await fetchSupSlots(serviceId, tryDate);
+        const slots = await fetchSupSlots(serviceId, tryDate, supDurationMinutes);
         if (cancelled) return;
 
         const hasGrid = slots.length > 0;
@@ -405,7 +422,7 @@ export function BookingWidget({
     return () => {
       cancelled = true;
     };
-  }, [activityKind, serviceId, date]);
+  }, [activityKind, serviceId, date, supDurationMinutes]);
 
   useEffect(() => {
     if (!isStaffPickActivity(activityKind) || !serviceId || !staffId || !date || slotsLoading) {
@@ -508,11 +525,14 @@ export function BookingWidget({
   }, [maxSupQuantity, supQuantity]);
 
   const pickService = (svc: WidgetService) => {
+    const durations = serviceBookingDurations(svc);
     setActivityKind(activityKindForService(svc.kind));
     setServiceId(svc.id);
     setStaffId("");
     setSelectedWakeStarts([]);
     setSelectedSupStarts([]);
+    setSupDurationMinutes(durations[0] ?? svc.durationMinutes);
+    setSupTariffsOpen(false);
     setStep(2);
   };
 
@@ -540,6 +560,8 @@ export function BookingWidget({
       };
       if (isStaffPickActivity(activityKind)) {
         body.staffId = staffId;
+      } else {
+        body.durationMinutes = supDurationMinutes;
       }
 
       const res = await fetch("/api/public/bookings", {
@@ -555,12 +577,12 @@ export function BookingWidget({
         : selectedSupStarts;
       const cellMinutes = isStaffPickActivity(activityKind)
         ? staffCellMinutes
-        : SUP_SLOT_MINUTES;
+        : supDurationMinutes;
       const range = sessionRangeFromSlots(slotStarts, cellMinutes);
       const earliestStart = range?.startIso;
       const bookedMinutes = isStaffPickActivity(activityKind)
         ? selectedWakeStarts.length * staffCellMinutes
-        : selectedSupStarts.length * SUP_SLOT_MINUTES;
+        : selectedSupStarts.length * supDurationMinutes;
       const resourceLabel = service
         ? widgetServiceTitle(service, settings.texts)
         : "";
@@ -601,6 +623,7 @@ export function BookingWidget({
     branch,
     service,
     staffCellMinutes,
+    supDurationMinutes,
     settings.texts,
   ]);
 
@@ -760,12 +783,13 @@ export function BookingWidget({
               theme={theme}
             >
               {settings.behavior.showTariffsExpandable &&
-                svc.priceRules.length > 0 && (
+                shouldShowWidgetTariffs(svc) && (
                   <TariffsBlock
                     open={tariffsOpen}
                     onToggle={() => setTariffsOpen((v) => !v)}
-                    rules={svc.priceRules}
+                    rules={widgetTariffRulesForService(svc)}
                     durationMinutes={svc.durationMinutes}
+                    bookingDurations={serviceBookingDurations(svc)}
                     theme={theme}
                   />
                 )}
@@ -795,33 +819,56 @@ export function BookingWidget({
       )}
 
       {step === 2 && activityKind === "sup" && service && (
-        <WidgetDateTimeStep
-          kind="sup"
-          date={date}
-          setDate={handleDateChange}
-          slotsLoading={slotsLoading}
-          supSlots={supSlots}
-          selectedSupStarts={selectedSupStarts}
-          onToggleSupStart={(startAt) =>
-            setSelectedSupStarts((prev) => toggleInList(prev, startAt))
-          }
-          supQuantity={supQuantity}
-          setSupQuantity={setSupQuantity}
-          maxSupQuantity={maxSupQuantity}
-          displayPrice={displayPrice}
-          emptyHint={settings.texts.emptySlotsHint}
-          otherBranches={availableOtherBranches}
-          showBranchAlternatives={showBranchAlternatives}
-          checkingOtherBranches={checkingOtherBranches}
-          onPickOtherBranch={goToBranchSelect}
-          onBack={() => setStep(1)}
-          onNext={handleTimeStepNext}
-          nextLoading={submitLoading}
-          nextLabel={copyMode ? "Записать" : "Далее"}
-          hideBack={copyMode}
-          theme={theme}
-          slotMinutes={service.durationMinutes}
-        />
+        <WidgetStepEnter stepKey="sup-time" className="mt-2">
+          <WidgetBackButton onClick={() => setStep(1)} />
+          {settings.behavior.showTariffsExpandable &&
+            shouldShowWidgetTariffs(service) && (
+              <div className="mb-3">
+                <TariffsBlock
+                  open={supTariffsOpen}
+                  onToggle={() => setSupTariffsOpen((v) => !v)}
+                  rules={widgetTariffRulesForService(service)}
+                  durationMinutes={service.durationMinutes}
+                  bookingDurations={supBookingDurations}
+                  theme={theme}
+                />
+              </div>
+            )}
+          <WidgetDateTimeStep
+            kind="sup"
+            date={date}
+            setDate={handleDateChange}
+            slotsLoading={slotsLoading}
+            supSlots={supSlots}
+            selectedSupStarts={selectedSupStarts}
+            onToggleSupStart={(startAt) =>
+              setSelectedSupStarts((prev) => toggleInList(prev, startAt))
+            }
+            supQuantity={supQuantity}
+            setSupQuantity={setSupQuantity}
+            maxSupQuantity={maxSupQuantity}
+            displayPrice={displayPrice}
+            emptyHint={settings.texts.emptySlotsHint}
+            otherBranches={availableOtherBranches}
+            showBranchAlternatives={showBranchAlternatives}
+            checkingOtherBranches={checkingOtherBranches}
+            onPickOtherBranch={goToBranchSelect}
+            onNext={handleTimeStepNext}
+            nextLoading={submitLoading}
+            nextLabel={copyMode ? "Записать" : "Далее"}
+            hideBack
+            theme={theme}
+            slotMinutes={service.durationMinutes}
+            bookingDurationMinutes={supDurationMinutes}
+            showDurationPicker={supBookingDurations.length > 1}
+            durationMinutes={supDurationMinutes}
+            setDurationMinutes={(minutes) => {
+              setSupDurationMinutes(minutes);
+              setSelectedSupStarts([]);
+            }}
+            allowedDurations={supBookingDurations}
+          />
+        </WidgetStepEnter>
       )}
 
       {step === 3 && isStaffPickActivity(activityKind) && service && (

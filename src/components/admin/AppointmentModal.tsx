@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -25,6 +26,7 @@ import {
   type GroupApptRef,
 } from "@/lib/admin/appointment-group-client";
 import { adminFetch } from "@/lib/admin-fetch";
+import { cn } from "@/lib/utils";
 import { AdminFreeSlotPicker } from "./AdminFreeSlotPicker";
 import type { WidgetPrefill } from "@/components/widget/BookingWidget";
 
@@ -164,6 +166,7 @@ export function AppointmentModal({
   const [rentalHint, setRentalHint] = useState("");
   const [copyOpen, setCopyOpen] = useState(false);
   const [widgetSlug, setWidgetSlug] = useState("waketeam");
+  const [freeSlotsOpen, setFreeSlotsOpen] = useState(false);
 
   function setQuotedPrice(value: number) {
     const rounded = Math.round(value * 100) / 100;
@@ -228,6 +231,7 @@ export function AppointmentModal({
     setManualMembershipError("");
     setClientLookupStatus("idle");
     setClientSuggestions([]);
+    setFreeSlotsOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync when modal opens or record changes
   }, [
     open,
@@ -534,6 +538,7 @@ export function AppointmentModal({
     if (t) setTime(t);
     if (pick.staffId) setStaffId(pick.staffId);
     if (pick.staffName) setStaffName(pick.staffName);
+    setFreeSlotsOpen(false);
   }
 
   const selectedService = useMemo(
@@ -651,8 +656,8 @@ export function AppointmentModal({
           rentalItemId: showRental && rentalItemId ? rentalItemId : null,
           rentalQuantity: showRental && rentalItemId ? rentalQuantity : 0,
         });
-        onSaved();
         onClose();
+        onSaved();
         return;
       }
 
@@ -682,8 +687,8 @@ export function AppointmentModal({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Ошибка");
-      onSaved();
       onClose();
+      onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка");
     } finally {
@@ -824,10 +829,29 @@ export function AppointmentModal({
               />
             </div>
             <div>
-              <span className={labelClass}>Свободное время</span>
-              {serviceId && date ? (
+              <button
+                type="button"
+                onClick={() => setFreeSlotsOpen((open) => !open)}
+                className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm font-medium text-slate-800 hover:bg-slate-100"
+                aria-expanded={freeSlotsOpen}
+              >
+                <span>
+                  Свободное время
+                  {time ? (
+                    <span className="ml-1.5 font-normal text-slate-500">{time}</span>
+                  ) : null}
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "size-4 shrink-0 text-slate-500 transition-transform",
+                    freeSlotsOpen && "rotate-180",
+                  )}
+                  strokeWidth={2.25}
+                />
+              </button>
+              {freeSlotsOpen && serviceId && date ? (
                 <AdminFreeSlotPicker
-                  className="mt-1"
+                  className="mt-2"
                   compact
                   serviceId={serviceId}
                   serviceKind={selectedService?.kind ?? "wake"}
@@ -839,11 +863,13 @@ export function AppointmentModal({
                   excludeAppointmentId={appointmentId}
                   onPick={handleSlotPick}
                 />
-              ) : (
+              ) : freeSlotsOpen ? (
+                <p className="mt-2 text-xs text-slate-500">Выберите услугу и дату</p>
+              ) : time ? (
                 <p className="mt-1 text-xs text-slate-500">
-                  Выберите услугу и дату
+                  Выбрано {time}. Раскройте блок, чтобы изменить слот.
                 </p>
-              )}
+              ) : null}
               <input
                 type="hidden"
                 name="wt-booking-time"

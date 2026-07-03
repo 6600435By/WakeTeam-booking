@@ -7,6 +7,7 @@ import {
 import {
   queryAppointmentsList,
   queryCalendarDay,
+  queryCalendarDayAppointments,
 } from "@/lib/admin/calendar-day-data";
 import {
   serializeAppointmentsList,
@@ -38,6 +39,34 @@ export async function loadCalendarDayAction(
       return { ok: false, error: "Нет доступа к этому филиалу" };
     }
     return { ok: false, error: "Не удалось загрузить журнал" };
+  }
+}
+
+export async function loadCalendarDayAppointmentsAction(
+  date: string,
+  branchId?: string,
+): Promise<
+  { ok: true; appointments: SerializedAppointment[] } | { ok: false; error: string }
+> {
+  try {
+    const ctx = await getAdminContext();
+    if (!ctx) {
+      return { ok: false, error: "Сессия истекла. Войдите снова." };
+    }
+    const appointments = await queryCalendarDayAppointments(
+      ctx,
+      date,
+      branchId || undefined,
+    );
+    return { ok: true, appointments: serializeAppointmentsList(appointments) };
+  } catch (e) {
+    if (e instanceof AdminAccessError) {
+      if (e.message === "UNAUTHORIZED") {
+        return { ok: false, error: "Сессия истекла. Войдите снова." };
+      }
+      return { ok: false, error: "Нет доступа к этому филиалу" };
+    }
+    return { ok: false, error: "Не удалось обновить записи" };
   }
 }
 

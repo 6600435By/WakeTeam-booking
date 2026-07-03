@@ -2,12 +2,67 @@
 
 import { useEffect, useRef } from "react";
 import { formatDateKey } from "@/lib/time";
+import { priceForDuration } from "@/lib/service-pricing";
+import { parseAllowedDurations } from "@/lib/service-durations";
+import { parseWeekdays } from "@/lib/slots/slot-helpers";
 import type { ActivityKind, SupSlot, WakeSlot, WidgetConfig, WidgetService } from "./widget-types";
 import { isStaffPickActivity } from "./widget-types";
 
 export const WAKE_CELL_MINUTES = 10;
-export const SUP_SLOT_MINUTES = 60;
 export const MAX_AUTO_DATE_SCAN_DAYS = 45;
+
+export function serviceBookingDurations(service: {
+  allowedDurations: string;
+  durationMinutes: number;
+}): number[] {
+  const parsed = parseAllowedDurations(service.allowedDurations);
+  return parsed.length > 0 ? parsed : [service.durationMinutes];
+}
+
+export function shouldShowWidgetTariffs(service: {
+  allowedDurations: string;
+  priceRules: { length: number };
+}): boolean {
+  return (
+    serviceBookingDurations(service).length > 1 || service.priceRules.length > 0
+  );
+}
+
+export function widgetTariffRulesForService(service: {
+  price: number;
+  durationMinutes: number;
+  allowedDurations: string;
+  priceRules: Array<{
+    weekdays: string;
+    timeFrom: string;
+    timeTo: string;
+    price: number;
+    pricesByDuration?: Record<number, number>;
+  }>;
+  bookableFrom?: string | null;
+  bookableTo?: string | null;
+}) {
+  if (service.priceRules.length > 0) return service.priceRules;
+  const durations = serviceBookingDurations(service);
+  if (durations.length <= 1) return [];
+  const pricesByDuration: Record<number, number> = {};
+  for (const d of durations) {
+    pricesByDuration[d] = priceForDuration(
+      service.price,
+      service.durationMinutes,
+      d,
+    );
+  }
+  return [
+    {
+      weekdays: "1,2,3,4,5,6,7",
+      timeFrom: service.bookableFrom ?? "09:00",
+      timeTo: service.bookableTo ?? "21:00",
+      price: service.price,
+      pricesByDuration,
+    },
+  ];
+}
 
 export function todayStr() {
   return formatDateKey(new Date());
@@ -43,17 +98,41 @@ export function useEmbedHeight(active: boolean) {
   return rootRef;
 }
 
+/** Человекочитаемые дни для строки тарифа; null — префикс не нужен (все дни). */
+export function formatTariffWeekdaysLabel(weekdays: string): string | null {
+  const set = parseWeekdays(weekdays);
+  if (set.size === 0 || set.size === 7) return null;
+  if ([1, 2, 3, 4, 5].every((d) => set.has(d)) && set.size === 5) return "Пн–Пт";
+  if (set.has(6) && set.has(7) && set.size === 2) return "Сб–Вс";
+  return null;
+}
+
 export function formatTariffLine(
-  rule: { weekdays: string; timeFrom: string; timeTo: string; price: number },
+  rule: {
+    weekdays: string;
+    timeFrom: string;
+    timeTo: string;
+    price: number;
+    pricesByDuration?: Record<number, number>;
+  },
   baseDuration: number,
+  bookingDurations?: number[],
 ): string {
-  const days =
-    rule.weekdays === "6,7"
-      ? "Сб–Вс"
-      : rule.weekdays === "1,2,3,4,5"
-        ? "Пн–Пт"
-        : rule.weekdays;
-  return `${days} ${rule.timeFrom}–${rule.timeTo} — ${rule.price} Br / ${baseDuration} мин`;
+  const days = formatTariffWeekdaysLabel(rule.weekdays);
+  const durations =
+    bookingDurations && bookingDurations.length > 0
+      ? bookingDurations
+      : [baseDuration];
+  const priceParts = durations
+    .map((d) => {
+      const amount =
+        rule.pricesByDuration?.[d] ??
+        priceForDuration(rule.price, baseDuration, d);
+      return `${d} мин — ${amount} Br`;
+    })
+    .join(", ");
+  const timePrice = `${rule.timeFrom}–${rule.timeTo}: ${priceParts}`;
+  return days ? `${days} ${timePrice}` : timePrice;
 }
 
 export function formatSlotTime(iso: string) {
@@ -99,8 +178,15 @@ export async function fetchWakeSlots(serviceId: string, staffId: string, date: s
   return (d.slots ?? []) as WakeSlot[];
 }
 
-export async function fetchSupSlots(serviceId: string, date: string) {
+export async function fetchSupSlots(
+  serviceId: string,
+  date: string,
+  durationMinutes?: number,
+) {
   const q = new URLSearchParams({ serviceId, date });
+  if (durationMinutes != null) {
+    q.set("durationMinutes", String(durationMinutes));
+  }
   const r = await fetch(`/api/public/slots?${q}`);
   const d = await r.json();
   return (d.slots ?? []) as SupSlot[];

@@ -6,7 +6,7 @@ import {
   assertShiftSelfOrAdmin,
 } from "@/lib/admin-access";
 import { prisma } from "@/lib/db";
-import { parseTimeOnDate, overlaps } from "@/lib/time";
+import { formatDateKey, parseTimeOnDate, overlaps } from "@/lib/time";
 import {
   enrichShiftResponse,
   SHIFT_INCLUDE,
@@ -42,16 +42,23 @@ async function loadShift(id: string, orgId: string) {
   return shift;
 }
 
-function assertWithinShift(
-  shift: { actualStart: Date | null; actualEnd: Date | null; status: string },
+function assertManualCompletedTime(
+  shift: { date: string; actualStart: Date | null; status: string },
   start: Date,
   end: Date,
 ) {
   if (shift.status !== "open" || !shift.actualStart) {
     throw new Error("SHIFT_CLOSED");
   }
-  const shiftEnd = shift.actualEnd ?? new Date();
-  if (start < shift.actualStart || end > shiftEnd) {
+  const now = new Date();
+  if (end > now) {
+    throw new Error("FUTURE_WORK");
+  }
+  if (formatDateKey(start) !== shift.date || formatDateKey(end) !== shift.date) {
+    throw new Error("OUT_OF_SHIFT");
+  }
+  const dayStart = parseTimeOnDate(shift.date, "00:00");
+  if (start < dayStart) {
     throw new Error("OUT_OF_SHIFT");
   }
 }
@@ -133,7 +140,7 @@ export async function POST(
     if (end <= start) {
       return NextResponse.json({ error: "Некорректное время" }, { status: 400 });
     }
-    assertWithinShift(shift, start, end);
+    assertManualCompletedTime(shift, start, end);
     assertNoOverlap(shift.spotEntries, start, end);
 
     const entry = await prisma.spotWorkEntry.create({
@@ -165,7 +172,13 @@ export async function POST(
   } catch (e) {
     if (e instanceof Error) {
       if (e.message === "OUT_OF_SHIFT") {
-        return NextResponse.json({ error: "Вне времени смены" }, { status: 400 });
+        return NextResponse.json({ error: "Вне даты смены" }, { status: 400 });
+      }
+      if (e.message === "FUTURE_WORK") {
+        return NextResponse.json(
+          { error: "Нельзя указать будущее время для выполненной работы" },
+          { status: 400 },
+        );
       }
       if (e.message === "OVERLAP") {
         return NextResponse.json({ error: "Пересечение с другой записью" }, { status: 400 });

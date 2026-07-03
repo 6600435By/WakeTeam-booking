@@ -28,7 +28,12 @@ export async function GET(req: NextRequest) {
   }
 
   if (service.kind === "sup") {
-    const result = await getSupDaySlots({ serviceId, date });
+    const durationMinutes = duration ? parseInt(duration, 10) : undefined;
+    const result = await getSupDaySlots({
+      serviceId,
+      date,
+      durationMinutes,
+    });
     return NextResponse.json(result);
   }
 

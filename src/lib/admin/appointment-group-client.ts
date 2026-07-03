@@ -94,21 +94,21 @@ export async function moveGroupAppointments(
   const sorted = sortGroup(group);
   const delta =
     new Date(isoStart).getTime() - new Date(sorted[0].startAt).getTime();
-  for (const appt of sorted) {
-    await adminPatch(appt.id, {
-      startAt: new Date(
-        new Date(appt.startAt).getTime() + delta,
-      ).toISOString(),
-      staffId,
-      durationMinutes: appt.durationMinutes,
-    });
-  }
+  await Promise.all(
+    sorted.map((appt) =>
+      adminPatch(appt.id, {
+        startAt: new Date(
+          new Date(appt.startAt).getTime() + delta,
+        ).toISOString(),
+        staffId,
+        durationMinutes: appt.durationMinutes,
+      }),
+    ),
+  );
 }
 
 export async function deleteGroupAppointments(group: GroupApptRef[]): Promise<void> {
-  for (const a of group) {
-    await adminDelete(a.id);
-  }
+  await Promise.all(group.map((a) => adminDelete(a.id)));
 }
 
 function groupSpanMinutes(group: GroupApptRef[]): number {
@@ -163,9 +163,7 @@ export async function resizeGroupAppointments(
   }
 
   const toRemove = sorted.slice(targetCount);
-  for (const a of toRemove) {
-    await adminDelete(a.id);
-  }
+  await Promise.all(toRemove.map((a) => adminDelete(a.id)));
   return sorted.slice(0, targetCount);
 }
 
@@ -227,27 +225,28 @@ export async function saveAppointmentEdit(params: {
   const deltaMs = newFirst.getTime() - oldFirst.getTime();
   const prices = distributeTotalPrice(params.totalPrice, group.length);
 
-  for (let i = 0; i < group.length; i++) {
-    const appt = group[i];
-    await adminPatch(appt.id, {
-      startAt: new Date(new Date(appt.startAt).getTime() + deltaMs).toISOString(),
-      staffId: params.newStaffId,
-      serviceId: params.newServiceId,
-      durationMinutes: appt.durationMinutes,
-      price: prices[i],
-      firstName: params.firstName,
-      lastName: params.lastName,
-      phone: params.phone,
-      status: params.status,
-      comment: params.comment,
-      ...(i === 0
-        ? {
-            membershipId: params.membershipId ?? null,
-            paymentMethod: params.paymentMethod ?? null,
-            rentalItemId: params.rentalItemId ?? null,
-            rentalQuantity: params.rentalQuantity ?? 0,
-          }
-        : {}),
-    });
-  }
+  await Promise.all(
+    group.map((appt, i) =>
+      adminPatch(appt.id, {
+        startAt: new Date(new Date(appt.startAt).getTime() + deltaMs).toISOString(),
+        staffId: params.newStaffId,
+        serviceId: params.newServiceId,
+        durationMinutes: appt.durationMinutes,
+        price: prices[i],
+        firstName: params.firstName,
+        lastName: params.lastName,
+        phone: params.phone,
+        status: params.status,
+        comment: params.comment,
+        ...(i === 0
+          ? {
+              membershipId: params.membershipId ?? null,
+              paymentMethod: params.paymentMethod ?? null,
+              rentalItemId: params.rentalItemId ?? null,
+              rentalQuantity: params.rentalQuantity ?? 0,
+            }
+          : {}),
+      }),
+    ),
+  );
 }

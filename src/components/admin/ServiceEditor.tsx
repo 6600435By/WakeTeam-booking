@@ -15,8 +15,8 @@ import {
   bookingDurationOptions,
   normalizeAllowedDurationsForSlot,
   parseAllowedDurations,
-  SERVICE_SLOT_DURATIONS,
 } from "@/lib/service-durations";
+import { ServiceDurationSettings } from "./ServiceDurationSettings";
 import {
   ServicePriceRulesEditor,
   WeekdayPicker,
@@ -111,29 +111,8 @@ export function ServiceEditor({
       )
     : [];
 
-  const slotDurationOptions =
-    service.kind === "sup" ? [60] : [...SERVICE_SLOT_DURATIONS];
   const bookingOptions = bookingDurationOptions(service.durationMinutes);
   const selectedBookingDurations = parseAllowedDurations(service.allowedDurations);
-
-  function setSlotDuration(minutes: number) {
-    onUpdate({
-      durationMinutes: minutes,
-      allowedDurations: normalizeAllowedDurationsForSlot(
-        service.allowedDurations,
-        minutes,
-      ),
-    });
-  }
-
-  function toggleBookingDuration(minutes: number) {
-    const current = parseAllowedDurations(service.allowedDurations);
-    const next = current.includes(minutes)
-      ? current.filter((d) => d !== minutes)
-      : [...current, minutes].sort((a, b) => a - b);
-    if (next.length === 0) return;
-    onUpdate({ allowedDurations: next.join(",") });
-  }
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
@@ -169,34 +148,25 @@ export function ServiceEditor({
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div className="block">
-          <span className="mb-1 block text-xs text-slate-500">
-            Интервал тарифа, мин
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {slotDurationOptions.map((minutes) => {
-              const active = service.durationMinutes === minutes;
-              return (
-                <button
-                  key={minutes}
-                  type="button"
-                  onClick={() => setSlotDuration(minutes)}
-                  className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                    active
-                      ? "border-lime-600 bg-lime-50 text-lime-800"
-                      : "border-slate-300 text-slate-700 hover:bg-slate-50"
-                  }`}
-                >
-                  {minutes}
-                </button>
-              );
-            })}
-          </div>
-          <span className="mt-1 block text-[11px] text-slate-400">
-            Цена в тарифах и минимальный шаг слота в журнале
-          </span>
+        <div className="sm:col-span-2">
+          <ServiceDurationSettings
+            durationMinutes={service.durationMinutes}
+            allowedDurations={service.allowedDurations}
+            onDurationMinutesChange={(durationMinutes) =>
+              onUpdate({
+                durationMinutes,
+                allowedDurations: normalizeAllowedDurationsForSlot(
+                  service.allowedDurations,
+                  durationMinutes,
+                ),
+              })
+            }
+            onAllowedDurationsChange={(allowedDurations) =>
+              onUpdate({ allowedDurations })
+            }
+          />
         </div>
-        <label className="block">
+        <label className="block sm:col-span-2">
           <span className="mb-1 block text-xs text-slate-500">
             Базовая цена, Br / {service.durationMinutes} мин
           </span>
@@ -214,36 +184,9 @@ export function ServiceEditor({
         </label>
       </div>
 
-      {service.kind !== "sup" && bookingOptions.length > 1 && (
-        <div className="mt-3">
-          <span className="mb-1 block text-xs text-slate-500">
-            Длительности записи в виджете, мин
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {bookingOptions.map((minutes) => {
-              const active = selectedBookingDurations.includes(minutes);
-              return (
-                <button
-                  key={minutes}
-                  type="button"
-                  onClick={() => toggleBookingDuration(minutes)}
-                  className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
-                    active
-                      ? "border-lime-600 bg-lime-50 text-lime-800"
-                      : "border-slate-300 text-slate-600 hover:bg-slate-50"
-                  }`}
-                >
-                  {minutes}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {service.kind === "sup" && (
-        <p className="mt-3 text-xs text-slate-500">
-          Длительность записи на сапборд — 60 мин
+      {bookingOptions.length <= 1 && selectedBookingDurations.length === 1 && (
+        <p className="mt-2 text-xs text-slate-500">
+          Длительность записи — {selectedBookingDurations[0]} мин
         </p>
       )}
 
@@ -375,6 +318,7 @@ export function ServiceEditor({
         priceRules={service.priceRules ?? []}
         basePrice={service.price}
         durationMinutes={service.durationMinutes}
+        bookingDurations={selectedBookingDurations}
         bookableFrom={service.bookableFrom}
         bookableTo={service.bookableTo}
         serviceWeekdays={service.weekdays}

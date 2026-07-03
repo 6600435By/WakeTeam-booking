@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import {
   assertCatalogAccess,
@@ -56,6 +57,7 @@ const patchSchema = z.object({
         timeFrom: z.string(),
         timeTo: z.string(),
         price: z.number().nonnegative(),
+        pricesByDuration: z.string().nullable().optional(),
         sortOrder: z.number().int().optional(),
       }),
     )
@@ -85,16 +87,6 @@ export async function PATCH(
       where: { id },
       select: { kind: true, staff: { select: { staffId: true } } },
     });
-    if (
-      data.durationMinutes !== undefined &&
-      existingService.kind === "sup" &&
-      data.durationMinutes !== 60
-    ) {
-      return NextResponse.json(
-        { error: "Для сапборда интервал тарифа — 60 минут" },
-        { status: 400 },
-      );
-    }
 
     if (priceRules) {
       await prisma.servicePriceRule.deleteMany({ where: { serviceId: id } });
@@ -107,6 +99,7 @@ export async function PATCH(
             timeFrom: rule.timeFrom,
             timeTo: rule.timeTo,
             price: rule.price,
+            pricesByDuration: rule.pricesByDuration ?? null,
             sortOrder: rule.sortOrder ?? i + 1,
           },
         });
@@ -164,7 +157,24 @@ export async function PATCH(
     }
 
     if (body.durationMinutes !== undefined) {
-      const linkedStaffIds = service.staff.map((link) => link.staff.id);
+      const fullService = await prisma.service.findUniqueOrThrow({
+        where: { id },
+        select: {
+          kind: true,
+          branchId: true,
+          staff: { select: { staffId: true } },
+        },
+      });
+      let linkedStaffIds = fullService.staff.map((link) => link.staffId);
+      if (fullService.kind === "sup") {
+        const boards = await prisma.staff.findMany({
+          where: { branchId: fullService.branchId, kind: "sup" },
+          select: { id: true },
+        });
+        linkedStaffIds = [
+          ...new Set([...linkedStaffIds, ...boards.map((b) => b.id)]),
+        ];
+      }
       if (linkedStaffIds.length > 0) {
         await prisma.staff.updateMany({
           where: { id: { in: linkedStaffIds } },
@@ -178,11 +188,26 @@ export async function PATCH(
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.flatten() }, { status: 400 });
     }
+    if (e instanceof Prisma.PrismaClientValidationError) {
+      console.error("service PATCH validation:", e.message);
+      return NextResponse.json(
+        {
+          error:
+            "Схема БД устарела. Перезапустите сервер (npm run dev) после обновления.",
+        },
+        { status: 500 },
+      );
+    }
     const handled = handleAdminError(e);
     if (handled) {
       return NextResponse.json({ error: handled.error }, { status: handled.status });
     }
-    return NextResponse.json({ error: "Ошибка" }, { status: 500 });
+    console.error("service PATCH error:", e);
+    const message =
+      e instanceof Error && process.env.NODE_ENV !== "production"
+        ? e.message
+        : "Ошибка";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 

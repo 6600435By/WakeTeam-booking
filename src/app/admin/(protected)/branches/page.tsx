@@ -35,12 +35,17 @@ export default async function BranchesPage() {
               className="block rounded-lg bg-white p-4 shadow ring-1 ring-slate-200 transition hover:ring-lime-300"
             >
               {b.photoUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={b.photoUrl}
-                  alt=""
-                  className="mb-3 h-32 w-full rounded-lg object-cover"
-                />
+                <div
+                  className="mb-3 w-full overflow-hidden rounded-lg"
+                  style={{ aspectRatio: "20 / 3" }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={b.photoUrl}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                </div>
               )}
               <h2 className="font-semibold text-slate-900">{b.name}</h2>
               {b.address && (

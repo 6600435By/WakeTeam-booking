@@ -4,9 +4,8 @@ import { formatInTimeZone } from "date-fns-tz";
 import { prisma } from "@/lib/db";
 import type { DbClient } from "@/lib/db-types";
 import {
-  priceForDuration,
+  parsePricesByDuration,
   resolveServicePrice,
-  type ServicePriceRuleDto,
 } from "@/lib/service-pricing";
 import {
   addMinutes,
@@ -38,8 +37,15 @@ export type SupSlotDto = {
   availableBoards: number;
 };
 
-const SUP_DURATION_MINUTES = 60;
-const SUP_SLOT_STEP = 60;
+const SUP_DURATION_FALLBACK = 60;
+
+function supAllowedDurations(service: {
+  allowedDurations: string;
+  durationMinutes: number;
+}): number[] {
+  const parsed = parseDurations(service.allowedDurations);
+  return parsed.length > 0 ? parsed : [service.durationMinutes || SUP_DURATION_FALLBACK];
+}
 
 function parseDurations(s: string): number[] {
   return s
@@ -208,6 +214,7 @@ export async function getSupDaySlots(params: {
   date: string;
   forAdmin?: boolean;
   excludeAppointmentId?: string;
+  durationMinutes?: number;
 }): Promise<{ slots: SupSlotDto[]; allowedDurations: number[] }> {
   const service = await prisma.service.findUnique({
     where: { id: params.serviceId },
@@ -222,14 +229,22 @@ export async function getSupDaySlots(params: {
     return { slots: [], allowedDurations: [] };
   }
   if (!serviceAllowedOnDate(service, params.date)) {
-    return { slots: [], allowedDurations: [SUP_DURATION_MINUTES] };
+    return { slots: [], allowedDurations: supAllowedDurations(service) };
+  }
+
+  const allowedDurations = supAllowedDurations(service);
+  const slotStep = service.durationMinutes;
+  const duration =
+    params.durationMinutes ?? allowedDurations[0] ?? SUP_DURATION_FALLBACK;
+  if (params.durationMinutes && !allowedDurations.includes(params.durationMinutes)) {
+    return { slots: [], allowedDurations };
   }
 
   const boards = service.staff
     .map((s) => s.staff)
     .filter((s) => s.isActive && (params.forAdmin || s.isVisible));
   if (boards.length === 0) {
-    return { slots: [], allowedDurations: [SUP_DURATION_MINUTES] };
+    return { slots: [], allowedDurations };
   }
 
   const dayStart = parseTimeOnDate(params.date, "00:00");
@@ -270,8 +285,8 @@ export async function getSupDaySlots(params: {
     for (const interval of workIntervals) {
       for (
         let t = interval.from.getTime();
-        t + SUP_SLOT_STEP * 60_000 <= interval.to.getTime();
-        t += SUP_SLOT_STEP * 60_000
+        t + duration * 60_000 <= interval.to.getTime();
+        t += slotStep * 60_000
       ) {
         slotStarts.add(t);
       }
@@ -282,7 +297,7 @@ export async function getSupDaySlots(params: {
     .sort((a, b) => a - b)
     .map((t) => {
       const start = new Date(t);
-      const end = addMinutes(start, SUP_DURATION_MINUTES);
+      const end = addMinutes(start, duration);
       let availableBoards = 0;
       for (const board of boards) {
         const rule = board.schedules.find((r) => r.weekday === wd && r.isWorking);
@@ -309,17 +324,21 @@ export async function getSupDaySlots(params: {
 
   return {
     slots: filterPastSlotsForToday(params.date, slots),
-    allowedDurations: [SUP_DURATION_MINUTES],
+    allowedDurations,
   };
 }
 
 export async function countSupAvailableBoards(
   serviceId: string,
   startAt: Date,
-  durationMinutes: number = SUP_DURATION_MINUTES,
+  durationMinutes?: number,
 ): Promise<number> {
   const dateStr = formatDateKey(startAt);
-  const { slots } = await getSupDaySlots({ serviceId, date: dateStr });
+  const { slots } = await getSupDaySlots({
+    serviceId,
+    date: dateStr,
+    durationMinutes,
+  });
   const match = slots.find(
     (s) => new Date(s.startAt).getTime() === startAt.getTime(),
   );
@@ -424,12 +443,26 @@ function assertServiceBookableForBooking(
 function serviceWithRulesDto(service: {
   price: number;
   durationMinutes: number;
-  priceRules: { weekdays: string; timeFrom: string; timeTo: string; price: number; sortOrder: number }[];
+  priceRules: {
+    weekdays: string;
+    timeFrom: string;
+    timeTo: string;
+    price: number;
+    sortOrder: number;
+    pricesByDuration?: string | null;
+  }[];
 }) {
   return {
     price: service.price,
     durationMinutes: service.durationMinutes,
-    priceRules: service.priceRules as ServicePriceRuleDto[],
+    priceRules: service.priceRules.map((r) => ({
+      weekdays: r.weekdays,
+      timeFrom: r.timeFrom,
+      timeTo: r.timeTo,
+      price: r.price,
+      sortOrder: r.sortOrder,
+      pricesByDuration: parsePricesByDuration(r.pricesByDuration),
+    })),
   };
 }
 
@@ -547,7 +580,11 @@ async function createSupBooking(
   const quantity = input.quantity ?? 1;
   if (quantity < 1) throw new Error("INVALID_QUANTITY");
 
-  const duration = SUP_DURATION_MINUTES;
+  const allowed = parseDurations(service.allowedDurations);
+  const duration =
+    input.durationMinutes && allowed.includes(input.durationMinutes)
+      ? input.durationMinutes
+      : allowed[0] ?? service.durationMinutes;
   const startAt = new Date(input.startAt);
   const endAt = addMinutes(startAt, duration);
 
@@ -636,7 +673,13 @@ async function createBatchBooking(
 ): Promise<{ id: string; publicNumber: number; price: number; count: number }> {
   const slots = input.slots!;
   const isSup = service.kind === "sup";
-  const cellMinutes = isSup ? SUP_DURATION_MINUTES : WAKE_CELL_MINUTES;
+  const allowed = parseDurations(service.allowedDurations);
+  const supDuration = isSup
+    ? input.durationMinutes && allowed.includes(input.durationMinutes)
+      ? input.durationMinutes
+      : allowed[0] ?? service.durationMinutes
+    : WAKE_CELL_MINUTES;
+  const cellMinutes = isSup ? supDuration : WAKE_CELL_MINUTES;
 
   if (!isSup && !input.staffId) throw new Error("STAFF_REQUIRED");
 

@@ -158,8 +158,8 @@ export function PhotoUploadField({
         />
       </div>
       <p className="mt-1 text-xs text-slate-400">
-        JPEG, PNG или WebP до {formatMaxUploadSize()}. После выбора — кадрирование под
-        виджет.
+        JPEG, PNG или WebP до {formatMaxUploadSize()}. После выбора настройте кадр
+        перетаскиванием и масштабом — превью показывает вид в виджете.
       </p>
       {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
 

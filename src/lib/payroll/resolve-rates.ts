@@ -41,6 +41,26 @@ export function operatorRateKinds(): PayRateKind[] {
   return ["panel", "spot", "idle"];
 }
 
+export function adminRateKinds(): PayRateKind[] {
+  return ["shift"];
+}
+
+/** Тарифы, доступные для назначения сотруднику по его роли. */
+export function allowedPayRateKindsForMemberRole(
+  role: string | null | undefined,
+): PayRateKind[] {
+  if (role === "super_admin" || role === "admin") {
+    return ["panel", "spot", "idle", "shift"];
+  }
+  if (role === "branch_admin") {
+    return adminRateKinds();
+  }
+  if (role === "branch_operator") {
+    return operatorRateKinds();
+  }
+  return [];
+}
+
 export function rateKindLabel(kind: PayRateKind): string {
   switch (kind) {
     case "panel":

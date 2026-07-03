@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
-  assertSuperAdmin,
+  AdminAccessError,
+  assertPayRatesAccess,
   handleAdminError,
   requireAdminContext,
-  parseAdminRole,
-  BRANCH_OPERATOR_ROLE,
-  BRANCH_ADMIN_ROLE,
 } from "@/lib/admin-access";
 import { prisma } from "@/lib/db";
-import type { PayRateKind } from "@/lib/payroll/resolve-rates";
-import { rateKindLabel } from "@/lib/payroll/resolve-rates";
+import {
+  allowedPayRateKindsForMemberRole,
+  rateKindLabel,
+  type PayRateKind,
+} from "@/lib/payroll/resolve-rates";
 
 function dayBefore(date: string): string {
   const d = new Date(`${date}T12:00:00Z`);
@@ -30,37 +31,19 @@ export async function GET(
 ) {
   try {
     const ctx = await requireAdminContext();
-    assertSuperAdmin(ctx);
     const { id: userId } = await params;
-
-    const member = await prisma.organizationMember.findUnique({
-      where: {
-        organizationId_userId: {
-          organizationId: ctx.organizationId,
-          userId,
-        },
-      },
-    });
-    if (!member) {
-      return NextResponse.json({ error: "Не найдено" }, { status: 404 });
-    }
+    const member = await assertPayRatesAccess(ctx, userId);
 
     const rates = await prisma.memberPayRate.findMany({
       where: { memberId: member.id },
       orderBy: [{ kind: "asc" }, { effectiveFrom: "desc" }],
     });
 
-    const role = parseAdminRole(member.role);
-    const allowedKinds: PayRateKind[] =
-      role === BRANCH_OPERATOR_ROLE
-        ? ["panel", "spot", "idle"]
-        : role === BRANCH_ADMIN_ROLE
-          ? ["shift"]
-          : [];
+    const allowedKinds = allowedPayRateKindsForMemberRole(member.role);
 
     return NextResponse.json({
       memberId: member.id,
-      role,
+      role: member.role,
       allowedKinds,
       rates: rates.map((r) => ({
         id: r.id,
@@ -77,6 +60,9 @@ export async function GET(
     if (handled) {
       return NextResponse.json({ error: handled.error }, { status: handled.status });
     }
+    if (e instanceof AdminAccessError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
     return NextResponse.json({ error: "Ошибка" }, { status: 500 });
   }
 }
@@ -87,20 +73,16 @@ export async function POST(
 ) {
   try {
     const ctx = await requireAdminContext();
-    assertSuperAdmin(ctx);
     const { id: userId } = await params;
     const body = createSchema.parse(await req.json());
+    const member = await assertPayRatesAccess(ctx, userId);
 
-    const member = await prisma.organizationMember.findUnique({
-      where: {
-        organizationId_userId: {
-          organizationId: ctx.organizationId,
-          userId,
-        },
-      },
-    });
-    if (!member) {
-      return NextResponse.json({ error: "Не найдено" }, { status: 404 });
+    const allowedKinds = allowedPayRateKindsForMemberRole(member.role);
+    if (!allowedKinds.includes(body.kind)) {
+      return NextResponse.json(
+        { error: "Тариф этого типа недоступен для роли сотрудника" },
+        { status: 400 },
+      );
     }
 
     const current = await prisma.memberPayRate.findFirst({
@@ -131,9 +113,15 @@ export async function POST(
 
     return NextResponse.json({ rate });
   } catch (e) {
+    if (e instanceof z.ZodError) {
+      return NextResponse.json({ error: e.flatten() }, { status: 400 });
+    }
     const handled = handleAdminError(e);
     if (handled) {
       return NextResponse.json({ error: handled.error }, { status: handled.status });
+    }
+    if (e instanceof AdminAccessError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
     }
     return NextResponse.json({ error: "Ошибка" }, { status: 500 });
   }

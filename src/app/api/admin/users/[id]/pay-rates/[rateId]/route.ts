@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  assertSuperAdmin,
+  AdminAccessError,
+  assertPayRatesAccess,
   handleAdminError,
   requireAdminContext,
 } from "@/lib/admin-access";
@@ -12,14 +13,17 @@ export async function DELETE(
 ) {
   try {
     const ctx = await requireAdminContext();
-    assertSuperAdmin(ctx);
-    const { rateId } = await params;
+    const { id: userId, rateId } = await params;
+    await assertPayRatesAccess(ctx, userId);
 
     const rate = await prisma.memberPayRate.findUnique({
       where: { id: rateId },
       include: { member: true },
     });
     if (!rate || rate.member.organizationId !== ctx.organizationId) {
+      return NextResponse.json({ error: "Не найдено" }, { status: 404 });
+    }
+    if (rate.member.userId !== userId) {
       return NextResponse.json({ error: "Не найдено" }, { status: 404 });
     }
 
@@ -38,6 +42,9 @@ export async function DELETE(
     const handled = handleAdminError(e);
     if (handled) {
       return NextResponse.json({ error: handled.error }, { status: handled.status });
+    }
+    if (e instanceof AdminAccessError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
     }
     return NextResponse.json({ error: "Ошибка" }, { status: 500 });
   }

@@ -152,6 +152,12 @@ type Props = {
   onHideInactiveChange?: (value: boolean) => void;
   onSlotClick: (initial: ModalInitial) => void;
   onAppointmentClick: (appt: Appointment, group: Appointment[]) => void;
+  onOptimisticMove?: (
+    group: Appointment[],
+    staffId: string,
+    startMinutes: number,
+  ) => void;
+  onOptimisticResize?: (group: Appointment[], durationMinutes: number) => void;
   onMoved: () => void | Promise<void>;
   onActionError?: (message: string) => void;
 };
@@ -181,6 +187,19 @@ function groupCreateTemplate(first: Appointment) {
 function groupTotalMinutes(group: Appointment[]): number {
   return appointmentGroupSpanMinutes(group);
 }
+
+/** Одиночная запись меняет длительность шагом сетки; группа сегментов — шагом сегмента. */
+function resizeStepForGroup(
+  group: Appointment[],
+  gridStep: JournalGridStep,
+): number {
+  if (group.length > 1) {
+    const cell = appointmentGroupCellMinutes(group);
+    return cell > 0 ? cell : gridStep;
+  }
+  return gridStep;
+}
+
 function collapsedStaffLabel(name: string): string {
   const label = journalStaffDisplayName(name);
   const match = label.match(/(?:№\s*|\s)(\d+)\s*$/);
@@ -231,6 +250,8 @@ export function JournalGrid({
   onHideInactiveChange,
   onSlotClick,
   onAppointmentClick,
+  onOptimisticMove,
+  onOptimisticResize,
   onMoved,
   onActionError,
 }: Props) {
@@ -373,65 +394,73 @@ export function JournalGrid({
   );
 
   const moveGroupBlock = useCallback(
-    async (group: Appointment[], staffId: string, startMinutes: number) => {
+    (group: Appointment[], staffId: string, startMinutes: number) => {
       const first = group[0];
       if (!first || isMutatingRef.current) return;
       const total = groupTotalMinutes(group);
       if (!canDrop(staffId, startMinutes, total)) return;
 
-      isMutatingRef.current = true;
-      try {
-        const scrollEl = scrollContainerRef.current;
-        const { left: scrollLeft, top: scrollTop } =
-          captureJournalScrollState(scrollEl);
+      onOptimisticMove?.(group, staffId, startMinutes);
 
-        await moveGroupAppointments(
-          toGroupRefs(group),
-          isoAtMinutes(date, startMinutes),
-          staffId,
-        );
-        pendingScrollRestore.current = { left: scrollLeft, top: scrollTop };
-        await onMoved();
-      } catch (e) {
-        onActionError?.(
-          e instanceof Error ? e.message : "Не удалось переместить запись",
-        );
-      } finally {
-        isMutatingRef.current = false;
-      }
+      isMutatingRef.current = true;
+      const scrollEl = scrollContainerRef.current;
+      const { left: scrollLeft, top: scrollTop } =
+        captureJournalScrollState(scrollEl);
+
+      void (async () => {
+        try {
+          await moveGroupAppointments(
+            toGroupRefs(group),
+            isoAtMinutes(date, startMinutes),
+            staffId,
+          );
+          pendingScrollRestore.current = { left: scrollLeft, top: scrollTop };
+        } catch (e) {
+          onActionError?.(
+            e instanceof Error ? e.message : "Не удалось переместить запись",
+          );
+        } finally {
+          isMutatingRef.current = false;
+        }
+        void onMoved();
+      })();
     },
-    [canDrop, date, onMoved, onActionError],
+    [canDrop, date, onMoved, onActionError, onOptimisticMove],
   );
 
   const resizeGroupBlock = useCallback(
-    async (group: Appointment[], durationMinutes: number) => {
+    (group: Appointment[], durationMinutes: number) => {
       const first = group[0];
       if (!first || isMutatingRef.current) return;
       const currentTotal = groupTotalMinutes(group);
       if (durationMinutes === currentTotal) return;
 
-      isMutatingRef.current = true;
-      try {
-        const scrollEl = scrollContainerRef.current;
-        const { left: scrollLeft, top: scrollTop } =
-          captureJournalScrollState(scrollEl);
+      onOptimisticResize?.(group, durationMinutes);
 
-        await resizeGroupAppointments(
-          toGroupRefs(group),
-          durationMinutes,
-          groupCreateTemplate(first),
-        );
-        pendingScrollRestore.current = { left: scrollLeft, top: scrollTop };
-        await onMoved();
-      } catch (e) {
-        onActionError?.(
-          e instanceof Error ? e.message : "Не удалось изменить длительность",
-        );
-      } finally {
-        isMutatingRef.current = false;
-      }
+      isMutatingRef.current = true;
+      const scrollEl = scrollContainerRef.current;
+      const { left: scrollLeft, top: scrollTop } =
+        captureJournalScrollState(scrollEl);
+
+      void (async () => {
+        try {
+          await resizeGroupAppointments(
+            toGroupRefs(group),
+            durationMinutes,
+            groupCreateTemplate(first),
+          );
+          pendingScrollRestore.current = { left: scrollLeft, top: scrollTop };
+        } catch (e) {
+          onActionError?.(
+            e instanceof Error ? e.message : "Не удалось изменить длительность",
+          );
+        } finally {
+          isMutatingRef.current = false;
+        }
+        void onMoved();
+      })();
     },
-    [onMoved, onActionError],
+    [onMoved, onActionError, onOptimisticResize],
   );
 
   useEffect(() => {
@@ -1013,7 +1042,6 @@ export function JournalGrid({
                           }
                           e.preventDefault();
                           e.stopPropagation();
-                          e.currentTarget.setPointerCapture(e.pointerId);
                           setPointerStart({
                             appt: a,
                             group: block.appointments,
@@ -1021,11 +1049,6 @@ export function JournalGrid({
                             y: e.clientY,
                             height: layout.height,
                           });
-                        }}
-                        onPointerUp={(e) => {
-                          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-                            e.currentTarget.releasePointerCapture(e.pointerId);
-                          }
                         }}
                         onDragStart={(e) => e.preventDefault()}
                         draggable={false}
@@ -1077,7 +1100,7 @@ export function JournalGrid({
                         </div>
                         <div
                           data-resize-handle
-                          className="absolute inset-x-0 bottom-0 z-[2] h-2.5 cursor-ns-resize bg-black/10 hover:bg-sky-500/30"
+                          className="absolute inset-x-0 bottom-0 z-[2] h-3.5 min-h-[14px] cursor-ns-resize bg-black/10 hover:bg-sky-500/35 active:bg-sky-500/45"
                           title="Потяните для изменения длительности"
                           onPointerDown={(e) => {
                             if (e.button !== 0) return;
@@ -1086,33 +1109,20 @@ export function JournalGrid({
                             e.stopPropagation();
                             const startMin = minutesFromIso(date, block.startAt);
                             if (startMin === null) return;
-                            const cellMinutes = appointmentGroupCellMinutes(
+                            const cellMinutes = resizeStepForGroup(
                               block.appointments,
-                            );
-                            (e.currentTarget as HTMLElement).setPointerCapture(
-                              e.pointerId,
+                              gridStep,
                             );
                             setResize({
                               group: block.appointments,
                               staffId: s.id,
                               startMinutes: startMin,
                               durationMinutes: block.durationMinutes,
-                              cellMinutes: cellMinutes > 0 ? cellMinutes : gridStep,
+                              cellMinutes,
                               height: layout.height,
                             });
                             setPointerStart(null);
                             setDrag(null);
-                          }}
-                          onPointerUp={(e) => {
-                            if (
-                              (e.currentTarget as HTMLElement).hasPointerCapture(
-                                e.pointerId,
-                              )
-                            ) {
-                              (e.currentTarget as HTMLElement).releasePointerCapture(
-                                e.pointerId,
-                              );
-                            }
                           }}
                         />
                       </div>

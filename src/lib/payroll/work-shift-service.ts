@@ -1,7 +1,7 @@
 import type { WorkShift } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { staffDisplayName } from "@/lib/staff-user";
-import { BRANCH_OPERATOR_ROLE, parseAdminRole } from "@/lib/admin-access";
+import { BRANCH_OPERATOR_ROLE, SUPER_ADMIN_ROLE, BRANCH_ADMIN_ROLE, parseAdminRole } from "@/lib/admin-access";
 import { parseTimeOnDate } from "@/lib/time";
 import { getBranchPlannedWindow } from "./branch-planned-window";
 import { listBaselineTasksForDay } from "./shift-baseline-tasks";
@@ -66,7 +66,11 @@ export async function computeShiftSummary(
   now = new Date(),
 ): Promise<ShiftSummary> {
   const role = parseAdminRole(shift.member.role);
-  const isOperator = role === BRANCH_OPERATOR_ROLE && !shift.workAsAdmin;
+  const isOperator =
+    !shift.workAsAdmin &&
+    (role === BRANCH_OPERATOR_ROLE ||
+      role === SUPER_ADMIN_ROLE ||
+      role === BRANCH_ADMIN_ROLE);
 
   const shiftStart = shift.actualStart;
   const shiftEnd = shift.status === "open" ? now : shift.actualEnd ?? now;

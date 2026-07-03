@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAdminContext, handleAdminError } from "@/lib/admin-access";
+import { getAdminContext, handleAdminError, canManageUsers, canSetPayRates, canViewStaffUsers } from "@/lib/admin-access";
 
 export async function GET() {
   try {
@@ -21,6 +21,9 @@ export async function GET() {
       isSuperAdmin: ctx.isSuperAdmin,
       isBranchAdmin: ctx.isBranchAdmin,
       isBranchOperator: ctx.isBranchOperator,
+      canManageUsers: canManageUsers(ctx),
+      canSetPayRates: canSetPayRates(ctx),
+      canViewStaffUsers: canViewStaffUsers(ctx),
     });
   } catch (e) {
     const handled = handleAdminError(e);

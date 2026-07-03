@@ -11,7 +11,7 @@ export default async function ShiftPage() {
       role={ctx.role}
       branchId={ctx.branchId}
       memberId={ctx.memberId}
-      tasksOnly={ctx.isSuperAdmin}
+      tasksOnly={false}
     />
   );
 }

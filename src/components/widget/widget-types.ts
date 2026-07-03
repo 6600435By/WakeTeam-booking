@@ -13,6 +13,7 @@ export type WidgetPriceRule = {
   timeFrom: string;
   timeTo: string;
   price: number;
+  pricesByDuration?: Record<number, number>;
 };
 
 export type WidgetService = {
@@ -25,6 +26,8 @@ export type WidgetService = {
   price: number;
   priceFrom: number;
   priceRules: WidgetPriceRule[];
+  bookableFrom?: string | null;
+  bookableTo?: string | null;
   maxBoards?: number;
   staff: {
     id: string;

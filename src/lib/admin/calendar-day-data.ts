@@ -8,6 +8,43 @@ import { isLegacyTariffServiceName } from "@/lib/admin/service-catalog";
 import { prisma } from "@/lib/db";
 import { formatDateKey, parseTimeOnDate } from "@/lib/time";
 
+function dayBounds(date: string) {
+  const dayStart = parseTimeOnDate(date, "00:00");
+  const nextDate = new Date(
+    parseTimeOnDate(date, "12:00").getTime() + 24 * 60 * 60 * 1000,
+  );
+  const nextKey = formatDateKey(nextDate);
+  const dayEnd = parseTimeOnDate(nextKey, "00:00");
+  return { dayStart, dayEnd };
+}
+
+const appointmentDayInclude = {
+  client: true,
+  service: true,
+  staff: true,
+  rentalItem: true,
+} as const;
+
+export async function queryCalendarDayAppointments(
+  ctx: AdminContext,
+  date: string,
+  requestedBranchId?: string | null,
+) {
+  const branchId = resolveBranchFilter(ctx, requestedBranchId);
+  const { dayStart, dayEnd } = dayBounds(date);
+
+  return prisma.appointment.findMany({
+    where: {
+      organizationId: ctx.organizationId,
+      startAt: { gte: dayStart, lt: dayEnd },
+      ...(branchId ? { branchId } : {}),
+      status: { notIn: [...JOURNAL_HIDDEN_STATUSES] },
+    },
+    include: appointmentDayInclude,
+    orderBy: { startAt: "asc" },
+  });
+}
+
 export async function queryCalendarDay(
   ctx: AdminContext,
   date: string,
@@ -15,12 +52,7 @@ export async function queryCalendarDay(
 ) {
   const branchId = resolveBranchFilter(ctx, requestedBranchId);
 
-  const dayStart = parseTimeOnDate(date, "00:00");
-  const nextDate = new Date(
-    parseTimeOnDate(date, "12:00").getTime() + 24 * 60 * 60 * 1000,
-  );
-  const nextKey = formatDateKey(nextDate);
-  const dayEnd = parseTimeOnDate(nextKey, "00:00");
+  const { dayStart, dayEnd } = dayBounds(date);
 
   const [staff, appointments, branches, services] = await Promise.all([
     prisma.staff.findMany({
@@ -32,21 +64,7 @@ export async function queryCalendarDay(
       orderBy: { sortOrder: "asc" },
       include: { schedules: true, branch: true },
     }),
-    prisma.appointment.findMany({
-      where: {
-        organizationId: ctx.organizationId,
-        startAt: { gte: dayStart, lt: dayEnd },
-        ...(branchId ? { branchId } : {}),
-        status: { notIn: [...JOURNAL_HIDDEN_STATUSES] },
-      },
-      include: {
-        client: true,
-        service: true,
-        staff: true,
-        rentalItem: true,
-      },
-      orderBy: { startAt: "asc" },
-    }),
+    queryCalendarDayAppointments(ctx, date, requestedBranchId),
     prisma.branch.findMany({
       where: branchListWhere(ctx),
       orderBy: { sortOrder: "asc" },

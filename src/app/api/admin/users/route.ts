@@ -4,6 +4,7 @@ import {
   assertSuperAdmin,
   BRANCH_ADMIN_ROLE,
   BRANCH_OPERATOR_ROLE,
+  canViewStaffUsers,
   handleAdminError,
   parseAdminRole,
   requireAdminContext,
@@ -80,10 +81,18 @@ function mapUser(m: {
 export async function GET() {
   try {
     const ctx = await requireAdminContext();
-    assertSuperAdmin(ctx);
+    if (!canViewStaffUsers(ctx)) {
+      return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
+    }
 
     const members = await prisma.organizationMember.findMany({
-      where: { organizationId: ctx.organizationId },
+      where: ctx.isBranchAdmin
+        ? {
+            organizationId: ctx.organizationId,
+            branchId: ctx.branchId!,
+            role: { not: SUPER_ADMIN_ROLE },
+          }
+        : { organizationId: ctx.organizationId },
       include: {
         user: { select: userSelect },
         branch: { select: { id: true, name: true } },
@@ -98,6 +107,8 @@ export async function GET() {
         orderBy: { sortOrder: "asc" },
         select: { id: true, name: true },
       }),
+      canManageUsers: ctx.isSuperAdmin,
+      canSetPayRates: ctx.isSuperAdmin || ctx.isBranchAdmin,
     });
   } catch (e) {
     const handled = handleAdminError(e);

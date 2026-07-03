@@ -53,6 +53,7 @@ export async function GET(req: NextRequest) {
       const result = await getSupDaySlots({
         serviceId,
         date,
+        durationMinutes,
         ...slotParams,
       });
       return NextResponse.json({

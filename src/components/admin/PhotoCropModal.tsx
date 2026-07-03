@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import Cropper, { type Area, type MediaSize } from "react-easy-crop";
 import {
   Dialog,
   DialogContent,
@@ -8,13 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  clampPan,
-  coverScale,
-  cropImageForWidget,
-  loadImageElement,
-  type CropTransform,
-} from "@/lib/crop-image";
+import { computeCropMinZoom, exportCroppedImage } from "@/lib/crop-image";
 import { WIDGET_PHOTO_LAYOUT, type WidgetPhotoKind } from "@/lib/widget-photo-layout";
 import { WidgetPhotoCard, widgetSampleLabels } from "@/components/widget/WidgetPhotoCard";
 
@@ -39,58 +34,34 @@ export function PhotoCropModal({
   const sample = widgetSampleLabels(kind);
   const previewTitle = title?.trim() || sample.title;
   const previewSubtitle = subtitle?.trim() || sample.subtitle || null;
-  const cropRef = useRef<HTMLDivElement>(null);
-  const [cropSize, setCropSize] = useState({ width: 320, height: 320 / layout.aspectRatio });
-  const [natural, setNatural] = useState({ width: 1, height: 1 });
+
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [minZoom, setMinZoom] = useState(0.25);
+  const [mediaSize, setMediaSize] = useState<MediaSize | null>(null);
+  const [cropSize, setCropSize] = useState<{ width: number; height: number } | null>(
+    null,
+  );
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState("");
-  const dragRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+
+  const onCropComplete = useCallback((_: Area, pixels: Area) => {
+    setCroppedAreaPixels(pixels);
+  }, []);
 
   useEffect(() => {
-    void loadImageElement(imageSrc).then((img) => {
-      setNatural({ width: img.naturalWidth, height: img.naturalHeight });
-    });
-  }, [imageSrc]);
-
-  useEffect(() => {
-    const el = cropRef.current;
-    if (!el) return;
-    function measure() {
-      const width = el!.clientWidth;
-      const height = width / layout.aspectRatio;
-      setCropSize({ width, height });
-    }
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [layout.aspectRatio]);
-
-  const transform: CropTransform = {
-    zoom,
-    offsetX: offset.x,
-    offsetY: offset.y,
-  };
-
-  const displayScale =
-    coverScale(natural.width, natural.height, cropSize.width, cropSize.height) * zoom;
-  const displayW = natural.width * displayScale;
-  const displayH = natural.height * displayScale;
-  const imgLeft = (cropSize.width - displayW) / 2 + offset.x;
-  const imgTop = (cropSize.height - displayH) / 2 + offset.y;
+    if (!mediaSize || !cropSize) return;
+    const nextMin = computeCropMinZoom(mediaSize, cropSize);
+    setMinZoom(nextMin);
+    setZoom((current) => Math.max(nextMin, current));
+  }, [mediaSize, cropSize]);
 
   const updatePreview = useCallback(async () => {
+    if (!croppedAreaPixels) return;
     try {
-      const blob = await cropImageForWidget(
-        imageSrc,
-        kind,
-        cropSize.width,
-        cropSize.height,
-        transform,
-      );
+      const blob = await exportCroppedImage(imageSrc, croppedAreaPixels, kind);
       const url = URL.createObjectURL(blob);
       setPreviewUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
@@ -99,12 +70,12 @@ export function PhotoCropModal({
     } catch {
       setPreviewUrl(null);
     }
-  }, [imageSrc, kind, cropSize, transform]);
+  }, [imageSrc, kind, croppedAreaPixels]);
 
   useEffect(() => {
     const t = setTimeout(() => {
       void updatePreview();
-    }, 120);
+    }, 150);
     return () => clearTimeout(t);
   }, [updatePreview]);
 
@@ -115,46 +86,20 @@ export function PhotoCropModal({
     [previewUrl],
   );
 
-  function applyPan(nx: number, ny: number) {
-    const clamped = clampPan(
-      nx,
-      ny,
-      natural.width,
-      natural.height,
-      cropSize.width,
-      cropSize.height,
-      zoom,
-    );
-    setOffset({ x: clamped.offsetX, y: clamped.offsetY });
-  }
-
-  function onPointerDown(e: React.PointerEvent) {
-    e.currentTarget.setPointerCapture(e.pointerId);
-    dragRef.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y };
-  }
-
-  function onPointerMove(e: React.PointerEvent) {
-    if (!dragRef.current) return;
-    const dx = e.clientX - dragRef.current.x;
-    const dy = e.clientY - dragRef.current.y;
-    applyPan(dragRef.current.ox + dx, dragRef.current.oy + dy);
-  }
-
-  function onPointerUp() {
-    dragRef.current = null;
+  function resetFrame() {
+    setCrop({ x: 0, y: 0 });
+    setZoom(1);
   }
 
   async function handleConfirm() {
+    if (!croppedAreaPixels) {
+      setError("Подождите, пока загрузится превью");
+      return;
+    }
     setProcessing(true);
     setError("");
     try {
-      const blob = await cropImageForWidget(
-        imageSrc,
-        kind,
-        cropSize.width,
-        cropSize.height,
-        transform,
-      );
+      const blob = await exportCroppedImage(imageSrc, croppedAreaPixels, kind);
       onConfirm(blob);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка обрезки");
@@ -163,66 +108,67 @@ export function PhotoCropModal({
     }
   }
 
+  const aspectLabel = layout.aspectRatio >= 2 ? "панорама" : "широкий";
+
   return (
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
       <DialogContent className="max-h-[92vh] w-full max-w-lg overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Кадрирование для виджета</DialogTitle>
+          <DialogTitle>Настройка фото</DialogTitle>
           <DialogDescription>
-            Перетащите фото и измените масштаб. Рамка совпадает с карточкой в виджете.
+            Перетащите и масштабируйте изображение. Рамка совпадает с карточкой в
+            виджете ({aspectLabel}, {layout.exportWidth}×{layout.exportHeight}).
           </DialogDescription>
         </DialogHeader>
 
-        <div
-          ref={cropRef}
-          className="relative mt-4 w-full cursor-grab overflow-hidden rounded-lg bg-slate-900 active:cursor-grabbing"
-          style={{ height: cropSize.height }}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={imageSrc}
-            alt=""
-            draggable={false}
-            className="pointer-events-none absolute max-w-none select-none"
-            style={{
-              width: displayW,
-              height: displayH,
-              left: imgLeft,
-              top: imgTop,
-            }}
+        <div className="relative mt-4 h-56 w-full overflow-hidden rounded-lg bg-slate-900 sm:h-64">
+          <Cropper
+            image={imageSrc}
+            crop={crop}
+            zoom={zoom}
+            aspect={layout.aspectRatio}
+            onCropChange={setCrop}
+            onZoomChange={setZoom}
+            onCropComplete={onCropComplete}
+            onMediaLoaded={setMediaSize}
+            onCropSizeChange={setCropSize}
+            restrictPosition={false}
+            showGrid={false}
+            objectFit="horizontal-cover"
+            minZoom={minZoom}
+            maxZoom={4}
+            zoomWithScroll
           />
-          <div className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-[#fcff00]/80" />
         </div>
 
-        <label className="mt-4 block text-sm text-slate-700">
-          Масштаб
-          <input
-            type="range"
-            min={1}
-            max={3}
-            step={0.01}
-            value={zoom}
-            onChange={(e) => {
-              const z = parseFloat(e.target.value);
-              setZoom(z);
-              const clamped = clampPan(
-                offset.x,
-                offset.y,
-                natural.width,
-                natural.height,
-                cropSize.width,
-                cropSize.height,
-                z,
-              );
-              setOffset({ x: clamped.offsetX, y: clamped.offsetY });
-            }}
-            className="mt-1 w-full"
-          />
-        </label>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <label className="min-w-0 flex-1 text-sm text-slate-700">
+            Масштаб
+            <input
+              type="range"
+              min={minZoom}
+              max={4}
+              step={0.01}
+              value={zoom}
+              onChange={(e) => setZoom(parseFloat(e.target.value))}
+              className="mt-1 w-full"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={resetFrame}
+            className="shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+          >
+            Сбросить
+          </button>
+        </div>
+
+        {mediaSize && (
+          <p className="text-xs text-slate-400">
+            Исходник: {mediaSize.naturalWidth}×{mediaSize.naturalHeight} px
+            {zoom < 1 ? ` · масштаб ${Math.round(zoom * 100)}%` : ""}
+          </p>
+        )}
 
         <p className="mt-4 text-xs font-medium uppercase tracking-wide text-slate-500">
           Как в виджете
@@ -232,8 +178,12 @@ export function PhotoCropModal({
             kind={kind}
             title={previewTitle}
             subtitle={previewSubtitle}
-            photoUrl={previewUrl ?? imageSrc}
+            photoUrl={previewUrl}
+            strictAspect
           />
+          {!previewUrl && (
+            <p className="mt-1 text-xs text-slate-400">Формируем превью…</p>
+          )}
         </div>
 
         {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
@@ -242,7 +192,7 @@ export function PhotoCropModal({
           <button
             type="button"
             onClick={() => void handleConfirm()}
-            disabled={processing}
+            disabled={processing || !previewUrl}
             className="rounded-lg bg-lime-600 px-4 py-2 text-sm font-medium text-white hover:bg-lime-700 disabled:opacity-50"
           >
             {processing ? "Сохранение…" : "Применить"}

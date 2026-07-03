@@ -48,12 +48,14 @@ export function TariffsBlock({
   onToggle,
   rules,
   durationMinutes,
+  bookingDurations,
   theme,
 }: {
   open: boolean;
   onToggle: () => void;
   rules: WidgetPriceRule[];
   durationMinutes: number;
+  bookingDurations?: number[];
   theme: WidgetSettings["theme"];
 }) {
   return (
@@ -76,7 +78,9 @@ export function TariffsBlock({
       {open && (
         <ul className="mt-2 space-y-1 rounded-lg bg-slate-50 px-2.5 py-2 text-xs leading-relaxed text-slate-600">
           {rules.map((r, i) => (
-            <li key={i}>{formatTariffLine(r, durationMinutes)}</li>
+            <li key={i}>
+              {formatTariffLine(r, durationMinutes, bookingDurations)}
+            </li>
           ))}
         </ul>
       )}
@@ -97,25 +101,28 @@ export function WidgetActivityCard({
   theme: WidgetSettings["theme"];
   children?: React.ReactNode;
 }) {
+  const cardClass =
+    "group w-full overflow-hidden rounded-xl border border-slate-200/90 bg-white text-left shadow-sm ring-1 ring-black/[0.03] transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--widget-primary)]/30 hover:shadow-md active:translate-y-0";
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group flex w-full min-h-[4.75rem] flex-col justify-center rounded-xl border border-slate-200/90 bg-white p-3 text-left shadow-sm ring-1 ring-black/[0.03] transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--widget-primary)]/30 hover:shadow-md active:translate-y-0 sm:min-h-[5rem] sm:p-3.5"
-      style={{ background: theme.cardBackground }}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <span className="font-semibold tracking-tight text-slate-900">{title}</span>
-        <WidgetPriceBadge>{priceHint}</WidgetPriceBadge>
-      </div>
-      <div className="mt-1.5 min-h-[1.25rem]">
-        {children ?? (
-          <span className="invisible text-xs" aria-hidden>
+    <div className={cardClass} style={{ background: theme.cardBackground }}>
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex w-full min-h-[4.75rem] flex-col justify-center p-3 sm:min-h-[5rem] sm:p-3.5"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-semibold tracking-tight text-slate-900">{title}</span>
+          <WidgetPriceBadge>{priceHint}</WidgetPriceBadge>
+        </div>
+        {!children && (
+          <span className="mt-1.5 invisible min-h-[1.25rem] text-xs" aria-hidden>
             Тарифы
           </span>
         )}
-      </div>
-    </button>
+      </button>
+      {children ? <div className="border-t border-slate-100 px-3 pb-3 pt-2">{children}</div> : null}
+    </div>
   );
 }
 
@@ -146,15 +153,20 @@ export function WidgetDateTimeStep(props: {
   alternateStaff?: { id: string; name: string }[];
   checkingAlternateStaff?: boolean;
   onSwitchStaff?: (staffId: string) => void;
-  onBack: () => void;
+  onBack?: () => void;
   onNext?: () => void;
   nextLoading?: boolean;
   nextLabel?: string;
   hideBack?: boolean;
   theme: WidgetSettings["theme"];
   slotMinutes?: number;
+  bookingDurationMinutes?: number;
 }) {
   const slotMinutes = props.slotMinutes ?? WAKE_CELL_MINUTES;
+  const bookingMinutes =
+    props.kind === "sup"
+      ? (props.bookingDurationMinutes ?? props.durationMinutes ?? slotMinutes)
+      : slotMinutes;
   const slots =
     props.kind === "wake"
       ? (props.wakeSlots ?? [])
@@ -180,7 +192,9 @@ export function WidgetDateTimeStep(props: {
 
   return (
     <WidgetStepEnter stepKey={`time-${props.kind}`} className="mt-2">
-      {!props.hideBack && <WidgetBackButton onClick={props.onBack} />}
+      {!props.hideBack && props.onBack && (
+        <WidgetBackButton onClick={props.onBack} />
+      )}
 
       {props.showDurationPicker && props.setDurationMinutes && props.allowedDurations && (
         <>
@@ -270,13 +284,22 @@ export function WidgetDateTimeStep(props: {
         </WidgetPanel>
       )}
 
+      {props.kind === "sup" && (
+        <p className="mt-2 text-xs text-slate-500">
+          Шаг слотов: {slotMinutes} мин
+          {props.showDurationPicker
+            ? ` · длительность записи: ${bookingMinutes} мин`
+            : ""}
+        </p>
+      )}
+
       <div
         className={slotGridScrollClass}
         style={slotGridScrollStyle}
         aria-label={
           props.kind === "wake"
             ? `Выберите один или несколько интервалов по ${slotMinutes} минут`
-            : "Выберите один или несколько интервалов по 60 минут"
+            : `Выберите один или несколько слотов с шагом ${slotMinutes} минут`
         }
       >
         <div className={slotGridClass}>
@@ -348,6 +371,7 @@ export function WidgetDateTimeStep(props: {
           <p className="text-sm text-slate-700">
             Выбрано: <strong className="font-semibold">{selectedSupCount}</strong>{" "}
             {selectedSupCount === 1 ? "слот" : "слота"}
+            {bookingMinutes > 0 ? ` по ${bookingMinutes} мин` : ""}
           </p>
           <p className="text-sm font-medium text-slate-700">
             Доступно сапов: {maxQty}

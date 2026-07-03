@@ -1,15 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
+import { defaultPricesByDuration, type PriceRuleRow } from "@/lib/price-rules";
 
-export type PriceRuleRow = {
-  id: string;
-  weekdays: string;
-  timeFrom: string;
-  timeTo: string;
-  price: number;
-  sortOrder: number;
-};
+export type { PriceRuleRow };
 
 const inputClass =
   "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900";
@@ -90,6 +84,7 @@ type Props = {
   priceRules: PriceRuleRow[];
   basePrice: number;
   durationMinutes: number;
+  bookingDurations: number[];
   bookableFrom?: string | null;
   bookableTo?: string | null;
   serviceWeekdays?: string;
@@ -101,19 +96,44 @@ export function ServicePriceRulesEditor({
   priceRules,
   basePrice,
   durationMinutes,
+  bookingDurations,
   bookableFrom,
   bookableTo,
   serviceWeekdays,
   onChange,
   embedded = false,
 }: Props) {
+  const durations =
+    bookingDurations.length > 0 ? bookingDurations : [durationMinutes];
+
   function updateRule(idx: number, patch: Partial<PriceRuleRow>) {
     const rules = [...priceRules];
     rules[idx] = { ...rules[idx], ...patch };
     onChange(rules);
   }
 
+  function updateRuleDurationPrice(idx: number, minutes: number, price: number) {
+    const rule = priceRules[idx];
+    const pricesByDuration = {
+      ...rule.pricesByDuration,
+      [minutes]: price,
+    };
+    updateRule(idx, {
+      pricesByDuration,
+      price: minutes === durationMinutes ? price : rule.price,
+    });
+  }
+
+  function rulePrice(rule: PriceRuleRow, minutes: number): number {
+    return rule.pricesByDuration?.[minutes] ?? rule.price;
+  }
+
   function addRule() {
+    const pricesByDuration = defaultPricesByDuration(
+      basePrice,
+      durationMinutes,
+      durations,
+    );
     onChange([
       ...priceRules,
       {
@@ -121,7 +141,8 @@ export function ServicePriceRulesEditor({
         weekdays: serviceWeekdays || "1,2,3,4,5,6,7",
         timeFrom: bookableFrom ?? "10:00",
         timeTo: bookableTo ?? "21:00",
-        price: basePrice,
+        price: pricesByDuration[durationMinutes] ?? basePrice,
+        pricesByDuration,
         sortOrder: priceRules.length + 1,
       },
     ]);
@@ -175,7 +196,7 @@ export function ServicePriceRulesEditor({
                   onChange={(weekdays) => updateRule(idx, { weekdays })}
                 />
               </div>
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-2">
                 <label className="block">
                   <span className="mb-1 block text-[11px] text-slate-500">С</span>
                   <input
@@ -194,21 +215,31 @@ export function ServicePriceRulesEditor({
                     onChange={(e) => updateRule(idx, { timeTo: e.target.value })}
                   />
                 </label>
-                <label className="block">
-                  <span className="mb-1 block text-[11px] text-slate-500">
-                    Цена, Br / {durationMinutes} мин
-                  </span>
-                  <input
-                    type="number"
-                    className={inputClass}
-                    value={rule.price}
-                    onChange={(e) =>
-                      updateRule(idx, {
-                        price: parseFloat(e.target.value) || 0,
-                      })
-                    }
-                  />
-                </label>
+              </div>
+              <div
+                className={`mt-2 grid gap-2 ${
+                  durations.length > 2 ? "sm:grid-cols-3" : "sm:grid-cols-2"
+                }`}
+              >
+                {durations.map((minutes) => (
+                  <label key={minutes} className="block">
+                    <span className="mb-1 block text-[11px] text-slate-500">
+                      {minutes} мин, Br
+                    </span>
+                    <input
+                      type="number"
+                      className={inputClass}
+                      value={rulePrice(rule, minutes)}
+                      onChange={(e) =>
+                        updateRuleDurationPrice(
+                          idx,
+                          minutes,
+                          parseFloat(e.target.value) || 0,
+                        )
+                      }
+                    />
+                  </label>
+                ))}
               </div>
             </div>
           ))}

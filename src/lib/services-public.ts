@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { catalogServices, serviceResourceLabel } from "@/lib/admin/service-catalog";
-import { minPriceFromRules } from "@/lib/service-pricing";
+import { minPriceFromRules, parsePricesByDuration } from "@/lib/service-pricing";
 import {
   DEFAULT_WIDGET_SETTINGS,
   parseWidgetSettings,
@@ -59,6 +59,7 @@ export async function getPublicServices(branchId: string) {
       timeFrom: r.timeFrom,
       timeTo: r.timeTo,
       price: r.price,
+      pricesByDuration: parsePricesByDuration(r.pricesByDuration),
     }));
 
     return {
@@ -69,7 +70,12 @@ export async function getPublicServices(branchId: string) {
       durationMinutes: s.durationMinutes,
       allowedDurations: s.allowedDurations,
       price: s.price,
-      priceFrom: minPriceFromRules({ price: s.price, priceRules }),
+      priceFrom: minPriceFromRules({
+        price: s.price,
+        durationMinutes: s.durationMinutes,
+        allowedDurations: s.allowedDurations,
+        priceRules,
+      }),
       priceRules,
       bookableFrom: s.bookableFrom,
       bookableTo: s.bookableTo,

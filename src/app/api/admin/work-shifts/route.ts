@@ -23,6 +23,7 @@ import {
 const createSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   handoffComment: z.string().optional(),
+  branchId: z.string().optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -128,10 +129,10 @@ export async function POST(req: NextRequest) {
     const ctx = await requireAdminContext();
     const body = createSchema.parse(await req.json().catch(() => ({})));
     const date = body.date ?? formatDateKey(new Date());
-    const branchId = ctx.branchId;
+    const branchId = ctx.branchId ?? body.branchId ?? null;
     if (!branchId) {
       return NextResponse.json(
-        { error: "Супер-админ не может открыть смену без филиала" },
+        { error: "Выберите филиал для смены" },
         { status: 400 },
       );
     }

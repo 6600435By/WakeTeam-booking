@@ -106,7 +106,7 @@ export function canViewMemberships(ctx: AdminContext) {
 }
 
 export function canLogOwnShift(ctx: AdminContext) {
-  return ctx.isBranchOperator || ctx.isBranchAdmin;
+  return ctx.isSuperAdmin || ctx.isBranchOperator || ctx.isBranchAdmin;
 }
 
 export function canViewShiftCalendar(ctx: AdminContext) {
@@ -123,7 +123,11 @@ export function canAssignSpotTasks(ctx: AdminContext) {
 }
 
 export function canSetPayRates(ctx: AdminContext) {
-  return ctx.isSuperAdmin;
+  return ctx.isSuperAdmin || ctx.isBranchAdmin;
+}
+
+export function canViewStaffUsers(ctx: AdminContext) {
+  return ctx.isSuperAdmin || ctx.isBranchAdmin;
 }
 
 export function canReviewShifts(ctx: AdminContext) {
@@ -131,7 +135,7 @@ export function canReviewShifts(ctx: AdminContext) {
 }
 
 export function canSubmitShiftChangeRequest(ctx: AdminContext) {
-  return ctx.isBranchAdmin || ctx.isBranchOperator;
+  return ctx.isSuperAdmin || ctx.isBranchAdmin || ctx.isBranchOperator;
 }
 
 export function canReviewShiftChangeRequests(ctx: AdminContext) {
@@ -169,6 +173,33 @@ export function assertSuperAdmin(ctx: AdminContext) {
   if (!canManageUsers(ctx)) {
     throw new AdminAccessError("FORBIDDEN", 403);
   }
+}
+
+export async function assertPayRatesAccess(ctx: AdminContext, userId: string) {
+  if (!canSetPayRates(ctx)) {
+    throw new AdminAccessError("FORBIDDEN", 403);
+  }
+
+  const member = await prisma.organizationMember.findUnique({
+    where: {
+      organizationId_userId: {
+        organizationId: ctx.organizationId,
+        userId,
+      },
+    },
+  });
+  if (!member) {
+    throw new AdminAccessError("NOT_FOUND", 404);
+  }
+
+  const role = parseAdminRole(member.role);
+  if (ctx.isBranchAdmin) {
+    if (role === SUPER_ADMIN_ROLE || member.branchId !== ctx.branchId) {
+      throw new AdminAccessError("FORBIDDEN", 403);
+    }
+  }
+
+  return member;
 }
 
 export function assertCatalogAccess(ctx: AdminContext) {

@@ -1,4 +1,5 @@
 import { formatInTimeZone } from "date-fns-tz";
+import { parseAllowedDurations } from "@/lib/service-durations";
 import { formatDateKey, TZ, weekdayMinsk } from "@/lib/time";
 
 export type ServicePriceRuleDto = {
@@ -6,6 +7,7 @@ export type ServicePriceRuleDto = {
   timeFrom: string;
   timeTo: string;
   price: number;
+  pricesByDuration?: Record<number, number>;
   sortOrder?: number;
 };
 
@@ -18,12 +20,39 @@ function parseWeekdays(s: string): Set<number> {
   );
 }
 
+export function parsePricesByDuration(
+  json: string | null | undefined,
+): Record<number, number> | undefined {
+  if (!json) return undefined;
+  try {
+    const parsed = JSON.parse(json) as Record<string, number>;
+    const out: Record<number, number> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      const n = parseInt(k, 10);
+      if (!Number.isNaN(n) && v >= 0) out[n] = v;
+    }
+    return Object.keys(out).length ? out : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function priceForDuration(
   basePrice: number,
   baseDuration: number,
   duration: number,
 ): number {
   return Math.round((basePrice / baseDuration) * duration * 100) / 100;
+}
+
+function rulePriceForDuration(
+  rule: ServicePriceRuleDto,
+  tariffDuration: number,
+  bookingDuration: number,
+): number {
+  const explicit = rule.pricesByDuration?.[bookingDuration];
+  if (explicit != null) return explicit;
+  return priceForDuration(rule.price, tariffDuration, bookingDuration);
 }
 
 export function resolveServicePrice(
@@ -38,6 +67,7 @@ export function resolveServicePrice(
   const dateStr = formatDateKey(startAt);
   const timeStr = formatInTimeZone(startAt, TZ, "HH:mm");
   const wd = weekdayMinsk(dateStr);
+  const tariffDuration = service.durationMinutes;
 
   if (service.priceRules?.length) {
     const sorted = [...service.priceRules].sort(
@@ -51,19 +81,34 @@ export function resolveServicePrice(
       if (timeStr >= r.timeTo) return false;
       return true;
     });
-    const base = rule?.price ?? service.price;
-    return priceForDuration(base, service.durationMinutes, durationMinutes);
+    if (rule) {
+      return rulePriceForDuration(rule, tariffDuration, durationMinutes);
+    }
   }
 
-  return priceForDuration(service.price, service.durationMinutes, durationMinutes);
+  return priceForDuration(service.price, tariffDuration, durationMinutes);
 }
 
 export function minPriceFromRules(service: {
   price: number;
+  durationMinutes?: number;
+  allowedDurations?: string;
   priceRules?: ServicePriceRuleDto[];
 }): number {
   if (!service.priceRules?.length) return service.price;
-  return Math.min(...service.priceRules.map((r) => r.price));
+  const tariffDuration = service.durationMinutes ?? 60;
+  const durations = service.allowedDurations
+    ? parseAllowedDurations(service.allowedDurations)
+    : [tariffDuration];
+  const bookingDurations = durations.length > 0 ? durations : [tariffDuration];
+
+  const prices: number[] = [];
+  for (const rule of service.priceRules) {
+    for (const d of bookingDurations) {
+      prices.push(rulePriceForDuration(rule, tariffDuration, d));
+    }
+  }
+  return Math.min(...prices);
 }
 
 /** Цена записи: по тарифу абонемента (Br/мин) или по тарифу услуги. */

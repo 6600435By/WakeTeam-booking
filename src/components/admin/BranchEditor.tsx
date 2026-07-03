@@ -4,6 +4,15 @@ import { useCallback, useEffect, useState } from "react";
 import { PhotoUploadField } from "./PhotoUploadField";
 import { ServiceEditor, type ServiceRow } from "./ServiceEditor";
 import { ServicePriceRulesEditor } from "./ServicePriceRulesEditor";
+import { ServiceDurationSettings } from "./ServiceDurationSettings";
+import {
+  hydratePriceRules,
+  mapPriceRuleToApi,
+} from "@/lib/price-rules";
+import {
+  normalizeAllowedDurationsForSlot,
+  parseAllowedDurations,
+} from "@/lib/service-durations";
 import {
   StaffResourceEditor,
 } from "./StaffResourceEditor";
@@ -118,10 +127,22 @@ export function BranchEditor({ branchId }: Props) {
             r.json(),
           );
           if (!refreshed.branch) throw new Error("Не удалось обновить филиал");
-          setBranch(refreshed.branch);
+          setBranch({
+            ...refreshed.branch,
+            services: (refreshed.branch.services as ServiceRow[]).map((s) => ({
+              ...s,
+              priceRules: hydratePriceRules(s.priceRules),
+            })),
+          });
           return;
         }
-        setBranch(d.branch);
+        setBranch({
+          ...d.branch,
+          services: (d.branch.services as ServiceRow[]).map((s) => ({
+            ...s,
+            priceRules: hydratePriceRules(s.priceRules),
+          })),
+        });
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Ошибка"))
       .finally(() => setLoading(false));
@@ -167,47 +188,124 @@ export function BranchEditor({ branchId }: Props) {
     setBranch((b) => (b ? { ...b, ...patch } : b));
   }
 
-  async function saveService(service: ServiceRow) {
+  function formatServiceSaveError(data: unknown): string {
+    if (!data || typeof data !== "object" || !("error" in data)) {
+      return "Ошибка сохранения";
+    }
+    const error = (data as { error: unknown }).error;
+    if (typeof error === "string") return error;
+    if (error && typeof error === "object") {
+      const flat = error as {
+        formErrors?: string[];
+        fieldErrors?: Record<string, string[]>;
+      };
+      const fieldMsg = Object.values(flat.fieldErrors ?? {})
+        .flat()
+        .find(Boolean);
+      if (fieldMsg) return fieldMsg;
+      if (flat.formErrors?.[0]) return flat.formErrors[0];
+    }
+    return "Проверьте заполнение полей";
+  }
+
+  async function saveSupServiceSettings(service: ServiceRow) {
     setServiceMsg((m) => ({ ...m, [service.id]: "" }));
-    const res = await fetch(`/api/admin/services/${service.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: service.name,
-        description: service.description,
-        resourceLabel: service.resourceLabel ?? null,
-        price: service.price,
-        durationMinutes: service.durationMinutes,
-        allowedDurations: service.allowedDurations,
-        bookableFrom: service.bookableFrom,
-        bookableTo: service.bookableTo,
-        weekdays: service.weekdays,
-        isActive: service.isActive,
-        isOnlineBookable: service.isOnlineBookable,
-        staffIds: service.staff.map((x) => x.staff.id),
-        priceRules: service.priceRules?.map((r) => ({
-          weekdays: r.weekdays,
-          timeFrom: r.timeFrom,
-          timeTo: r.timeTo,
-          price: r.price,
-          sortOrder: r.sortOrder,
-        })),
-      }),
-    });
-    const data = await res.json();
+    let res: Response;
+    let data: unknown;
+    try {
+      res = await fetch(`/api/admin/services/${service.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          durationMinutes: service.durationMinutes,
+          allowedDurations: service.allowedDurations,
+          price: service.price,
+          priceRules: service.priceRules?.map((r) =>
+            mapPriceRuleToApi(r, service.durationMinutes),
+          ),
+        }),
+      });
+      data = await res.json();
+    } catch {
+      setServiceMsg((m) => ({ ...m, [service.id]: "Ошибка сети" }));
+      return;
+    }
     setServiceMsg((m) => ({
       ...m,
-      [service.id]: res.ok ? "Сохранено" : data.error ?? "Ошибка",
+      [service.id]: res.ok
+        ? "Сохранено"
+        : formatServiceSaveError(data),
     }));
-    if (res.ok && data.service) {
+    if (res.ok && data && typeof data === "object" && "service" in data) {
+      const payload = data as { service: ServiceRow };
       setBranch((b) => {
         if (!b) return b;
-        const merged = { ...service, ...data.service, staff: data.service.staff };
+        const merged = {
+          ...service,
+          ...payload.service,
+          staff: payload.service.staff ?? service.staff,
+          priceRules:
+            hydratePriceRules(payload.service.priceRules) ?? service.priceRules,
+        };
+        return {
+          ...b,
+          services: b.services.map((s) => (s.id === service.id ? merged : s)),
+        };
+      });
+    }
+  }
+
+  async function saveService(service: ServiceRow) {
+    setServiceMsg((m) => ({ ...m, [service.id]: "" }));
+    let res: Response;
+    let data: unknown;
+    try {
+      res = await fetch(`/api/admin/services/${service.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: service.name,
+          description: service.description,
+          resourceLabel: service.resourceLabel ?? null,
+          price: service.price,
+          durationMinutes: service.durationMinutes,
+          allowedDurations: service.allowedDurations,
+          bookableFrom: service.bookableFrom,
+          bookableTo: service.bookableTo,
+          weekdays: service.weekdays,
+          isActive: service.isActive,
+          isOnlineBookable: service.isOnlineBookable,
+          staffIds: service.staff.map((x) => x.staff.id),
+          priceRules: service.priceRules?.map((r) =>
+            mapPriceRuleToApi(r, service.durationMinutes),
+          ),
+        }),
+      });
+      data = await res.json();
+    } catch {
+      setServiceMsg((m) => ({ ...m, [service.id]: "Ошибка сети" }));
+      return;
+    }
+    setServiceMsg((m) => ({
+      ...m,
+      [service.id]: res.ok ? "Сохранено" : formatServiceSaveError(data),
+    }));
+    if (res.ok && data && typeof data === "object" && "service" in data) {
+      const payload = data as { service: ServiceRow };
+      setBranch((b) => {
+        if (!b) return b;
+        const merged = {
+          ...service,
+          ...payload.service,
+          staff: payload.service.staff,
+          priceRules:
+            hydratePriceRules(payload.service.priceRules) ?? service.priceRules,
+        };
         return {
           ...b,
           staff: applyServiceScheduleToLinkedStaff(b.staff, merged),
           services: b.services.map((s) =>
-            s.id === service.id ? { ...s, ...data.service, staff: data.service.staff } : s,
+            s.id === service.id ? { ...s, ...payload.service, staff: payload.service.staff } : s,
           ),
         };
       });
@@ -732,11 +830,29 @@ export function BranchEditor({ branchId }: Props) {
             <p className="text-xs text-slate-500">
               Тарифы для услуги «{supService.name}» — применяются ко всем сапбордам филиала
             </p>
+            <ServiceDurationSettings
+              compact
+              durationMinutes={supService.durationMinutes}
+              allowedDurations={supService.allowedDurations}
+              onDurationMinutesChange={(durationMinutes) =>
+                updateService(supService.id, {
+                  durationMinutes,
+                  allowedDurations: normalizeAllowedDurationsForSlot(
+                    supService.allowedDurations,
+                    durationMinutes,
+                  ),
+                })
+              }
+              onAllowedDurationsChange={(allowedDurations) =>
+                updateService(supService.id, { allowedDurations })
+              }
+            />
             <ServicePriceRulesEditor
               embedded
               priceRules={supService.priceRules ?? []}
               basePrice={supService.price}
               durationMinutes={supService.durationMinutes}
+              bookingDurations={parseAllowedDurations(supService.allowedDurations)}
               bookableFrom={supService.bookableFrom}
               bookableTo={supService.bookableTo}
               serviceWeekdays={supService.weekdays}
@@ -744,7 +860,7 @@ export function BranchEditor({ branchId }: Props) {
             />
             <button
               type="button"
-              onClick={() => void saveService(supService)}
+              onClick={() => void saveSupServiceSettings(supService)}
               className="mt-4 rounded-lg bg-lime-600 px-4 py-2 text-sm font-medium text-white hover:bg-lime-700"
             >
               Сохранить тарифы

@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppointmentModal } from "./AppointmentModal";
 import { ClientPhoneSearch, type ClientLookupAppointment } from "./ClientPhoneSearch";
-import { JournalShiftBanner } from "./shift/JournalShiftBanner";
 import { JournalGrid } from "./JournalGrid";
 import {
   JournalGridStepPicker,
@@ -27,7 +26,7 @@ import {
 } from "@/lib/journal-resources";
 import { StatusBadge, StatusLegend } from "./StatusBadge";
 import { cancelReasonLabel, JOURNAL_HIDDEN_STATUSES } from "@/lib/appointment-status";
-import { groupConsecutiveClientAppointments } from "@/lib/calendar-grid";
+import { groupConsecutiveClientAppointments, isoAtMinutes } from "@/lib/calendar-grid";
 import {
   deleteGroupAppointments,
   saveAppointmentEdit,
@@ -44,6 +43,7 @@ import { journalStaffDisplayName } from "@/lib/journal-staff-label";
 import {
   loadAppointmentsListAction,
   loadCalendarDayAction,
+  loadCalendarDayAppointmentsAction,
   type CalendarDayPayload,
 } from "@/app/admin/(protected)/journal/actions";
 
@@ -227,6 +227,8 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   const [gridScale, setGridScale] = useState<JournalGridScale>(1);
   const [resourceKind, setResourceKind] = useState<JournalResourceFilter>("all");
   const [periodListOpen, setPeriodListOpen] = useState(false);
+  const periodListOpenRef = useRef(periodListOpen);
+  periodListOpenRef.current = periodListOpen;
   const [hideInactiveColumns, setHideInactiveColumns] = useState(true);
   const [freeSlotsOpen, setFreeSlotsOpen] = useState(false);
   const viewport = useAdminViewport();
@@ -380,10 +382,94 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
     void loadList();
   }, [loadList]);
 
+  const reloadJournal = useCallback(
+    async (opts?: { silent?: boolean; appointmentsOnly?: boolean }) => {
+      if (opts?.appointmentsOnly) {
+        try {
+          const result = await loadCalendarDayAppointmentsAction(
+            date,
+            branchId || undefined,
+          );
+          if (result.ok) {
+            setAppointments((result.appointments ?? []) as Appointment[]);
+          }
+        } catch {
+          /* фоновая синхронизация — не блокируем UI */
+        }
+        if (periodListOpenRef.current) {
+          await loadList();
+        }
+        return;
+      }
+
+      await load(opts);
+      if (periodListOpenRef.current) {
+        await loadList();
+      }
+    },
+    [load, loadList, date, branchId],
+  );
+
   function refreshAll() {
-    void load();
-    void loadList();
+    void reloadJournal({ silent: true });
   }
+
+  const applyOptimisticMove = useCallback(
+    (
+      group: Pick<Appointment, "id" | "startAt" | "durationMinutes">[],
+      targetStaffId: string,
+      targetStartMinutes: number,
+    ) => {
+      const sorted = [...group].sort((a, b) => a.startAt.localeCompare(b.startAt));
+      if (!sorted.length) return;
+      const newFirstStart = isoAtMinutes(date, targetStartMinutes);
+      const deltaMs =
+        new Date(newFirstStart).getTime() - new Date(sorted[0].startAt).getTime();
+      const targetStaff = staff.find((s) => s.id === targetStaffId);
+      const ids = new Set(sorted.map((a) => a.id));
+
+      setAppointments((prev) =>
+        prev.map((a) => {
+          if (!ids.has(a.id)) return a;
+          const newStartMs = new Date(a.startAt).getTime() + deltaMs;
+          const newEndMs = newStartMs + a.durationMinutes * 60_000;
+          return {
+            ...a,
+            startAt: new Date(newStartMs).toISOString(),
+            endAt: new Date(newEndMs).toISOString(),
+            staff: targetStaff
+              ? { id: targetStaff.id, name: targetStaff.name }
+              : a.staff,
+          };
+        }),
+      );
+    },
+    [date, staff],
+  );
+
+  const applyOptimisticResize = useCallback(
+    (
+      group: Pick<Appointment, "id" | "startAt" | "durationMinutes">[],
+      newTotalDuration: number,
+    ) => {
+      if (group.length !== 1) return;
+      const appt = group[0];
+      const newEndMs =
+        new Date(appt.startAt).getTime() + newTotalDuration * 60_000;
+      setAppointments((prev) =>
+        prev.map((a) =>
+          a.id === appt.id
+            ? {
+                ...a,
+                durationMinutes: newTotalDuration,
+                endAt: new Date(newEndMs).toISOString(),
+              }
+            : a,
+        ),
+      );
+    },
+    [],
+  );
 
   const wd = weekdayMinsk(date);
 
@@ -478,7 +564,6 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
 
   return (
     <div className="relative">
-      <JournalShiftBanner />
       {isCompactJournal ? (
         <>
           <div className="journal-mobile-toolbar">
@@ -822,9 +907,10 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
               onHideInactiveChange={setHideInactiveColumns}
               onSlotClick={openNew}
               onAppointmentClick={openEdit}
+              onOptimisticMove={applyOptimisticMove}
+              onOptimisticResize={applyOptimisticResize}
               onMoved={() => {
-                void load({ silent: true });
-                void loadList();
+                void reloadJournal({ silent: true, appointmentsOnly: true });
               }}
               onActionError={setError}
             />

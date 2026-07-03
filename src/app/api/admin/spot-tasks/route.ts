@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   assertMemberAccess,
   canEditShiftCalendar,
+  canLogOwnShift,
   canViewShiftCalendar,
   handleAdminError,
   requireAdminContext,
@@ -121,25 +122,35 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const ctx = await requireAdminContext();
-    if (!canEditShiftCalendar(ctx)) {
+    const body = createSchema.parse(await req.json());
+    const isSelfPlan =
+      body.assigneeMemberId === ctx.memberId && canLogOwnShift(ctx);
+
+    if (!canEditShiftCalendar(ctx) && !isSelfPlan) {
       return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
     }
-    const body = createSchema.parse(await req.json());
 
     const assignee = await assertMemberAccess(ctx, body.assigneeMemberId!);
-    const role = parseAdminRole(
-      (
-        await prisma.organizationMember.findUnique({
-          where: { id: assignee.id },
-          select: { role: true },
-        })
-      )?.role ?? "",
-    );
-    if (role !== BRANCH_OPERATOR_ROLE) {
-      return NextResponse.json(
-        { error: "Задания назначаются только операторам" },
-        { status: 400 },
+
+    if (isSelfPlan) {
+      if (!ctx.isSuperAdmin && body.branchId !== ctx.branchId) {
+        return NextResponse.json({ error: "Нет доступа к филиалу" }, { status: 403 });
+      }
+    } else {
+      const role = parseAdminRole(
+        (
+          await prisma.organizationMember.findUnique({
+            where: { id: assignee.id },
+            select: { role: true },
+          })
+        )?.role ?? "",
       );
+      if (role !== BRANCH_OPERATOR_ROLE) {
+        return NextResponse.json(
+          { error: "Задания назначаются только операторам" },
+          { status: 400 },
+        );
+      }
     }
 
     const task = await prisma.spotTask.create({
@@ -155,9 +166,14 @@ export async function POST(req: NextRequest) {
         plannedTimeFrom: body.plannedTimeFrom,
         plannedTimeTo: body.plannedTimeTo,
       },
+      include: {
+        assignee: {
+          include: { user: { select: { name: true, lastName: true, login: true, email: true } } },
+        },
+      },
     });
 
-    return NextResponse.json({ task });
+    return NextResponse.json({ task: mapTask(task) });
   } catch (e) {
     const handled = handleAdminError(e);
     if (handled) {

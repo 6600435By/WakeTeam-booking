@@ -50,9 +50,7 @@ function linksForRole(role: AdminRole): NavLink[] {
   }
   if (role === "branch_admin") {
     return [
-      ...ALL_LINKS.filter(
-        (l) => l.href !== "/admin/users" && l.href !== "/admin/widget",
-      ),
+      ...ALL_LINKS.filter((l) => l.href !== "/admin/widget"),
       SHIFT_LINK,
     ];
   }

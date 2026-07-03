@@ -17,7 +17,6 @@ function isAllowed(pathname: string, role: AdminRole) {
   if (role === SUPER_ADMIN_ROLE) return true;
   if (role === BRANCH_ADMIN_ROLE) {
     return (
-      !pathname.startsWith("/admin/users") &&
       !pathname.startsWith("/admin/widget") &&
       !pathname.startsWith("/admin/shift-review")
     );

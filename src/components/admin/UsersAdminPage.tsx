@@ -56,6 +56,8 @@ const emptyForm: FormState = {
 export function UsersAdminPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [canManageUsers, setCanManageUsers] = useState(true);
+  const [canSetPayRates, setCanSetPayRates] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
@@ -73,6 +75,8 @@ export function UsersAdminPage() {
         if (!r.ok) throw new Error(d.error ?? "Не удалось загрузить");
         setUsers(d.users ?? []);
         setBranches(d.branches ?? []);
+        setCanManageUsers(d.canManageUsers ?? false);
+        setCanSetPayRates(d.canSetPayRates ?? false);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Ошибка"))
       .finally(() => setLoading(false));
@@ -183,7 +187,9 @@ export function UsersAdminPage() {
     <div className="pb-8">
       <h1 className="text-xl font-bold sm:text-2xl">Сотрудники</h1>
       <p className="mt-1 text-sm text-slate-500">
-        Карточки сотрудников, логины для входа, роли и доступ к филиалам
+        {canManageUsers
+          ? "Карточки сотрудников, логины для входа, роли и доступ к филиалам"
+          : "Сотрудники вашего филиала — назначение тарифов за работу"}
       </p>
 
       {loading && <p className="mt-4 text-slate-500">Загрузка…</p>}
@@ -220,15 +226,17 @@ export function UsersAdminPage() {
                         onClick={() => startEdit(u)}
                         className="text-lime-700 hover:underline"
                       >
-                        Изменить
+                        {canManageUsers ? "Изменить" : "Тарифы"}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => void remove(u)}
-                        className="ml-3 text-red-600 hover:underline"
-                      >
-                        Удалить
-                      </button>
+                      {canManageUsers && (
+                        <button
+                          type="button"
+                          onClick={() => void remove(u)}
+                          className="ml-3 text-red-600 hover:underline"
+                        >
+                          Удалить
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -236,10 +244,16 @@ export function UsersAdminPage() {
             </table>
           </div>
 
+          {(canManageUsers || editingId) && (
           <div className="mt-6 max-w-lg rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="font-semibold text-slate-900">
-              {editingId ? "Редактирование" : "Новый сотрудник"}
+              {editingId
+                ? canManageUsers
+                  ? "Редактирование"
+                  : "Тарифы сотрудника"
+                : "Новый сотрудник"}
             </h2>
+            {canManageUsers && (
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <label className="block sm:col-span-2">
                 <span className="mb-1 block text-xs text-slate-500">Фамилия</span>
@@ -348,11 +362,25 @@ export function UsersAdminPage() {
                 </label>
               )}
             </div>
-            {editingId &&
-              (form.role === "branch_operator" || form.role === "branch_admin") && (
+            )}
+            {!canManageUsers && editingId && (
+              <div className="mt-3 space-y-1 text-sm text-slate-700">
+                <p>
+                  {[form.lastName, form.name].filter(Boolean).join(" ") || form.login}
+                </p>
+                <p className="text-slate-500">
+                  {ROLES.find((r) => r.value === form.role)?.label ?? form.role}
+                  {form.branchId
+                    ? ` · ${branches.find((b) => b.id === form.branchId)?.name ?? ""}`
+                    : ""}
+                </p>
+              </div>
+            )}
+            {editingId && canSetPayRates && (
                 <PayRatesPanel userId={editingId} open={!!editingId} />
               )}
             <div className="mt-4 flex flex-wrap gap-2">
+              {canManageUsers && (
               <button
                 type="button"
                 disabled={saving}
@@ -361,17 +389,19 @@ export function UsersAdminPage() {
               >
                 {saving ? "Сохранение…" : editingId ? "Сохранить" : "Создать"}
               </button>
+              )}
               {editingId && (
                 <button
                   type="button"
                   onClick={cancelEdit}
                   className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700"
                 >
-                  Отмена
+                  {canManageUsers ? "Отмена" : "Закрыть"}
                 </button>
               )}
             </div>
           </div>
+          )}
         </>
       )}
     </div>

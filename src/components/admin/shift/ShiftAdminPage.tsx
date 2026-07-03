@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { X } from "lucide-react";
 import { SPOT_CATEGORIES } from "@/lib/payroll/spot-categories";
 import { spotTaskStatusLabel } from "@/lib/payroll/spot-task-status";
 import { ShiftReportCard, type ShiftData } from "./ShiftReportCard";
@@ -38,11 +39,47 @@ const btnSecondary = `${btn} border border-slate-300 bg-white text-slate-800`;
 const inputClass =
   "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm";
 
+function currentMinskTime() {
+  return new Date().toLocaleTimeString("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Europe/Minsk",
+  });
+}
+
+function defaultWorkStartTime() {
+  return currentMinskTime();
+}
+
+function defaultCompletedWorkStartTime(durationMins: number) {
+  const endMs = Date.now() - 60_000;
+  const startMs = endMs - durationMins * 60_000;
+  return new Date(startMs).toLocaleTimeString("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Europe/Minsk",
+  });
+}
+
+function addMinutesToTime(time: string, minutes: number): string {
+  const [h, m] = time.split(":").map(Number);
+  const total = h * 60 + m + minutes;
+  const endH = Math.floor(total / 60) % 24;
+  const endM = total % 60;
+  return `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
+}
+
 export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: Props) {
   const isOperator = role === BRANCH_OPERATOR_ROLE;
   const isSuperAdmin = role === SUPER_ADMIN_ROLE;
   const canEditCalendar = isSuperAdmin;
   const canRequestChanges = !isSuperAdmin;
+
+  const [operatingBranchId, setOperatingBranchId] = useState("");
+  const [branchOptions, setBranchOptions] = useState<{ id: string; name: string }[]>([]);
+  const effectiveBranchId = branchId ?? (operatingBranchId || null);
 
   const [tab, setTab] = useState<Tab>(tasksOnly ? "calendar" : "today");
   const [data, setData] = useState<ShiftData | null>(null);
@@ -51,22 +88,18 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedReverse, setSelectedReverse] = useState("");
-  const [stopComment, setStopComment] = useState("");
-  const [showStopModal, setShowStopModal] = useState(false);
-  const [activeEntryId, setActiveEntryId] = useState<string | null>(null);
   const [baselineChecked, setBaselineChecked] = useState<Set<string>>(new Set());
   const [handoffComment, setHandoffComment] = useState("");
   const [handoffTargetDate, setHandoffTargetDate] = useState<string | null>(null);
   const [showHandoff, setShowHandoff] = useState(false);
 
-  const [manualOpen, setManualOpen] = useState(false);
-  const [manualComment, setManualComment] = useState("");
-  const [manualFrom, setManualFrom] = useState("12:00");
-  const [manualTo, setManualTo] = useState("13:00");
-  const [manualCategory, setManualCategory] = useState("");
-  const [manualTaskId, setManualTaskId] = useState<string | null>(null);
-  const [useDurationOnly, setUseDurationOnly] = useState(false);
-  const [durationMins, setDurationMins] = useState(60);
+  const [workModalOpen, setWorkModalOpen] = useState(false);
+  const [workComment, setWorkComment] = useState("");
+  const [workFrom, setWorkFrom] = useState(defaultWorkStartTime);
+  const [workDurationMins, setWorkDurationMins] = useState(30);
+  const [workCategory, setWorkCategory] = useState("");
+  const [workTaskId, setWorkTaskId] = useState<string | null>(null);
+  const [workSaving, setWorkSaving] = useState(false);
 
   const [reportFrom, setReportFrom] = useState(() => {
     const d = new Date();
@@ -107,11 +140,24 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
   }, []);
 
   const loadResources = useCallback(async () => {
-    if (!branchId) return;
-    const r = await fetch(`/api/admin/shift-resources?branchId=${branchId}`);
+    if (!effectiveBranchId) return;
+    const r = await fetch(`/api/admin/shift-resources?branchId=${effectiveBranchId}`);
     const d = await r.json();
     if (r.ok) setReverses(d.reverses ?? []);
-  }, [branchId]);
+  }, [effectiveBranchId]);
+
+  useEffect(() => {
+    if (!isSuperAdmin || branchId) return;
+    void fetch("/api/admin/branches")
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) return;
+        const list = (d.branches ?? []) as { id: string; name: string }[];
+        setBranchOptions(list);
+        setOperatingBranchId((prev) => prev || list[0]?.id || "");
+      })
+      .catch(() => undefined);
+  }, [isSuperAdmin, branchId]);
 
   const loadTasks = useCallback(async () => {
     const dateForTasks = data?.shift?.date;
@@ -164,14 +210,21 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
   }, [data?.shift?.id, data?.shift?.status, data?.baselineTasks]);
 
   async function startShift() {
+    if (!effectiveBranchId) {
+      setError("Выберите филиал для смены");
+      return;
+    }
+    const payload: Record<string, string> = {};
+    if (handoffComment.trim() && handoffTargetDate) {
+      payload.handoffComment = handoffComment.trim();
+    }
+    if (!branchId) {
+      payload.branchId = effectiveBranchId;
+    }
     const r = await fetch("/api/admin/work-shifts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        handoffComment.trim() && handoffTargetDate
-          ? { handoffComment: handoffComment.trim() }
-          : {},
-      ),
+      body: JSON.stringify(payload),
     });
     const d = await r.json();
     if (!r.ok) {
@@ -234,81 +287,98 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
     setData(d);
   }
 
-  async function startSpotTimer(taskId?: string) {
-    if (!data) return;
-    const r = await fetch(
-      `/api/admin/work-shifts/${data.shift.id}/spot-entries?action=start`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskId }),
-      },
-    );
-    const d = await r.json();
-    if (!r.ok) {
-      setError(d.error ?? "Ошибка");
-      return;
-    }
-    setData(d);
-    loadTasks();
+  function closeWorkModal() {
+    setWorkModalOpen(false);
+    setWorkTaskId(null);
+    setWorkComment("");
+    setWorkCategory("");
+    setWorkFrom(defaultWorkStartTime());
+    setWorkDurationMins(30);
+    setWorkSaving(false);
   }
 
-  async function stopSpotTimer() {
-    if (!data || !activeEntryId || !stopComment.trim()) return;
-    const r = await fetch(
-      `/api/admin/work-shifts/${data.shift.id}/spot-entries/${activeEntryId}/stop`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ comment: stopComment.trim() }),
-      },
-    );
-    const d = await r.json();
-    if (!r.ok) {
-      setError(d.error ?? "Ошибка");
-      return;
-    }
-    setShowStopModal(false);
-    setStopComment("");
-    setActiveEntryId(null);
-    setData(d);
-    loadTasks();
+  function openWorkModal(task?: SpotTask) {
+    setWorkTaskId(task?.id ?? null);
+    setWorkComment(task?.description ?? "");
+    setWorkCategory(task?.category ?? "");
+    setWorkFrom(defaultCompletedWorkStartTime(30));
+    setWorkDurationMins(30);
+    setWorkModalOpen(true);
   }
 
-  async function saveManualSpot() {
-    if (!data || !manualComment.trim()) return;
-    const body: Record<string, unknown> = {
-      comment: manualComment.trim(),
-      category: manualCategory || undefined,
-      taskId: manualTaskId || undefined,
-    };
-    if (useDurationOnly) {
-      const [h, m] = manualFrom.split(":").map(Number);
-      const startMins = h * 60 + m;
-      const endMins = startMins + durationMins;
-      const endH = Math.floor(endMins / 60);
-      const endM = endMins % 60;
-      body.timeFrom = manualFrom;
-      body.timeTo = `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
-    } else {
-      body.timeFrom = manualFrom;
-      body.timeTo = manualTo;
-    }
-    const r = await fetch(`/api/admin/work-shifts/${data.shift.id}/spot-entries`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const d = await r.json();
-    if (!r.ok) {
-      setError(d.error ?? "Ошибка");
+  function workTimeRange() {
+    const timeTo = addMinutesToTime(workFrom, workDurationMins);
+    return { timeFrom: workFrom, timeTo };
+  }
+
+  async function savePlannedWork() {
+    if (!data || !workComment.trim() || !workCategory || workDurationMins < 1) {
+      setError("Заполните категорию, описание и длительность");
       return;
     }
-    setManualOpen(false);
-    setManualComment("");
-    setManualTaskId(null);
-    setData(d);
-    loadTasks();
+    setWorkSaving(true);
+    setError("");
+    const { timeFrom, timeTo } = workTimeRange();
+    try {
+      const r = await fetch("/api/admin/spot-tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assigneeMemberId: memberId,
+          branchId: data.shift.branchId,
+          date: data.shift.date,
+          description: workComment.trim(),
+          category: workCategory,
+          plannedMinutes: workDurationMins,
+          plannedTimeFrom: timeFrom,
+          plannedTimeTo: timeTo,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      closeWorkModal();
+      loadTasks();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка");
+    } finally {
+      setWorkSaving(false);
+    }
+  }
+
+  async function saveCompletedWork() {
+    if (!data || !workComment.trim() || !workCategory || workDurationMins < 1) {
+      setError("Заполните категорию, описание и длительность");
+      return;
+    }
+    const { timeFrom, timeTo } = workTimeRange();
+    if (timeTo > currentMinskTime()) {
+      setError("Окончание не может быть позже текущего времени");
+      return;
+    }
+    setWorkSaving(true);
+    setError("");
+    try {
+      const r = await fetch(`/api/admin/work-shifts/${data.shift.id}/spot-entries`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          comment: workComment.trim(),
+          category: workCategory,
+          timeFrom,
+          timeTo,
+          taskId: workTaskId || undefined,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      closeWorkModal();
+      setData(d);
+      loadTasks();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка");
+    } finally {
+      setWorkSaving(false);
+    }
   }
 
   async function deleteSpotEntry(entryId: string) {
@@ -324,9 +394,7 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
   }
 
   function openCompleteTask(task: SpotTask) {
-    setManualTaskId(task.id);
-    setManualComment(task.description);
-    setManualOpen(true);
+    openWorkModal(task);
   }
 
   async function loadPeriodReport() {
@@ -337,14 +405,9 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
     if (r.ok) setPeriodReport(d);
   }
 
-  const activeSpot = data?.spotEntries.find((e) => e.isActive);
   const activeAssign = data?.reverseAssignments.find((a) => !a.endedAt);
   const shiftOpen = data?.shift.status === "open";
   const isOpRole = data?.summary.isOperator ?? isOperator;
-
-  useEffect(() => {
-    if (activeSpot) setActiveEntryId(activeSpot.id);
-  }, [activeSpot]);
 
   const tabs: { id: Tab; label: string }[] = [
     ...(!tasksOnly ? [{ id: "today" as Tab, label: "Сегодня" }] : []),
@@ -386,6 +449,22 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
       {tab === "today" && (
         <div className="space-y-4">
           {!tasksOnly && <ShiftTomorrowBanner />}
+          {isSuperAdmin && !branchId && branchOptions.length > 0 && !data && (
+            <label className="block">
+              <span className="mb-1 block text-xs text-slate-500">Филиал смены</span>
+              <select
+                className={inputClass}
+                value={operatingBranchId}
+                onChange={(e) => setOperatingBranchId(e.target.value)}
+              >
+                {branchOptions.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {loading && <p className="text-sm text-slate-500">Загрузка…</p>}
 
           {!loading && !data && (
@@ -479,18 +558,9 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
                                   <button
                                     type="button"
                                     className={btnSecondary}
-                                    disabled={!!activeSpot}
-                                    onClick={() => startSpotTimer(t.id)}
-                                  >
-                                    Начать
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className={btnSecondary}
-                                    disabled={!!activeSpot}
                                     onClick={() => openCompleteTask(t)}
                                   >
-                                    Выполнено
+                                    Выполнена
                                   </button>
                                 </div>
                               </div>
@@ -499,39 +569,14 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
                       )}
 
                       <div>
-                        <p className="mb-2 text-xs font-medium text-slate-700">Работа на споте</p>
-                        {activeSpot ? (
-                          <div className="rounded-lg bg-amber-50 p-3">
-                            <p className="text-sm">Идёт работа на споте…</p>
-                            <button
-                              type="button"
-                              className={`${btnPrimary} mt-2`}
-                              onClick={() => {
-                                setActiveEntryId(activeSpot.id);
-                                setShowStopModal(true);
-                              }}
-                            >
-                              Завершить
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              className={btnSecondary}
-                              onClick={() => startSpotTimer()}
-                            >
-                              Начать спот
-                            </button>
-                            <button
-                              type="button"
-                              className={btnSecondary}
-                              onClick={() => setManualOpen(true)}
-                            >
-                              + Добавить
-                            </button>
-                          </div>
-                        )}
+                        <p className="mb-2 text-xs font-medium text-slate-700">Работы на споте</p>
+                        <button
+                          type="button"
+                          className={btnSecondary}
+                          onClick={() => openWorkModal()}
+                        >
+                          Добавить работу
+                        </button>
                       </div>
 
                       {data.spotEntries.filter((e) => !e.isActive && e.endedAt).length > 0 && (
@@ -653,7 +698,7 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
       {tab === "calendar" && (
         <ShiftCalendar
           role={role}
-          branchId={branchId}
+          branchId={effectiveBranchId}
           memberId={memberId}
           canEdit={canEditCalendar}
           canRequestChanges={canRequestChanges}
@@ -692,94 +737,111 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
         </div>
       )}
 
-      {showStopModal && (
-        <div className="fixed inset-0 z-50 flex items-end bg-black/40 p-4">
-          <div className="w-full rounded-xl bg-white p-4 space-y-3">
-            <h3 className="font-semibold">Что сделано?</h3>
-            <textarea
-              className={inputClass}
-              rows={3}
-              value={stopComment}
-              onChange={(e) => setStopComment(e.target.value)}
-            />
-            <button
-              type="button"
-              className={`${btnPrimary} w-full`}
-              disabled={!stopComment.trim()}
-              onClick={stopSpotTimer}
-            >
-              Сохранить
-            </button>
-          </div>
-        </div>
-      )}
-
-      {manualOpen && data && (
-        <div className="fixed inset-0 z-50 flex items-end bg-black/40 p-4">
-          <div className="w-full rounded-xl bg-white p-4 space-y-3">
-            <h3 className="font-semibold">Добавить работу</h3>
-            <div className="flex gap-2 text-xs">
-              {[30, 60, 90].map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  className={btnSecondary}
-                  onClick={() => {
-                    setUseDurationOnly(true);
-                    setDurationMins(m);
-                  }}
-                >
-                  {m} мин
-                </button>
-              ))}
+      {workModalOpen && data && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
+          onClick={closeWorkModal}
+        >
+          <div
+            className="w-full max-w-md rounded-xl bg-white p-4 shadow-lg space-y-3"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="spot-work-title"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <h3 id="spot-work-title" className="font-semibold text-slate-900">
+                Добавить работу
+              </h3>
               <button
                 type="button"
-                className={btnSecondary}
-                onClick={() => setUseDurationOnly(false)}
+                onClick={closeWorkModal}
+                className="rounded-lg p-1 text-slate-500 hover:bg-slate-100"
+                aria-label="Закрыть"
               >
-                С–По
+                <X className="size-5" strokeWidth={2} />
               </button>
             </div>
-            {useDurationOnly ? (
-              <div className="flex gap-2">
+
+            <label className="block">
+              <span className="mb-1 block text-xs text-slate-500">Категория</span>
+              <select
+                className={inputClass}
+                value={workCategory}
+                onChange={(e) => setWorkCategory(e.target.value)}
+                required
+              >
+                <option value="">Выберите категорию</option>
+                {SPOT_CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="mb-1 block text-xs text-slate-500">Описание</span>
+              <textarea
+                className={inputClass}
+                rows={3}
+                placeholder="Что нужно сделать или что сделано"
+                value={workComment}
+                onChange={(e) => setWorkComment(e.target.value)}
+              />
+            </label>
+
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block">
+                <span className="mb-1 block text-xs text-slate-500">Начало</span>
                 <input
                   type="time"
                   className={inputClass}
-                  value={manualFrom}
-                  onChange={(e) => setManualFrom(e.target.value)}
+                  value={workFrom}
+                  onChange={(e) => setWorkFrom(e.target.value)}
                 />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs text-slate-500">Длительность, мин</span>
                 <input
                   type="number"
+                  min={1}
+                  step={5}
                   className={inputClass}
-                  value={durationMins}
-                  onChange={(e) => setDurationMins(Number(e.target.value))}
-                  placeholder="Мин"
+                  value={workDurationMins}
+                  onChange={(e) => setWorkDurationMins(Number(e.target.value))}
                 />
-              </div>
-            ) : (
-              <div className="flex gap-2">
-                <input type="time" className={inputClass} value={manualFrom} onChange={(e) => setManualFrom(e.target.value)} />
-                <input type="time" className={inputClass} value={manualTo} onChange={(e) => setManualTo(e.target.value)} />
-              </div>
-            )}
-            <select className={inputClass} value={manualCategory} onChange={(e) => setManualCategory(e.target.value)}>
-              <option value="">Категория</option>
-              {SPOT_CATEGORIES.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-            <textarea
-              className={inputClass}
-              rows={2}
-              placeholder="Что сделано"
-              value={manualComment}
-              onChange={(e) => setManualComment(e.target.value)}
-            />
-            <button type="button" className={`${btnPrimary} w-full`} onClick={saveManualSpot}>
-              Сохранить
-            </button>
+              </label>
+            </div>
+
+            <p className="text-xs text-slate-500">
+              Окончание: {workTimeRange().timeTo}
+            </p>
+
+            <div className="flex flex-col gap-2 sm:flex-row">
+              {!workTaskId && (
+                <button
+                  type="button"
+                  className={`${btnSecondary} flex-1`}
+                  disabled={workSaving}
+                  onClick={() => void savePlannedWork()}
+                >
+                  Сохранить
+                </button>
+              )}
+              <button
+                type="button"
+                className={`${btnPrimary} flex-1`}
+                disabled={workSaving}
+                onClick={() => void saveCompletedWork()}
+              >
+                Выполнена
+              </button>
+            </div>
+            <p className="text-[11px] leading-snug text-slate-400">
+              {workTaskId
+                ? "Укажите фактическое время и нажмите «Выполнена»."
+                : "«Сохранить» — запланировать на потом. «Выполнена» — работа уже сделана, время попадёт в смену."}
+            </p>
           </div>
         </div>
       )}

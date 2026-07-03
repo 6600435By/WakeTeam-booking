@@ -16,6 +16,8 @@ type Props = {
   onClick?: () => void;
   className?: string;
   previewSize?: "widget" | "large";
+  /** Точное соотношение сторон без min-height — для превью в кроппере */
+  strictAspect?: boolean;
 };
 
 function cardTextStyles(subtitle: string | null | undefined, isLarge: boolean) {
@@ -66,6 +68,7 @@ export function WidgetPhotoCard({
   onClick,
   className = "",
   previewSize = "widget",
+  strictAspect = false,
 }: Props) {
   const isLarge = previewSize === "large";
   const KindIcon = kind === "branch" ? MapPin : UserRound;
@@ -75,7 +78,8 @@ export function WidgetPhotoCard({
     <div
       className={cn(
         "relative w-full overflow-hidden",
-        isLarge ? "min-h-[7.5rem] sm:min-h-[9rem]" : "min-h-[4.25rem] sm:min-h-[4.75rem]",
+        !strictAspect &&
+          (isLarge ? "min-h-[7.5rem] sm:min-h-[9rem]" : "min-h-[4.25rem] sm:min-h-[4.75rem]"),
       )}
       style={widgetPhotoAspectStyle(kind)}
     >
