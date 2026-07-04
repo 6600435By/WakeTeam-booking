@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatDurationMinutes, formatMoney } from "@/lib/payroll/shift-summary";
+import { useSuperAdminBranchOptional } from "@/components/admin/SuperAdminBranchProvider";
 import type { MemberPayrollBlock, PayrollReport } from "@/lib/payroll/payroll-report";
 
 type Employee = {
@@ -52,6 +53,7 @@ type EditForm = {
 };
 
 export function ShiftPayrollPanel() {
+  const superBranch = useSuperAdminBranchOptional();
   const [from, setFrom] = useState("2026-06-15");
   const [to, setTo] = useState("2026-06-29");
   const [branchId, setBranchId] = useState("");
@@ -59,11 +61,45 @@ export function ShiftPayrollPanel() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [report, setReport] = useState<PayrollReport | null>(null);
+  const [monthlyLines, setMonthlyLines] = useState<
+    {
+      memberId: string;
+      memberName: string;
+      suggestedAmount: number;
+      confirmedAmount: number | null;
+      comment: string | null;
+    }[]
+  >([]);
+  const [monthlyDrafts, setMonthlyDrafts] = useState<Record<string, string>>({});
+  const [stats, setStats] = useState<{
+    summary: {
+      approvedAmount: number;
+      pendingAmount: number;
+      openShiftCount: number;
+      closedShiftCount: number;
+    };
+    actionQueue: {
+      shiftId: string;
+      date: string;
+      memberName: string;
+      status: string;
+      requiresSuperAdmin: boolean;
+      employeeSubmitted: boolean;
+      previewAmount: number;
+    }[];
+    pendingGrandTotal: { amount: number };
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [expandedMember, setExpandedMember] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (superBranch?.branchPickerMode && superBranch.branchId && !branchId) {
+      setBranchId(superBranch.branchId);
+    }
+  }, [superBranch?.branchPickerMode, superBranch?.branchId, branchId]);
 
   const memberIdsKey = [...selectedMembers].sort().join(",");
 
@@ -87,6 +123,19 @@ export function ShiftPayrollPanel() {
       });
       setEmployees(d.employees ?? []);
       setBranches(d.branches ?? []);
+      setMonthlyLines(d.monthlyLines ?? []);
+      const drafts: Record<string, string> = {};
+      for (const line of d.monthlyLines ?? []) {
+        drafts[line.memberId] = String(
+          line.confirmedAmount ?? line.suggestedAmount ?? "",
+        );
+      }
+      setMonthlyDrafts(drafts);
+
+      const rs = await fetch(`/api/admin/payroll-stats?${q}`);
+      const sd = await rs.json();
+      if (rs.ok) setStats(sd);
+      else setStats(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка");
     } finally {
@@ -113,6 +162,36 @@ export function ShiftPayrollPanel() {
   function toggleAllMembers() {
     if (allSelected) setSelectedMembers(new Set());
     else setSelectedMembers(new Set(employees.map((e) => e.memberId)));
+  }
+
+  async function confirmMonthly(memberId: string, suggestedAmount: number) {
+    const raw = monthlyDrafts[memberId] ?? String(suggestedAmount);
+    const confirmedAmount = Number(raw);
+    if (!Number.isFinite(confirmedAmount) || confirmedAmount < 0) {
+      setError("Укажите корректную сумму оклада");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const r = await fetch("/api/admin/payroll-report", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          memberId,
+          periodFrom: from,
+          periodTo: to,
+          confirmedAmount,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка");
+    } finally {
+      setSaving(false);
+    }
   }
 
   const visibleMembers = useMemo(() => report?.members ?? [], [report]);
@@ -235,8 +314,10 @@ export function ShiftPayrollPanel() {
                 className={inputClass}
                 value={branchId}
                 onChange={(e) => {
-                  setBranchId(e.target.value);
+                  const id = e.target.value;
+                  setBranchId(id);
                   setSelectedMembers(new Set());
+                  if (superBranch?.branchPickerMode && id) superBranch.setBranchId(id);
                 }}
               >
                 <option value="">Все филиалы</option>
@@ -249,6 +330,50 @@ export function ShiftPayrollPanel() {
             </label>
           )}
         </div>
+
+        {stats && (
+          <div className="mt-4 grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
+            <div className="rounded-lg bg-emerald-50 p-2">
+              <p className="text-[10px] text-emerald-800">К выплате</p>
+              <p className="text-sm font-bold text-emerald-950">
+                {stats.summary.approvedAmount.toFixed(2)} Br
+              </p>
+            </div>
+            <div className="rounded-lg bg-amber-50 p-2">
+              <p className="text-[10px] text-amber-800">На проверке</p>
+              <p className="text-sm font-bold text-amber-950">
+                {stats.pendingGrandTotal.amount.toFixed(2)} Br
+              </p>
+              <p className="text-[10px] text-amber-700">{stats.summary.closedShiftCount} смен</p>
+            </div>
+            <div className="rounded-lg bg-slate-50 p-2">
+              <p className="text-[10px] text-slate-600">Не закрыто</p>
+              <p className="text-sm font-bold">{stats.summary.openShiftCount}</p>
+            </div>
+            <div className="rounded-lg bg-slate-50 p-2">
+              <p className="text-[10px] text-slate-600">Очередь</p>
+              <p className="text-sm font-bold">{stats.actionQueue.length}</p>
+            </div>
+          </div>
+        )}
+
+        {stats && stats.actionQueue.length > 0 && (
+          <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 p-3">
+            <p className="mb-2 text-xs font-medium text-slate-700">Что проверить</p>
+            <ul className="space-y-1 text-xs">
+              {stats.actionQueue.slice(0, 5).map((item) => (
+                <li key={item.shiftId} className="flex flex-wrap justify-between gap-1">
+                  <span>
+                    {item.date} · {item.memberName}
+                    {item.requiresSuperAdmin ? " · только супер-админ" : ""}
+                    {!item.employeeSubmitted ? " · ждёт сотрудника" : ""}
+                  </span>
+                  <span className="text-slate-500">{item.previewAmount.toFixed(2)} Br</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {employees.length > 0 && (
           <div className="mt-4">
@@ -334,6 +459,56 @@ export function ShiftPayrollPanel() {
                 )}
             </div>
           </div>
+
+          {monthlyLines.length > 0 && (
+            <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+              <h3 className="font-semibold text-slate-900">Оклады за период</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Подтвердите или скорректируйте месячный оклад
+              </p>
+              <div className="mt-3 space-y-3">
+                {monthlyLines.map((line) => (
+                  <div
+                    key={line.memberId}
+                    className="flex flex-wrap items-end gap-2 border-b border-slate-100 pb-3 last:border-0"
+                  >
+                    <div className="min-w-[10rem] flex-1">
+                      <p className="text-sm font-medium">{line.memberName}</p>
+                      <p className="text-xs text-slate-500">
+                        По тарифу: {formatMoney(line.suggestedAmount)} BYN
+                      </p>
+                    </div>
+                    <label className="block">
+                      <span className="mb-1 block text-xs text-slate-500">К выплате</span>
+                      <input
+                        className={inputClass}
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={monthlyDrafts[line.memberId] ?? ""}
+                        onChange={(e) =>
+                          setMonthlyDrafts((d) => ({
+                            ...d,
+                            [line.memberId]: e.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      disabled={saving}
+                      className={btnPrimary}
+                      onClick={() =>
+                        void confirmMonthly(line.memberId, line.suggestedAmount)
+                      }
+                    >
+                      Подтвердить
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {visibleMembers.length === 0 && !loading && (
             <p className="mt-4 text-sm text-slate-500">

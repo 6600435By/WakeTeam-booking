@@ -211,3 +211,26 @@ export const BOARD_STATUSES = [
   "in_cart",
   "rescheduling",
 ] as const;
+
+/** Запись считается завершённой для смены / журнала */
+export const FINISHED_APPOINTMENT_STATUSES = new Set<AppointmentStatus>([
+  "completed",
+  "cancelled",
+  "deleted",
+  "no_show",
+]);
+
+export function isUnfinishedAppointmentStatus(status: string): boolean {
+  return !FINISHED_APPOINTMENT_STATUSES.has(normalizeStatus(status));
+}
+
+export function validateOperatorForCompletedStatus(
+  nextStatus: string | undefined,
+  operatorMemberId: string | null | undefined,
+): string | null {
+  if (normalizeStatus(nextStatus ?? "") !== "completed") return null;
+  if (!operatorMemberId) {
+    return "Выберите оператора перед завершением записи";
+  }
+  return null;
+}

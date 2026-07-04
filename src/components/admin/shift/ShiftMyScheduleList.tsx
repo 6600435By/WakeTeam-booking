@@ -83,7 +83,9 @@ export function ShiftMyScheduleList({ days, memberId, onRequestChange }: Props) 
                     ? `${s.plannedStart}–${s.plannedEnd}`
                     : "Время не указано"}
                   {s.workAsAdmin
-                    ? " · как админ"
+                    ? s.plannedStaffName
+                      ? ` · ${s.plannedStaffName} · доступ админа`
+                      : " · доступ админа"
                     : s.plannedStaffName
                       ? ` · ${s.plannedStaffName}`
                       : ""}

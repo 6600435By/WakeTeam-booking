@@ -21,6 +21,7 @@ export function serviceBookingDurations(service: {
 
 export function shouldShowWidgetTariffs(service: {
   allowedDurations: string;
+  durationMinutes: number;
   priceRules: { length: number };
 }): boolean {
   return (

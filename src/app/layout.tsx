@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "WakeTeam Booking",
+  title: "WakeTeamCRM",
   description: "Онлайн-запись WakeTeam",
 };
 

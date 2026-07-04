@@ -1,16 +1,27 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { ClipboardCheck, X } from "lucide-react";
 import { SPOT_CATEGORIES } from "@/lib/payroll/spot-categories";
 import { spotTaskStatusLabel } from "@/lib/payroll/spot-task-status";
 import { ShiftReportCard, type ShiftData } from "./ShiftReportCard";
 import { ShiftCalendar } from "./ShiftCalendar";
 import { ShiftTomorrowBanner } from "./ShiftTomorrowBanner";
+import { MyShiftsPanel } from "./MyShiftsPanel";
+import {
+  ShiftReadinessModal,
+  formatReadinessSummary,
+} from "./ShiftReadinessModal";
+import type { ShiftReadinessPayload } from "@/lib/payroll/shift-readiness";
+import { useSuperAdminBranchOptional } from "@/components/admin/SuperAdminBranchProvider";
+import { formatDateKey } from "@/lib/time";
 
-type AdminRole = "super_admin" | "branch_admin" | "branch_operator";
+type AdminRole = "super_admin" | "branch_manager" | "branch_admin" | "branch_operator";
+const BRANCH_ADMIN_ROLE = "branch_admin";
 const BRANCH_OPERATOR_ROLE = "branch_operator";
 const SUPER_ADMIN_ROLE = "super_admin";
+const BRANCH_MANAGER_ROLE = "branch_manager";
 
 type Tab = "today" | "calendar" | "report";
 
@@ -29,6 +40,11 @@ type Props = {
   role: AdminRole;
   branchId: string | null;
   memberId: string;
+  workAsAdminElevated?: boolean;
+  managerOnDutyElevated?: boolean;
+  managerOnDutyBranchId?: string | null;
+  isBranchManager?: boolean;
+  managedBranchIds?: string[];
   tasksOnly?: boolean;
 };
 
@@ -71,15 +87,68 @@ function addMinutesToTime(time: string, minutes: number): string {
   return `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
 }
 
-export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: Props) {
-  const isOperator = role === BRANCH_OPERATOR_ROLE;
-  const isSuperAdmin = role === SUPER_ADMIN_ROLE;
-  const canEditCalendar = isSuperAdmin;
-  const canRequestChanges = !isSuperAdmin;
-
+export function ShiftAdminPage({
+  role,
+  branchId,
+  memberId,
+  workAsAdminElevated = false,
+  managerOnDutyElevated = false,
+  managerOnDutyBranchId = null,
+  isBranchManager = false,
+  managedBranchIds = [],
+  tasksOnly = false,
+}: Props) {
+  const superBranch = useSuperAdminBranchOptional();
+  const searchParams = useSearchParams();
   const [operatingBranchId, setOperatingBranchId] = useState("");
   const [branchOptions, setBranchOptions] = useState<{ id: string; name: string }[]>([]);
-  const effectiveBranchId = branchId ?? (operatingBranchId || null);
+  const [readinessOpen, setReadinessOpen] = useState(false);
+  const [readinessMode, setReadinessMode] = useState<"review" | "open">("open");
+  const [readinessSummary, setReadinessSummary] = useState<ShiftReadinessPayload | null>(
+    null,
+  );
+  const [readinessSummaryLoading, setReadinessSummaryLoading] = useState(false);
+
+  const isOperator = role === BRANCH_OPERATOR_ROLE;
+  const isBranchAdmin = role === BRANCH_ADMIN_ROLE;
+  const isSuperAdmin = role === SUPER_ADMIN_ROLE;
+  const canEditCalendar =
+    isSuperAdmin || isBranchManager || workAsAdminElevated || managerOnDutyElevated;
+  const canRequestChanges = isOperator && !workAsAdminElevated;
+
+  const effectiveBranchId =
+    branchId ?? superBranch?.branchId ?? (operatingBranchId || null);
+
+  const canViewReadiness =
+    isSuperAdmin ||
+    isBranchManager ||
+    isBranchAdmin ||
+    workAsAdminElevated ||
+    managerOnDutyElevated;
+
+  const canEditReadiness = Boolean(
+    effectiveBranchId &&
+      (isSuperAdmin ||
+        (isBranchManager &&
+          managedBranchIds.includes(effectiveBranchId)) ||
+        (isBranchAdmin && branchId === effectiveBranchId) ||
+        (workAsAdminElevated && branchId === effectiveBranchId) ||
+        (managerOnDutyElevated && managerOnDutyBranchId === effectiveBranchId)),
+  );
+
+  const canAddShiftOnReadiness =
+    isSuperAdmin ||
+    (isBranchManager &&
+      Boolean(
+        effectiveBranchId && managedBranchIds.includes(effectiveBranchId),
+      )) ||
+    (isBranchAdmin && branchId === effectiveBranchId);
+
+  const canAddManagerOnReadiness = Boolean(
+    effectiveBranchId &&
+      (isSuperAdmin ||
+        (isBranchManager && managedBranchIds.includes(effectiveBranchId))),
+  );
 
   const [tab, setTab] = useState<Tab>(tasksOnly ? "calendar" : "today");
   const [data, setData] = useState<ShiftData | null>(null);
@@ -89,6 +158,12 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
   const [error, setError] = useState("");
   const [selectedReverse, setSelectedReverse] = useState("");
   const [baselineChecked, setBaselineChecked] = useState<Set<string>>(new Set());
+  const [checklistChecked, setChecklistChecked] = useState<Set<string>>(new Set());
+  const [showCloseSummary, setShowCloseSummary] = useState(false);
+  const [openShiftModal, setOpenShiftModal] = useState(false);
+  const [openShiftStart, setOpenShiftStart] = useState(defaultWorkStartTime);
+  const [openHandoffComment, setOpenHandoffComment] = useState("");
+  const [previousHandoffText, setPreviousHandoffText] = useState<string | null>(null);
   const [handoffComment, setHandoffComment] = useState("");
   const [handoffTargetDate, setHandoffTargetDate] = useState<string | null>(null);
   const [showHandoff, setShowHandoff] = useState(false);
@@ -100,29 +175,6 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
   const [workCategory, setWorkCategory] = useState("");
   const [workTaskId, setWorkTaskId] = useState<string | null>(null);
   const [workSaving, setWorkSaving] = useState(false);
-
-  const [reportFrom, setReportFrom] = useState(() => {
-    const d = new Date();
-    d.setDate(1);
-    return d.toISOString().slice(0, 10);
-  });
-  const [reportTo, setReportTo] = useState(new Date().toISOString().slice(0, 10));
-  const [periodReport, setPeriodReport] = useState<{
-    shifts: {
-      date: string;
-      status: string;
-      totalAmount: number;
-      panelMinutes: number;
-      spotMinutes: number;
-      idleMinutes: number;
-    }[];
-    totals: {
-      amount: number;
-      panelMinutes: number;
-      spotMinutes: number;
-      idleMinutes: number;
-    };
-  } | null>(null);
 
   const loadShift = useCallback(async () => {
     setLoading(true);
@@ -147,17 +199,21 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
   }, [effectiveBranchId]);
 
   useEffect(() => {
-    if (!isSuperAdmin || branchId) return;
+    if ((!isSuperAdmin && !isBranchManager) || branchId) return;
     void fetch("/api/admin/branches")
       .then(async (r) => {
         const d = await r.json();
         if (!r.ok) return;
-        const list = (d.branches ?? []) as { id: string; name: string }[];
+        let list = (d.branches ?? []) as { id: string; name: string }[];
+        if (isBranchManager && managedBranchIds.length) {
+          const allowed = new Set(managedBranchIds);
+          list = list.filter((b) => allowed.has(b.id));
+        }
         setBranchOptions(list);
         setOperatingBranchId((prev) => prev || list[0]?.id || "");
       })
       .catch(() => undefined);
-  }, [isSuperAdmin, branchId]);
+  }, [isSuperAdmin, isBranchManager, branchId, managedBranchIds.join(",")]);
 
   const loadTasks = useCallback(async () => {
     const dateForTasks = data?.shift?.date;
@@ -168,10 +224,40 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
     if (r.ok) setTasks(d.tasks ?? []);
   }, [data?.shift?.date]);
 
+  const todayDateKey = formatDateKey(new Date());
+
+  const loadReadinessSummary = useCallback(async () => {
+    if (!canViewReadiness || !effectiveBranchId) return;
+    setReadinessSummaryLoading(true);
+    try {
+      const q = new URLSearchParams({ branchId: effectiveBranchId, date: todayDateKey });
+      const r = await fetch(`/api/admin/shift-readiness?${q}`);
+      const d = await r.json();
+      if (r.ok) setReadinessSummary(d);
+    } catch {
+      /* ignore */
+    } finally {
+      setReadinessSummaryLoading(false);
+    }
+  }, [canViewReadiness, effectiveBranchId, todayDateKey]);
+
   useEffect(() => {
     loadShift();
     loadResources();
   }, [loadShift, loadResources]);
+
+  useEffect(() => {
+    if (tab === "today" && canViewReadiness && effectiveBranchId) {
+      void loadReadinessSummary();
+    }
+  }, [tab, canViewReadiness, effectiveBranchId, loadReadinessSummary]);
+
+  useEffect(() => {
+    if (searchParams.get("check") !== "1") return;
+    if (!canViewReadiness || !effectiveBranchId) return;
+    setReadinessMode("open");
+    setReadinessOpen(true);
+  }, [searchParams, canViewReadiness, effectiveBranchId]);
 
   useEffect(() => {
     if (tab === "today" && data?.shift?.status === "open") {
@@ -214,9 +300,11 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
       setError("Выберите филиал для смены");
       return;
     }
-    const payload: Record<string, string> = {};
-    if (handoffComment.trim() && handoffTargetDate) {
-      payload.handoffComment = handoffComment.trim();
+    const payload: Record<string, string> = {
+      actualStart: openShiftStart,
+    };
+    if (openHandoffComment.trim()) {
+      payload.handoffComment = openHandoffComment.trim();
     }
     if (!branchId) {
       payload.branchId = effectiveBranchId;
@@ -233,6 +321,40 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
     }
     setData(d);
     setShowHandoff(false);
+    setOpenShiftModal(false);
+    setOpenHandoffComment("");
+  }
+
+  async function prepareOpenShift() {
+    if (canViewReadiness && effectiveBranchId) {
+      setReadinessMode("open");
+      setReadinessOpen(true);
+      return;
+    }
+    setOpenShiftStart(currentMinskTime());
+    setOpenHandoffComment("");
+    setPreviousHandoffText(null);
+    if (effectiveBranchId) {
+      const q = new URLSearchParams({
+        branchId: effectiveBranchId,
+        shiftDate: new Date().toISOString().slice(0, 10),
+      });
+      void fetch(`/api/admin/shift-handoff?${q}`)
+        .then(async (r) => {
+          const d = await r.json();
+          if (r.ok && d.existingComment) {
+            setPreviousHandoffText(d.existingComment as string);
+          }
+        })
+        .catch(() => undefined);
+    }
+    setOpenShiftModal(true);
+  }
+
+  function openReadinessReview() {
+    if (!effectiveBranchId) return;
+    setReadinessMode("review");
+    setReadinessOpen(true);
   }
 
   async function saveHandoff() {
@@ -262,6 +384,7 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
       body: JSON.stringify({
         action: "close",
         baselineCompletedTaskIds: [...baselineChecked],
+        checklistCompletedItemIds: [...checklistChecked],
       }),
     });
     const d = await r.json();
@@ -270,7 +393,15 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
       return;
     }
     setData(d);
+    setShowCloseSummary(false);
   }
+
+  useEffect(() => {
+    if (!data?.checklistItems) return;
+    setChecklistChecked(
+      new Set(data.checklistItems.filter((i) => i.completed).map((i) => i.id)),
+    );
+  }, [data?.shift?.id, data?.checklistItems]);
 
   async function assignReverse() {
     if (!data || !selectedReverse) return;
@@ -397,22 +528,15 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
     openWorkModal(task);
   }
 
-  async function loadPeriodReport() {
-    const r = await fetch(
-      `/api/admin/work-shifts?from=${reportFrom}&to=${reportTo}`,
-    );
-    const d = await r.json();
-    if (r.ok) setPeriodReport(d);
-  }
-
   const activeAssign = data?.reverseAssignments.find((a) => !a.endedAt);
   const shiftOpen = data?.shift.status === "open";
+  const shiftScheduled = data?.shift.status === "scheduled";
   const isOpRole = data?.summary.isOperator ?? isOperator;
 
   const tabs: { id: Tab; label: string }[] = [
     ...(!tasksOnly ? [{ id: "today" as Tab, label: "Сегодня" }] : []),
     { id: "calendar" as Tab, label: "Календарь" },
-    ...(!tasksOnly ? [{ id: "report" as Tab, label: "Мой отчёт" }] : []),
+    ...(!tasksOnly ? [{ id: "report" as Tab, label: "Мои смены" }] : []),
   ];
 
   return (
@@ -470,8 +594,35 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
           {!loading && !data && (
             <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center">
               <p className="mb-3 text-sm text-slate-600">Смена не открыта</p>
-              <button type="button" className={btnPrimary} onClick={startShift}>
+              <button type="button" className={btnPrimary} onClick={() => void prepareOpenShift()}>
                 Начать смену
+              </button>
+            </div>
+          )}
+
+          {!loading && canViewReadiness && effectiveBranchId && (
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="flex items-start gap-3">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-lime-100 text-lime-800">
+                  <ClipboardCheck className="size-5" strokeWidth={2} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-slate-900">Проверка перед сменой</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {readinessSummaryLoading
+                      ? "Загрузка…"
+                      : readinessSummary
+                        ? formatReadinessSummary(readinessSummary)
+                        : "Ресурсы и назначения на сегодня"}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className={`${btnSecondary} mt-3 w-full touch-manipulation sm:w-auto`}
+                onClick={openReadinessReview}
+              >
+                Проверить
               </button>
             </div>
           )}
@@ -525,12 +676,23 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
                         <div className="rounded-lg bg-slate-50 p-2">
                           <p className="text-slate-500">Пульт</p>
                           <p className="font-semibold">{data.summary.lines[0]?.hoursLabel ?? "0"}</p>
+                          {(data.summary.unfinishedAppointmentCount ?? 0) > 0 && (
+                            <p className="mt-0.5 text-[10px] text-amber-700">
+                              не завершено: {data.summary.unfinishedAppointmentCount}
+                            </p>
+                          )}
+                          {(data.summary.inServiceCount ?? 0) > 0 && (
+                            <p className="mt-0.5 text-[10px] text-amber-700">
+                              в работе: {data.summary.inServiceCount}
+                            </p>
+                          )}
                         </div>
                         <div className="rounded-lg bg-slate-50 p-2">
                           <p className="text-slate-500">Спот</p>
                           <p className="font-semibold">
                             {data.summary.lines.find((l) => l.kind === "spot")?.hoursLabel ?? "0"}
                           </p>
+                          <p className="mt-0.5 text-[10px] text-slate-500">к проверке</p>
                         </div>
                         <div className="rounded-lg bg-slate-50 p-2">
                           <p className="text-slate-500">Простой</p>
@@ -650,45 +812,108 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
                     </div>
                   )}
 
-                  {(data.baselineTasks?.length ?? 0) > 0 && (
-                    <div className="rounded-lg border border-violet-100 bg-violet-50/40 p-3">
-                      <p className="mb-2 text-xs font-medium text-violet-900">
-                        Базовые задания смены
+                  {!showCloseSummary ? (
+                    <button
+                      type="button"
+                      className={`${btnPrimary} w-full`}
+                      onClick={() => setShowCloseSummary(true)}
+                    >
+                      Завершить смену
+                    </button>
+                  ) : (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-3">
+                      <p className="text-sm font-medium text-slate-900">Итог смены</p>
+                      {isBranchManager && (
+                        <p className="text-xs text-lime-800">
+                          Смена будет утверждена автоматически после закрытия.
+                        </p>
+                      )}
+                      <p className="text-xs text-slate-600">
+                        Пульт {data.summary.lines.find((l) => l.kind === "panel")?.hoursLabel ?? "0"} · Спот{" "}
+                        {data.summary.lines.find((l) => l.kind === "spot")?.hoursLabel ?? "0"} · Простой{" "}
+                        {data.summary.lines.find((l) => l.kind === "idle")?.hoursLabel ?? "0"}
                       </p>
-                      <ul className="space-y-2">
-                        {data.baselineTasks!.map((t) => (
-                          <li key={t.id}>
-                            <label className="flex items-start gap-2 text-sm text-slate-800">
-                              <input
-                                type="checkbox"
-                                className="mt-0.5"
-                                checked={baselineChecked.has(t.id)}
-                                onChange={(e) => {
-                                  setBaselineChecked((prev) => {
-                                    const next = new Set(prev);
-                                    if (e.target.checked) next.add(t.id);
-                                    else next.delete(t.id);
-                                    return next;
-                                  });
-                                }}
-                              />
-                              <span>{t.description}</span>
-                            </label>
-                          </li>
-                        ))}
-                      </ul>
-                      <p className="mt-2 text-xs text-violet-700">
-                        Отметьте выполненное перед закрытием смены
-                      </p>
+                      {(data.checklistItems?.length ?? 0) > 0 && (
+                        <div>
+                          <p className="mb-2 text-xs font-medium text-slate-700">Чеклист филиала</p>
+                          <ul className="space-y-2">
+                            {data.checklistItems!.map((item) => (
+                              <li key={item.id}>
+                                <label className="flex items-start gap-2 text-sm">
+                                  <input
+                                    type="checkbox"
+                                    className="mt-0.5"
+                                    checked={checklistChecked.has(item.id)}
+                                    onChange={(e) => {
+                                      setChecklistChecked((prev) => {
+                                        const next = new Set(prev);
+                                        if (e.target.checked) next.add(item.id);
+                                        else next.delete(item.id);
+                                        return next;
+                                      });
+                                    }}
+                                  />
+                                  <span>{item.label}</span>
+                                </label>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {(data.summary.unfinishedAppointmentCount ?? 0) > 0 && (
+                        <p className="text-xs text-amber-700">
+                          В журнале {data.summary.unfinishedAppointmentCount} незавершённых записей — проверьте их перед закрытием смены
+                        </p>
+                      )}
+                      {(data.summary.inServiceCount ?? 0) > 0 && (
+                        <p className="text-xs text-amber-700">
+                          Завершите катания в журнале — иначе время не попадёт в пульт
+                        </p>
+                      )}
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className={btnPrimary}
+                          disabled={
+                            (data.checklistItems?.length ?? 0) > 0 &&
+                            checklistChecked.size < (data.checklistItems?.length ?? 0)
+                          }
+                          onClick={() => void closeShift()}
+                        >
+                          Подтвердить закрытие
+                        </button>
+                        <button
+                          type="button"
+                          className={btnSecondary}
+                          onClick={() => setShowCloseSummary(false)}
+                        >
+                          Назад
+                        </button>
+                      </div>
                     </div>
                   )}
-
-                  <button type="button" className={`${btnPrimary} w-full`} onClick={closeShift}>
-                    Завершить смену
-                  </button>
                 </div>
               ) : (
-                <ShiftReportCard data={data} />
+                <div className="space-y-2">
+                  <ShiftReportCard data={data} />
+                  {shiftScheduled && (
+                    <button
+                      type="button"
+                      className={`${btnPrimary} w-full touch-manipulation`}
+                      onClick={() => void prepareOpenShift()}
+                    >
+                      Начать смену
+                    </button>
+                  )}
+                  {data.shift.status === "closed" && (
+                    <p className="text-xs text-slate-600">
+                      <button type="button" className="text-lime-700 underline" onClick={() => setTab("report")}>
+                        Проверить смену
+                      </button>{" "}
+                      во вкладке «Мои смены»
+                    </p>
+                  )}
+                </div>
               )}
             </>
           )}
@@ -706,34 +931,75 @@ export function ShiftAdminPage({ role, branchId, memberId, tasksOnly = false }: 
       )}
 
       {tab === "report" && (
-        <div className="space-y-3">
-          <div className="flex gap-2">
-            <input type="date" className={inputClass} value={reportFrom} onChange={(e) => setReportFrom(e.target.value)} />
-            <input type="date" className={inputClass} value={reportTo} onChange={(e) => setReportTo(e.target.value)} />
-            <button type="button" className={btnPrimary} onClick={loadPeriodReport}>
-              Показать
-            </button>
+        <MyShiftsPanel onGoToday={() => setTab("today")} />
+      )}
+
+      {effectiveBranchId && (
+        <ShiftReadinessModal
+          open={readinessOpen}
+          onClose={() => {
+            setReadinessOpen(false);
+            void loadReadinessSummary();
+          }}
+          branchId={effectiveBranchId}
+          branchOptions={branchOptions}
+          onBranchChange={(id) => {
+            setOperatingBranchId(id);
+            superBranch?.setBranchId?.(id);
+          }}
+          date={todayDateKey}
+          mode={readinessMode}
+          canEdit={canEditReadiness}
+          canAddShift={canAddShiftOnReadiness}
+          canAddManager={canAddManagerOnReadiness}
+          onShiftOpened={(shiftData) => {
+            setData(shiftData);
+            setShowHandoff(false);
+            void loadReadinessSummary();
+          }}
+        />
+      )}
+
+      {openShiftModal && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
+          <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-lg space-y-3">
+            <h3 className="font-semibold text-slate-900">Начать смену</h3>
+            {previousHandoffText && (
+              <div className="rounded-lg bg-amber-50 p-2 text-xs text-amber-900">
+                <p className="font-medium">Комментарий прошлой смены:</p>
+                <p>{previousHandoffText}</p>
+              </div>
+            )}
+            <label className="block">
+              <span className="mb-1 block text-xs text-slate-500">Начало смены</span>
+              <input
+                type="time"
+                className={inputClass}
+                value={openShiftStart}
+                onChange={(e) => setOpenShiftStart(e.target.value)}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs text-slate-500">
+                Что не сделано с прошлой смены?
+              </span>
+              <textarea
+                className={inputClass}
+                rows={2}
+                value={openHandoffComment}
+                onChange={(e) => setOpenHandoffComment(e.target.value)}
+                placeholder="Необязательно"
+              />
+            </label>
+            <div className="flex gap-2">
+              <button type="button" className={btnPrimary} onClick={() => void startShift()}>
+                Начать
+              </button>
+              <button type="button" className={btnSecondary} onClick={() => setOpenShiftModal(false)}>
+                Позже
+              </button>
+            </div>
           </div>
-          {periodReport && (
-            <>
-              <p className="text-lg font-bold">
-                Итого: {periodReport.totals.amount.toFixed(2)} BYN
-              </p>
-              <p className="text-xs text-slate-500">
-                Пульт {Math.round(periodReport.totals.panelMinutes / 60)}ч · Спот{" "}
-                {Math.round(periodReport.totals.spotMinutes / 60)}ч · Простой{" "}
-                {Math.round(periodReport.totals.idleMinutes / 60)}ч
-              </p>
-              {periodReport.shifts.map((s) => (
-                <div key={s.date} className="flex justify-between rounded-lg border p-2 text-sm">
-                  <span>
-                    {s.date} ({s.status})
-                  </span>
-                  <span>{s.totalAmount.toFixed(2)} BYN</span>
-                </div>
-              ))}
-            </>
-          )}
         </div>
       )}
 

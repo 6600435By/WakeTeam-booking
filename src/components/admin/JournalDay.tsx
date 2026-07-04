@@ -40,6 +40,8 @@ import { cn } from "@/lib/utils";
 import { useAdminViewport } from "./AdminViewportContext";
 import { isAdminCompact } from "@/lib/admin-viewport";
 import { journalStaffDisplayName } from "@/lib/journal-staff-label";
+import { staffDisplayName } from "@/lib/staff-user";
+import { useSuperAdminBranchOptional } from "@/components/admin/SuperAdminBranchProvider";
 import {
   loadAppointmentsListAction,
   loadCalendarDayAction,
@@ -71,6 +73,11 @@ type Appointment = {
   rentalAmount?: number;
   cancelReason?: string | null;
   branchId: string;
+  operatorMemberId?: string | null;
+  operatorMember?: {
+    id: string;
+    user: { name: string | null; lastName: string | null; login: string | null; email: string | null };
+  } | null;
   client: { firstName: string | null; lastName: string | null; phone: string };
   service: { id: string; name: string };
   staff: { id: string; name: string };
@@ -105,6 +112,8 @@ type ModalInitial = {
   rentalItemId?: string | null;
   rentalQuantity?: number;
   totalPrice?: number;
+  operatorMemberId?: string | null;
+  operatorMemberName?: string;
   appointmentGroup?: GroupApptRef[];
 };
 
@@ -187,6 +196,9 @@ function journalInitialState(initial?: JournalDayInitial) {
       branches: [] as Branch[],
       services: [] as BranchService[],
       isSuperAdmin: true,
+      canEditAppointments: true,
+      canCreateAppointments: true,
+      journalReadOnlyOutsideScope: false,
       loading: true,
     };
   }
@@ -199,12 +211,16 @@ function journalInitialState(initial?: JournalDayInitial) {
     branches: initial.branches ?? [],
     services: (initial.services ?? []) as BranchService[],
     isSuperAdmin: initial.admin?.isSuperAdmin ?? true,
+    canEditAppointments: initial.admin?.canEditAppointmentsInBranch ?? initial.admin?.canEditAppointments ?? true,
+    canCreateAppointments: initial.admin?.canCreateAppointmentsInBranch ?? true,
+    journalReadOnlyOutsideScope: initial.admin?.journalReadOnlyOutsideScope ?? false,
     loading: false,
   };
 }
 
 export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   const boot = journalInitialState(initial);
+  const superBranch = useSuperAdminBranchOptional();
   const [date, setDate] = useState(boot.date);
   const [branchId, setBranchId] = useState(boot.branchId);
   const [staff, setStaff] = useState<StaffRow[]>(boot.staff);
@@ -222,6 +238,26 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   const [editGroup, setEditGroup] = useState<Appointment[] | null>(null);
   const [modalInitial, setModalInitial] = useState<ModalInitial>({});
   const [isSuperAdmin, setIsSuperAdmin] = useState(boot.isSuperAdmin);
+  const [isBranchManager, setIsBranchManager] = useState(
+    initial?.admin?.isBranchManager ?? false,
+  );
+  const [canEditAppointments, setCanEditAppointments] = useState(boot.canEditAppointments);
+  const [canCreateAppointments, setCanCreateAppointments] = useState(boot.canCreateAppointments);
+  const [journalReadOnlyOutsideScope, setJournalReadOnlyOutsideScope] = useState(
+    boot.journalReadOnlyOutsideScope,
+  );
+
+  function applyBranchId(id: string) {
+    setBranchId(id);
+    if (isSuperAdmin) superBranch?.setBranchId(id);
+  }
+
+  useEffect(() => {
+    if (!isSuperAdmin || !superBranch?.branchId) return;
+    if (superBranch.branchId !== branchId) {
+      setBranchId(superBranch.branchId);
+    }
+  }, [isSuperAdmin, superBranch?.branchId, branchId]);
   const [skipInitialLoad, setSkipInitialLoad] = useState(Boolean(initial));
   const [gridStep, setGridStep] = useState<JournalGridStep>(15);
   const [gridScale, setGridScale] = useState<JournalGridScale>(1);
@@ -329,6 +365,12 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
 
       if (d.admin) {
         setIsSuperAdmin(d.admin.isSuperAdmin);
+        setIsBranchManager(d.admin.isBranchManager ?? false);
+        setCanEditAppointments(
+          d.admin.canEditAppointmentsInBranch ?? d.admin.canEditAppointments ?? true,
+        );
+        setCanCreateAppointments(d.admin.canCreateAppointmentsInBranch ?? true);
+        setJournalReadOnlyOutsideScope(d.admin.journalReadOnlyOutsideScope ?? false);
       }
 
       setBranchId((current) => {
@@ -508,6 +550,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   }
 
   function openNew(initial: ModalInitial = {}) {
+    if (!canCreateAppointments) return;
     setEditAppt(null);
     setEditGroup(null);
     setModalInitial({
@@ -518,6 +561,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   }
 
   function openEdit(appt: Appointment, group?: Appointment[]) {
+    if (!canEditAppointments) return;
     const resolved =
       group && group.length > 0
         ? group
@@ -529,6 +573,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   }
 
   function openEditFromSearch(appt: ClientLookupAppointment) {
+    if (!canEditAppointments) return;
     const full = appt as Appointment;
     setEditAppt(full);
     setEditGroup(null);
@@ -555,6 +600,10 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
         paymentMethod: editAppt.paymentMethod ?? null,
         rentalItemId: editAppt.rentalItemId ?? null,
         rentalQuantity: editAppt.rentalQuantity ?? 0,
+        operatorMemberId: editAppt.operatorMemberId ?? null,
+        operatorMemberName: editAppt.operatorMember
+          ? staffDisplayName(editAppt.operatorMember.user)
+          : undefined,
         totalPrice: editGroup
           ? editGroup.reduce((sum, a) => sum + a.price, 0)
           : editAppt.price,
@@ -608,29 +657,29 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
               />
             </label>
 
-            {isSuperAdmin ? (
-              <select
-                value={branchId}
-                onChange={(e) => setBranchId(e.target.value)}
-                disabled={branches.length === 0}
-                className="mt-2 h-11 w-full touch-manipulation rounded-lg border border-slate-300 bg-white px-3 text-base disabled:bg-slate-100"
-              >
-                {branches.length === 0 ? (
-                  <option value="">{loading ? "Загрузка…" : "Нет филиалов"}</option>
-                ) : (
-                  branches.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))
-                )}
-              </select>
-            ) : (
+            {!isSuperAdmin && !isBranchManager && (
               <div className="mt-2 flex h-11 items-center rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700">
                 {branches.find((b) => b.id === branchId)?.name ??
                   branches[0]?.name ??
                   (loading ? "Загрузка…" : "Филиал…")}
               </div>
+            )}
+
+            {isBranchManager && branches.length > 0 && (
+              <label className="mt-2 block">
+                <span className="mb-1 block text-xs text-slate-500">Филиал</span>
+                <select
+                  className="h-11 w-full touch-manipulation rounded-lg border border-slate-300 bg-white px-3 text-base"
+                  value={branchId}
+                  onChange={(e) => applyBranchId(e.target.value)}
+                >
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
             )}
 
             <div className="mt-2">
@@ -642,6 +691,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
               />
             </div>
 
+            {canCreateAppointments && (
             <button
               type="button"
               disabled={!selectedService}
@@ -650,6 +700,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
             >
               {freeSlotsOpen ? "← К записям" : "Свободное время"}
             </button>
+            )}
           </div>
 
           {freeSlotsOpen && selectedService ? (
@@ -714,29 +765,26 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
               className="h-8 rounded-md border border-slate-300 px-2 text-xs"
             />
 
-            {isSuperAdmin ? (
-              <select
-                value={branchId}
-                onChange={(e) => setBranchId(e.target.value)}
-                disabled={branches.length === 0}
-                className="h-8 max-w-[11rem] rounded-md border border-slate-300 px-2 text-xs disabled:bg-slate-100"
-              >
-                {branches.length === 0 ? (
-                  <option value="">{loading ? "Загрузка…" : "Нет филиалов"}</option>
-                ) : (
-                  branches.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))
-                )}
-              </select>
-            ) : (
+            {!isSuperAdmin && !isBranchManager && (
               <div className="flex h-8 max-w-[11rem] items-center truncate rounded-md border border-slate-200 bg-slate-50 px-2 text-xs text-slate-700">
                 {branches.find((b) => b.id === branchId)?.name ??
                   branches[0]?.name ??
                   (loading ? "Загрузка…" : "Филиал…")}
               </div>
+            )}
+
+            {isBranchManager && branches.length > 0 && (
+              <select
+                className="h-8 max-w-[11rem] rounded-md border border-slate-300 bg-white px-2 text-xs"
+                value={branchId}
+                onChange={(e) => applyBranchId(e.target.value)}
+              >
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
             )}
 
             <JournalResourceToggle
@@ -752,6 +800,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
               compact
             />
 
+            {canCreateAppointments && (
             <button
               type="button"
               onClick={() => openNew()}
@@ -759,6 +808,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
             >
               + Запись
             </button>
+            )}
           </div>
 
           {showGrid ? (
@@ -819,6 +869,24 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
         </p>
       )}
 
+      {!canEditAppointments && !canCreateAppointments && (
+        <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          Журнал доступен только для просмотра. Редактирование записей — в день смены с отметкой «Работает как админ».
+        </p>
+      )}
+
+      {journalReadOnlyOutsideScope && (
+        <p className="mt-4 rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-900">
+          Только просмотр и новые записи — редактирование доступно в ваших филиалах.
+        </p>
+      )}
+
+      {!canEditAppointments && canCreateAppointments && !journalReadOnlyOutsideScope && (
+        <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          Можно создавать новые записи; редактирование существующих недоступно.
+        </p>
+      )}
+
       {loading && staff.length === 0 ? (
         <p className="mt-8 text-slate-500">Загрузка…</p>
       ) : (
@@ -834,6 +902,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
           )}
           <div className="space-y-2">
             {sortedAppointments.length === 0 ? (
+              canCreateAppointments ? (
               <button
                 type="button"
                 onClick={() => openNew()}
@@ -842,6 +911,11 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
                 <p className="text-sm font-medium text-slate-700">Нет записей за этот день</p>
                 <p className="mt-1 text-xs text-lime-700">+ Создать запись</p>
               </button>
+              ) : (
+              <div className="w-full rounded-xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center">
+                <p className="text-sm font-medium text-slate-700">Нет записей за этот день</p>
+              </div>
+              )
             ) : (
               sortedAppointments.map((a) => {
                 const name =
@@ -851,7 +925,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
                   <button
                     key={a.id}
                     type="button"
-                    onClick={() => openEdit(a)}
+                    onClick={canEditAppointments ? () => openEdit(a) : undefined}
                     className="w-full touch-manipulation rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-left shadow-sm active:bg-slate-50"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -905,8 +979,8 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
               fillViewport={fillGridViewport}
               hideInactive={hideInactiveColumns}
               onHideInactiveChange={setHideInactiveColumns}
-              onSlotClick={openNew}
-              onAppointmentClick={openEdit}
+              onSlotClick={canCreateAppointments ? openNew : () => {}}
+              onAppointmentClick={canEditAppointments ? openEdit : () => {}}
               onOptimisticMove={applyOptimisticMove}
               onOptimisticResize={applyOptimisticResize}
               onMoved={() => {
@@ -1121,7 +1195,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
         )}
       </section>
 
-      {isCompactJournal && (
+      {isCompactJournal && canCreateAppointments && (
         <button
           type="button"
           onClick={() => openNew()}

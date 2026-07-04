@@ -35,6 +35,8 @@ export type ShiftData = {
     plannedEnd: string | null;
     actualStart: string | null;
     actualEnd: string | null;
+    employeeSubmittedAt?: string | null;
+    employeeSubmitComment?: string | null;
     memberName: string;
     branchName: string | null;
     role: string;
@@ -54,18 +56,29 @@ export type ShiftData = {
     startedAt: string;
     endedAt: string | null;
     isActive: boolean;
+    confirmedAt?: string | null;
   }[];
   baselineTasks?: {
     id: string;
     description: string;
     completed: boolean;
   }[];
-  summary: ShiftSummary;
+  checklistItems?: {
+    id: string;
+    label: string;
+    completed: boolean;
+  }[];
+  summary: ShiftSummary & {
+    inServicePanelMinutes?: number;
+    inServiceCount?: number;
+    unfinishedAppointmentCount?: number;
+    unconfirmedSpotMinutes?: number;
+  };
 };
 
 const statusLabel: Record<string, string> = {
   open: "Идёт",
-  closed: "Закрыта",
+  closed: "На проверке",
   approved: "Утверждена",
 };
 
@@ -87,6 +100,11 @@ export function ShiftReportCard({ data }: { data: ShiftData }) {
             {timeRange ? ` · ${timeRange}` : ""}
           </h3>
           <p className="text-xs text-slate-500">{statusLabel[shift.status] ?? shift.status}</p>
+          {shift.status === "closed" && (
+            <p className="text-xs text-amber-700">
+              {shift.employeeSubmittedAt ? "Подтверждено вами" : "Ожидает вашей проверки"}
+            </p>
+          )}
         </div>
         <p className="text-lg font-bold text-slate-900">
           {formatMoney(summary.totalAmount)} BYN

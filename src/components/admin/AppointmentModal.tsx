@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { APPOINTMENT_STATUS_OPTIONS, CANCEL_REASON_OPTIONS, type CancelReason } from "@/lib/appointment-status";
+import { APPOINTMENT_STATUS_OPTIONS, CANCEL_REASON_OPTIONS, type CancelReason, validateOperatorForCompletedStatus } from "@/lib/appointment-status";
 import {
   fromDatetimeLocalValue,
   todayDatetimeLocalValue,
@@ -59,6 +59,7 @@ type Service = {
   staff: { id: string; name: string }[];
 };
 type Staff = { id: string; name: string };
+type OperatorOption = { memberId: string; name: string };
 type MembershipOption = {
   id: string;
   externalCode: string;
@@ -99,6 +100,8 @@ type Props = {
     paymentMethod?: string | null;
     rentalItemId?: string | null;
     rentalQuantity?: number;
+    operatorMemberId?: string | null;
+    operatorMemberName?: string;
   };
 };
 
@@ -167,6 +170,10 @@ export function AppointmentModal({
   const [copyOpen, setCopyOpen] = useState(false);
   const [widgetSlug, setWidgetSlug] = useState("waketeam");
   const [freeSlotsOpen, setFreeSlotsOpen] = useState(false);
+  const [operatorMemberId, setOperatorMemberId] = useState("");
+  const [operatorOptions, setOperatorOptions] = useState<OperatorOption[]>([]);
+  const [operatorsLoading, setOperatorsLoading] = useState(false);
+  const operatorTouchedRef = useRef(false);
 
   function setQuotedPrice(value: number) {
     const rounded = Math.round(value * 100) / 100;
@@ -188,6 +195,7 @@ export function AppointmentModal({
     if (!open) return;
     setCopyOpen(false);
     priceTouchedRef.current = false;
+    operatorTouchedRef.current = Boolean(initial?.operatorMemberId);
     skipAutoPriceRef.current = Boolean(appointmentId && (totalPrice ?? 0) > 0);
     const initialPrice = totalPrice ?? 0;
     if (initialPrice > 0) {
@@ -227,6 +235,12 @@ export function AppointmentModal({
     setRentalQuantity(initial?.rentalQuantity && initial.rentalQuantity > 0 ? initial.rentalQuantity : 1);
     setRentalHint("");
     setMembershipOptions([]);
+    setOperatorMemberId(initial?.operatorMemberId ?? "");
+    setOperatorOptions(
+      initial?.operatorMemberId && initial?.operatorMemberName
+        ? [{ memberId: initial.operatorMemberId, name: initial.operatorMemberName }]
+        : [],
+    );
     setManualMembershipCode("");
     setManualMembershipError("");
     setClientLookupStatus("idle");
@@ -251,6 +265,8 @@ export function AppointmentModal({
     initial?.paymentMethod,
     initial?.rentalItemId,
     initial?.rentalQuantity,
+    initial?.operatorMemberId,
+    initial?.operatorMemberName,
     totalPrice,
     branches[0]?.id,
   ]);
@@ -364,6 +380,61 @@ export function AppointmentModal({
       })
       .finally(() => setServicesLoading(false));
   }, [branchId, open]);
+
+  useEffect(() => {
+    if (!branchId || !open) return;
+    setOperatorsLoading(true);
+    const q = new URLSearchParams({ branchId });
+    if (date) q.set("date", date);
+    adminFetch(`/api/admin/shift-resources?${q}`)
+      .then((r) => r.json())
+      .then((d) => {
+        const onShift: OperatorOption[] = (d.onShift ?? []).map(
+          (m: { memberId: string; name: string }) => ({
+            memberId: m.memberId,
+            name: m.name,
+          }),
+        );
+        const fallback: OperatorOption[] = (d.members ?? [])
+          .filter((m: { role: string }) => m.role === "branch_operator")
+          .map((m: { memberId: string; name: string }) => ({
+            memberId: m.memberId,
+            name: m.name,
+          }));
+        const list = onShift.length > 0 ? onShift : fallback;
+        setOperatorOptions((prev) => {
+          const merged = new Map<string, OperatorOption>();
+          for (const item of [...prev, ...list]) {
+            merged.set(item.memberId, item);
+          }
+          return [...merged.values()];
+        });
+      })
+      .catch(() => {})
+      .finally(() => setOperatorsLoading(false));
+  }, [branchId, open, date]);
+
+  useEffect(() => {
+    if (!open || operatorTouchedRef.current) return;
+    if (!branchId || !staffId || !date || !time) return;
+    const iso = fromDatetimeLocalValue(`${date}T${time}`);
+    if (!iso) return;
+
+    let cancelled = false;
+    adminFetch(
+      `/api/admin/appointments/operator-at?branchId=${encodeURIComponent(branchId)}&staffId=${encodeURIComponent(staffId)}&startAt=${encodeURIComponent(iso)}`,
+    )
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        setOperatorMemberId((d.operatorMemberId as string | null) ?? "");
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, branchId, staffId, date, time]);
 
   useEffect(() => {
     if (!branchId || !open) return;
@@ -538,6 +609,7 @@ export function AppointmentModal({
     if (t) setTime(t);
     if (pick.staffId) setStaffId(pick.staffId);
     if (pick.staffName) setStaffName(pick.staffName);
+    operatorTouchedRef.current = false;
     setFreeSlotsOpen(false);
   }
 
@@ -632,6 +704,11 @@ export function AppointmentModal({
       setError("Укажите дату и время");
       return;
     }
+    const operatorError = validateOperatorForCompletedStatus(status, operatorMemberId || null);
+    if (operatorError) {
+      setError(operatorError);
+      return;
+    }
     setLoading(true);
     setError("");
     const isoStart = fromDatetimeLocalValue(`${date}T${time}`);
@@ -655,6 +732,7 @@ export function AppointmentModal({
           paymentMethod: paymentMethod || null,
           rentalItemId: showRental && rentalItemId ? rentalItemId : null,
           rentalQuantity: showRental && rentalItemId ? rentalQuantity : 0,
+          operatorMemberId: operatorMemberId || null,
         });
         onClose();
         onSaved();
@@ -683,6 +761,7 @@ export function AppointmentModal({
           rentalItemId: showRental && rentalItemId ? rentalItemId : null,
           rentalQuantity: showRental && rentalItemId ? rentalQuantity : 0,
           price: priceValue,
+          operatorMemberId: operatorMemberId || null,
         }),
       });
       const data = await res.json();
@@ -796,6 +875,7 @@ export function AppointmentModal({
                   setStaffId(e.target.value);
                   const picked = staffOptions.find((s) => s.id === e.target.value);
                   setStaffName(picked?.name ?? "");
+                  operatorTouchedRef.current = false;
                 }}
                 className={inputClass}
                 required
@@ -809,6 +889,28 @@ export function AppointmentModal({
                 ))}
               </select>
             </div>
+          </div>
+          <div>
+            <label className={labelClass}>Оператор</label>
+            <select
+              value={operatorMemberId}
+              onChange={(e) => {
+                operatorTouchedRef.current = true;
+                setOperatorMemberId(e.target.value);
+              }}
+              className={inputClass}
+              disabled={!branchId || operatorsLoading}
+              required={status === "completed"}
+            >
+              <option value="">
+                {operatorsLoading ? "…" : "Не назначен"}
+              </option>
+              {operatorOptions.map((o) => (
+                <option key={o.memberId} value={o.memberId}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="space-y-2">
             <div>

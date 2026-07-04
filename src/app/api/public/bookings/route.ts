@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { enforcePublicWriteLimit } from "@/lib/public-api-guard";
+import { logAppointmentCreateOnline } from "@/lib/audit/appointment-audit";
+import { prisma } from "@/lib/db";
 import { createBooking } from "@/lib/slots/generateSlots";
 import { getOrganizationBySlug } from "@/lib/services-public";
 
@@ -63,6 +65,17 @@ export async function POST(req: NextRequest) {
       comment: body.comment,
       source: "widget",
     });
+
+    if ("id" in result && result.id) {
+      const appt = await prisma.appointment.findUnique({
+        where: { id: result.id },
+        include: { client: true, service: true, staff: true },
+      });
+      if (appt) {
+        logAppointmentCreateOnline(org.id, appt.branchId, appt);
+      }
+    }
+
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
     if (e instanceof Error && e.message === "SLOT_UNAVAILABLE") {

@@ -18,10 +18,13 @@ type AdminUser = {
   roleLabel: string;
   branchId: string | null;
   branchName: string | null;
+  managedBranchIds?: string[];
+  managedBranchNames?: string;
 };
 
-const ROLES = [
+const ALL_ROLES = [
   { value: "super_admin", label: "Супер-админ" },
+  { value: "branch_manager", label: "Управляющий филиалом" },
   { value: "branch_admin", label: "Админ филиала" },
   { value: "branch_operator", label: "Оператор филиала" },
 ] as const;
@@ -39,6 +42,7 @@ type FormState = {
   password: string;
   role: string;
   branchId: string;
+  branchIds: string[];
 };
 
 const emptyForm: FormState = {
@@ -51,12 +55,15 @@ const emptyForm: FormState = {
   password: "",
   role: "branch_operator",
   branchId: "",
+  branchIds: [],
 };
 
 export function UsersAdminPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [canManageUsers, setCanManageUsers] = useState(true);
+  const [canCreateManagers, setCanCreateManagers] = useState(false);
+  const [viewerRole, setViewerRole] = useState<string>("super_admin");
   const [canSetPayRates, setCanSetPayRates] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -76,6 +83,8 @@ export function UsersAdminPage() {
         setUsers(d.users ?? []);
         setBranches(d.branches ?? []);
         setCanManageUsers(d.canManageUsers ?? false);
+        setCanCreateManagers(d.canCreateManagers ?? false);
+        setViewerRole(d.viewerRole ?? "super_admin");
         setCanSetPayRates(d.canSetPayRates ?? false);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Ошибка"))
@@ -85,6 +94,12 @@ export function UsersAdminPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const availableRoles = ALL_ROLES.filter((r) => {
+    if (r.value === "branch_manager") return canCreateManagers;
+    if (r.value === "super_admin") return canCreateManagers;
+    return true;
+  });
 
   function startEdit(user: AdminUser) {
     setEditingId(user.id);
@@ -99,6 +114,7 @@ export function UsersAdminPage() {
       password: "",
       role: user.role === "admin" ? "super_admin" : user.role,
       branchId: user.branchId ?? "",
+      branchIds: user.managedBranchIds ?? [],
     });
     setMsg("");
   }
@@ -131,7 +147,11 @@ export function UsersAdminPage() {
       passportNumber: form.passportNumber.trim() || null,
       registrationAddress: form.registrationAddress.trim() || null,
       role: form.role,
-      branchId: form.role === "super_admin" ? null : form.branchId || null,
+      branchId:
+        form.role === "super_admin" || form.role === "branch_manager"
+          ? null
+          : form.branchId || null,
+      branchIds: form.role === "branch_manager" ? form.branchIds : undefined,
     };
     if (form.password.trim()) {
       payload.password = form.password;
@@ -219,7 +239,11 @@ export function UsersAdminPage() {
                     <td className="px-3 py-2">{u.name ?? "—"}</td>
                     <td className="px-3 py-2">{u.phone ?? "—"}</td>
                     <td className="px-3 py-2">{u.roleLabel}</td>
-                    <td className="px-3 py-2">{u.branchName ?? "Все"}</td>
+                    <td className="px-3 py-2">
+                      {u.role === "branch_manager"
+                        ? u.managedBranchNames || u.branchName || "—"
+                        : u.branchName ?? "Все"}
+                    </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       <button
                         type="button"
@@ -228,7 +252,7 @@ export function UsersAdminPage() {
                       >
                         {canManageUsers ? "Изменить" : "Тарифы"}
                       </button>
-                      {canManageUsers && (
+                      {canCreateManagers && (
                         <button
                           type="button"
                           onClick={() => void remove(u)}
@@ -335,14 +359,40 @@ export function UsersAdminPage() {
                   value={form.role}
                   onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
                 >
-                  {ROLES.map((r) => (
+                  {availableRoles.map((r) => (
                     <option key={r.value} value={r.value}>
                       {r.label}
                     </option>
                   ))}
                 </select>
               </label>
-              {form.role !== "super_admin" && (
+              {form.role === "branch_manager" && canCreateManagers && (
+                <label className="block sm:col-span-2">
+                  <span className="mb-1 block text-xs text-slate-500">
+                    Закреплённые филиалы
+                  </span>
+                  <div className="flex flex-wrap gap-2 rounded-lg border border-slate-300 p-2">
+                    {branches.map((b) => (
+                      <label key={b.id} className="flex items-center gap-1.5 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={form.branchIds.includes(b.id)}
+                          onChange={(e) => {
+                            setForm((f) => ({
+                              ...f,
+                              branchIds: e.target.checked
+                                ? [...f.branchIds, b.id]
+                                : f.branchIds.filter((id) => id !== b.id),
+                            }));
+                          }}
+                        />
+                        {b.name}
+                      </label>
+                    ))}
+                  </div>
+                </label>
+              )}
+              {form.role !== "super_admin" && form.role !== "branch_manager" && (
                 <label className="block">
                   <span className="mb-1 block text-xs text-slate-500">Филиал</span>
                   <select
@@ -369,7 +419,7 @@ export function UsersAdminPage() {
                   {[form.lastName, form.name].filter(Boolean).join(" ") || form.login}
                 </p>
                 <p className="text-slate-500">
-                  {ROLES.find((r) => r.value === form.role)?.label ?? form.role}
+                  {ALL_ROLES.find((r) => r.value === form.role)?.label ?? form.role}
                   {form.branchId
                     ? ` · ${branches.find((b) => b.id === form.branchId)?.name ?? ""}`
                     : ""}

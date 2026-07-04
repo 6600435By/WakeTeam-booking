@@ -2,20 +2,24 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
   canReviewShifts,
+  canApproveShift,
   handleAdminError,
   requireAdminContext,
   assertShiftSelfOrAdmin,
 } from "@/lib/admin-access";
 import { prisma } from "@/lib/db";
+import { approveShiftInternal } from "@/lib/payroll/approve-shift";
 import {
   enrichShiftResponse,
   SHIFT_INCLUDE,
   snapshotRatesOnClose,
 } from "@/lib/payroll/work-shift-service";
 import { saveBaselineCompletions } from "@/lib/payroll/shift-baseline-tasks";
+import { saveChecklistCompletions } from "@/lib/payroll/shift-checklist";
+import { logShiftClose } from "@/lib/audit/shift-audit";
 
 const patchSchema = z.object({
-  action: z.enum(["close", "assign_reverse"]).optional(),
+  action: z.enum(["close", "assign_reverse", "employee_submit"]).optional(),
   staffId: z.string().optional(),
   panelMinutesOverride: z.number().int().min(0).nullable().optional(),
   idleMinutesOverride: z.number().int().min(0).nullable().optional(),
@@ -23,6 +27,8 @@ const patchSchema = z.object({
   actualEnd: z.string().datetime().optional(),
   comment: z.string().optional(),
   baselineCompletedTaskIds: z.array(z.string()).optional(),
+  checklistCompletedItemIds: z.array(z.string()).optional(),
+  employeeSubmitComment: z.string().optional(),
 });
 
 export async function PATCH(
@@ -76,6 +82,21 @@ export async function PATCH(
           body.baselineCompletedTaskIds,
         );
       }
+      try {
+        await saveChecklistCompletions(
+          shift.id,
+          shift.memberId,
+          body.checklistCompletedItemIds ?? [],
+        );
+      } catch (err) {
+        if (err instanceof Error && err.message === "CHECKLIST_INCOMPLETE") {
+          return NextResponse.json(
+            { error: "Отметьте все пункты чеклиста филиала" },
+            { status: 400 },
+          );
+        }
+        throw err;
+      }
       const updated = await prisma.workShift.update({
         where: { id },
         data: {
@@ -85,6 +106,38 @@ export async function PATCH(
         },
         include: SHIFT_INCLUDE,
       });
+
+      const branchName =
+        updated.member.branch?.name ??
+        (
+          await prisma.branch.findUnique({
+            where: { id: updated.branchId },
+            select: { name: true },
+          })
+        )?.name ??
+        "филиал";
+      logShiftClose(ctx, {
+        shiftId: updated.id,
+        branchId: updated.branchId,
+        memberUser: updated.member.user,
+        branchName,
+        actualEnd: updated.actualEnd ?? new Date(),
+      });
+
+      if (
+        ctx.isBranchManager &&
+        shift.memberId === ctx.memberId
+      ) {
+        const approved = await approveShiftInternal(
+          id,
+          ctx.memberId,
+          "Автоутверждение при закрытии смены управляющим",
+        );
+        if (approved) {
+          return NextResponse.json(await enrichShiftResponse(approved));
+        }
+      }
+
       return NextResponse.json(await enrichShiftResponse(updated));
     }
 
@@ -119,13 +172,41 @@ export async function PATCH(
       return NextResponse.json(await enrichShiftResponse(updated!));
     }
 
+    if (body.action === "employee_submit") {
+      if (shift.memberId !== ctx.memberId) {
+        return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
+      }
+      if (shift.status !== "closed") {
+        return NextResponse.json(
+          { error: "Подтвердить можно только закрытую смену" },
+          { status: 400 },
+        );
+      }
+      const updated = await prisma.workShift.update({
+        where: { id },
+        data: {
+          employeeSubmittedAt: new Date(),
+          employeeSubmitComment: body.employeeSubmitComment?.trim() || null,
+        },
+        include: SHIFT_INCLUDE,
+      });
+      return NextResponse.json(await enrichShiftResponse(updated));
+    }
+
+    const canAdjust =
+      ctx.isSuperAdmin ||
+      canApproveShift(ctx, shift.member.role, shift.branchId);
+
     if (
       body.panelMinutesOverride !== undefined ||
       body.idleMinutesOverride !== undefined ||
       body.actualStart ||
       body.actualEnd
     ) {
-      if (!canReviewShifts(ctx) && shift.status === "approved") {
+      if (!canAdjust) {
+        return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
+      }
+      if (shift.status === "approved" && !ctx.isSuperAdmin) {
         return NextResponse.json({ error: "Смена утверждена" }, { status: 400 });
       }
       if (!body.comment?.trim()) {

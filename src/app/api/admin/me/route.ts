@@ -1,5 +1,13 @@
 import { NextResponse } from "next/server";
-import { getAdminContext, handleAdminError, canManageUsers, canSetPayRates, canViewStaffUsers } from "@/lib/admin-access";
+import {
+  getAdminContext,
+  canEditJournalAppointments,
+  canAssignShiftOnDuty,
+  canManageUsers,
+  canSetPayRates,
+  canViewStaffUsers,
+  handleAdminError,
+} from "@/lib/admin-access";
 
 export async function GET() {
   try {
@@ -19,8 +27,15 @@ export async function GET() {
       branchId: ctx.branchId,
       branchName: ctx.branchName,
       isSuperAdmin: ctx.isSuperAdmin,
+      isBranchManager: ctx.isBranchManager,
       isBranchAdmin: ctx.isBranchAdmin,
       isBranchOperator: ctx.isBranchOperator,
+      managedBranchIds: ctx.managedBranchIds,
+      workAsAdminElevated: ctx.workAsAdminElevated,
+      managerOnDutyElevated: ctx.managerOnDutyElevated,
+      managerOnDutyBranchId: ctx.managerOnDutyBranchId,
+      canEditJournal: canEditJournalAppointments(ctx),
+      canAssignShiftOnDuty: canAssignShiftOnDuty(ctx),
       canManageUsers: canManageUsers(ctx),
       canSetPayRates: canSetPayRates(ctx),
       canViewStaffUsers: canViewStaffUsers(ctx),

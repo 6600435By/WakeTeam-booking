@@ -1,8 +1,18 @@
 import type { MemberPayRate } from "@prisma/client";
+import { BRANCH_MANAGER_ROLE } from "@/lib/admin-roles";
 
-export type PayRateKind = "panel" | "spot" | "idle" | "shift";
+export type PayRateKind = "panel" | "spot" | "idle" | "shift" | "monthly" | "other";
 
 export type RatesMap = Partial<Record<PayRateKind, number>>;
+
+const ALL_KINDS: PayRateKind[] = [
+  "panel",
+  "spot",
+  "idle",
+  "shift",
+  "monthly",
+  "other",
+];
 
 export function parseRatesSnapshot(json: string | null | undefined): RatesMap {
   if (!json) return {};
@@ -22,8 +32,7 @@ export function resolveRatesForDate(
   date: string,
 ): RatesMap {
   const result: RatesMap = {};
-  const kinds: PayRateKind[] = ["panel", "spot", "idle", "shift"];
-  for (const kind of kinds) {
+  for (const kind of ALL_KINDS) {
     const match = rates
       .filter((r) => r.kind === kind)
       .filter(
@@ -45,12 +54,19 @@ export function adminRateKinds(): PayRateKind[] {
   return ["shift"];
 }
 
+export function managerRateKinds(): PayRateKind[] {
+  return ["panel", "spot", "idle", "shift", "monthly", "other"];
+}
+
 /** Тарифы, доступные для назначения сотруднику по его роли. */
 export function allowedPayRateKindsForMemberRole(
   role: string | null | undefined,
 ): PayRateKind[] {
   if (role === "super_admin" || role === "admin") {
-    return ["panel", "spot", "idle", "shift"];
+    return ["panel", "spot", "idle", "shift", "monthly", "other"];
+  }
+  if (role === BRANCH_MANAGER_ROLE) {
+    return managerRateKinds();
   }
   if (role === "branch_admin") {
     return adminRateKinds();
@@ -71,5 +87,25 @@ export function rateKindLabel(kind: PayRateKind): string {
       return "Простой";
     case "shift":
       return "Смена";
+    case "monthly":
+      return "Оклад (месяц)";
+    case "other":
+      return "Другое";
   }
+}
+
+export function resolveMonthlyRateForPeriod(
+  rates: MemberPayRate[],
+  periodFrom: string,
+  periodTo: string,
+): number | null {
+  const inPeriod = rates
+    .filter((r) => r.kind === "monthly")
+    .filter(
+      (r) =>
+        r.effectiveFrom <= periodTo &&
+        (!r.effectiveTo || r.effectiveTo >= periodFrom),
+    )
+    .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0];
+  return inPeriod?.amount ?? null;
 }

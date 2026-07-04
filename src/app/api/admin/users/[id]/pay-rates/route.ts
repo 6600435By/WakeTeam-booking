@@ -20,7 +20,7 @@ function dayBefore(date: string): string {
 }
 
 const createSchema = z.object({
-  kind: z.enum(["panel", "spot", "idle", "shift"]),
+  kind: z.enum(["panel", "spot", "idle", "shift", "monthly", "other"]),
   amount: z.number().positive(),
   effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });

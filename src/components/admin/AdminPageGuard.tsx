@@ -2,10 +2,10 @@
 
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
-
-type AdminRole = "super_admin" | "branch_admin" | "branch_operator";
+import type { AdminRole } from "@/lib/admin-roles";
 
 const SUPER_ADMIN_ROLE = "super_admin";
+const BRANCH_MANAGER_ROLE = "branch_manager";
 const BRANCH_ADMIN_ROLE = "branch_admin";
 
 type Props = {
@@ -14,12 +14,15 @@ type Props = {
 };
 
 function isAllowed(pathname: string, role: AdminRole) {
+  if (pathname.startsWith("/admin/logs")) {
+    return role === SUPER_ADMIN_ROLE;
+  }
   if (role === SUPER_ADMIN_ROLE) return true;
+  if (role === BRANCH_MANAGER_ROLE) {
+    return !pathname.startsWith("/admin/widget");
+  }
   if (role === BRANCH_ADMIN_ROLE) {
-    return (
-      !pathname.startsWith("/admin/widget") &&
-      !pathname.startsWith("/admin/shift-review")
-    );
+    return !pathname.startsWith("/admin/widget");
   }
   return (
     pathname.startsWith("/admin/journal") ||

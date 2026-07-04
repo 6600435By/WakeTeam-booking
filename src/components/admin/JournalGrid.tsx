@@ -311,7 +311,7 @@ export function JournalGrid({
     const list = catalogStaff(
       staff.filter((s) => !branchId || s.branchId === branchId),
     );
-    let filtered = list.filter((s) =>
+    const filtered = list.filter((s) =>
       staffMatchesResourceFilter(s, resourceKind, staffLinks),
     );
     if (!hideInactive) return filtered;
@@ -1100,7 +1100,7 @@ export function JournalGrid({
                         </div>
                         <div
                           data-resize-handle
-                          className="absolute inset-x-0 bottom-0 z-[2] h-3.5 min-h-[14px] cursor-ns-resize bg-black/10 hover:bg-sky-500/35 active:bg-sky-500/45"
+                          className="group/resize absolute inset-x-0 bottom-0 z-[2] flex h-1.5 max-h-[22%] items-end cursor-ns-resize hover:bg-sky-500/10"
                           title="Потяните для изменения длительности"
                           onPointerDown={(e) => {
                             if (e.button !== 0) return;
@@ -1124,7 +1124,9 @@ export function JournalGrid({
                             setPointerStart(null);
                             setDrag(null);
                           }}
-                        />
+                        >
+                          <div className="h-px w-full bg-black/20 group-hover/resize:bg-sky-500/40" />
+                        </div>
                       </div>
                     );
                   })}

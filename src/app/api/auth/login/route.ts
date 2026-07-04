@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createSession, SESSION_COOKIE, sessionCookieOptions, verifyUser } from "@/lib/auth";
+import { fireAdminActivityLog } from "@/lib/audit/admin-activity-log";
+import { prisma } from "@/lib/db";
 import { enforceLoginLimit } from "@/lib/public-api-guard";
 import { rateLimitResponse } from "@/lib/rate-limit";
+import { staffDisplayName } from "@/lib/staff-user";
 
 const schema = z.object({
   login: z.string().min(1),
@@ -31,6 +34,19 @@ export async function POST(req: NextRequest) {
     }
     const secure = req.nextUrl.protocol === "https:";
     const token = await createSession(user.id);
+    const membership = await prisma.organizationMember.findFirst({
+      where: { userId: user.id },
+      select: { id: true, organizationId: true },
+    });
+    if (membership) {
+      fireAdminActivityLog({
+        organizationId: membership.organizationId,
+        action: "login",
+        actorMemberId: membership.id,
+        actorName: staffDisplayName(user),
+        summary: `Вход: ${user.login}`,
+      });
+    }
     const target = safeRedirectPath(body.from);
     const response = NextResponse.redirect(new URL(target, req.url));
     response.cookies.set(SESSION_COOKIE, token, sessionCookieOptions(secure));

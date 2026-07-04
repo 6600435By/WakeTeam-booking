@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
-  assertServiceAccess,
-  assertStaffAccess,
+  assertJournalCreateAccess,
+  assertServiceJournalAccess,
+  assertStaffJournalAccess,
   handleAdminError,
   requireAdminContext,
-  resolveBranchFilter,
+  resolveJournalBranchFilter,
 } from "@/lib/admin-access";
 import { finalizeAdminAppointmentCreate } from "@/lib/admin/appointment-mutations";
+import { logAppointmentCreate } from "@/lib/audit/appointment-audit";
 import { prisma } from "@/lib/db";
+import { resolveDefaultOperatorMemberId } from "@/lib/payroll/resolve-appointment-operator";
 import { createBooking } from "@/lib/slots/generateSlots";
 import { formatDateKey, parseTimeOnDate } from "@/lib/time";
 
@@ -37,6 +40,7 @@ const createSchema = z.object({
   price: z.number().nonnegative().optional(),
   rentalItemId: z.string().nullable().optional(),
   rentalQuantity: z.number().int().nonnegative().optional(),
+  operatorMemberId: z.string().nullable().optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -44,7 +48,7 @@ export async function GET(req: NextRequest) {
     const ctx = await requireAdminContext();
     const from = req.nextUrl.searchParams.get("from");
     const to = req.nextUrl.searchParams.get("to");
-    const branchId = resolveBranchFilter(
+    const branchId = resolveJournalBranchFilter(
       ctx,
       req.nextUrl.searchParams.get("branchId"),
     );
@@ -64,7 +68,17 @@ export async function GET(req: NextRequest) {
         startAt: { gte: dayStart, lt: dayEnd },
         ...(branchId ? { branchId } : {}),
       },
-      include: { client: true, service: true, staff: true, rentalItem: true },
+      include: {
+        client: true,
+        service: true,
+        staff: true,
+        rentalItem: true,
+        operatorMember: {
+          include: {
+            user: { select: { name: true, lastName: true, login: true, email: true } },
+          },
+        },
+      },
       orderBy: { startAt: "desc" },
     });
     return NextResponse.json({ appointments });
@@ -81,10 +95,19 @@ export async function POST(req: NextRequest) {
   try {
     const ctx = await requireAdminContext();
     const body = createSchema.parse(await req.json());
-    await assertServiceAccess(ctx, body.serviceId);
-    await assertStaffAccess(ctx, body.staffId);
+    await assertServiceJournalAccess(ctx, body.serviceId);
+    await assertStaffJournalAccess(ctx, body.staffId);
 
-    const { membershipId, paymentMethod, status: desiredStatus, rentalItemId, rentalQuantity, ...bookingBody } = body;
+    const staff = await prisma.staff.findUnique({
+      where: { id: body.staffId },
+      select: { branchId: true },
+    });
+    if (!staff) {
+      return NextResponse.json({ error: "Реверс не найден" }, { status: 404 });
+    }
+    assertJournalCreateAccess(ctx, staff.branchId);
+
+    const { membershipId, paymentMethod, status: desiredStatus, rentalItemId, rentalQuantity, operatorMemberId, ...bookingBody } = body;
 
     const result = await createBooking(
       {
@@ -94,6 +117,18 @@ export async function POST(req: NextRequest) {
       },
       { skipSlotCheck: true },
     );
+
+    const startAt = new Date(bookingBody.startAt);
+    const resolvedOperatorId =
+      operatorMemberId !== undefined
+        ? operatorMemberId
+        : await resolveDefaultOperatorMemberId(staff.branchId, body.staffId, startAt);
+    if (resolvedOperatorId) {
+      await prisma.appointment.update({
+        where: { id: result.id },
+        data: { operatorMemberId: resolvedOperatorId },
+      });
+    }
 
     try {
       await finalizeAdminAppointmentCreate(result.id, {
@@ -117,8 +152,11 @@ export async function POST(req: NextRequest) {
 
     const appt = await prisma.appointment.findUnique({
       where: { id: result.id },
-      include: { client: true, service: true, staff: true, membership: true },
+      include: { client: true, service: true, staff: true, membership: true, operatorMember: { include: { user: { select: { name: true, lastName: true, login: true, email: true } } } } },
     });
+    if (appt) {
+      logAppointmentCreate(ctx, appt);
+    }
     return NextResponse.json({ ok: true, appointment: appt, publicNumber: result.publicNumber });
   } catch (e) {
     if (e instanceof Error && e.message === "SLOT_UNAVAILABLE") {

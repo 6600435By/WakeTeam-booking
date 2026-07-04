@@ -43,7 +43,9 @@ export function ShiftTomorrowBanner() {
       <p className="font-medium text-violet-900">
         {dayLabel}: смена {time ? ` ${time}` : ""}
         {shift.workAsAdmin
-          ? " · как админ"
+          ? shift.plannedStaffName
+            ? ` · ${shift.plannedStaffName} · доступ админа`
+            : " · доступ админа"
           : shift.plannedStaffName
             ? ` · реверс ${shift.plannedStaffName}`
             : ""}

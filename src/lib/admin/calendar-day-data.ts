@@ -1,7 +1,11 @@
 import {
   branchListWhere,
   type AdminContext,
-  resolveBranchFilter,
+  canCreateJournalInBranch,
+  canEditJournalInBranch,
+  canEditJournalAppointments,
+  isInManagementScope,
+  resolveJournalBranchFilter,
 } from "@/lib/admin-access";
 import { JOURNAL_HIDDEN_STATUSES } from "@/lib/appointment-status";
 import { isLegacyTariffServiceName } from "@/lib/admin/service-catalog";
@@ -23,6 +27,11 @@ const appointmentDayInclude = {
   service: true,
   staff: true,
   rentalItem: true,
+  operatorMember: {
+    include: {
+      user: { select: { name: true, lastName: true, login: true, email: true } },
+    },
+  },
 } as const;
 
 export async function queryCalendarDayAppointments(
@@ -30,7 +39,7 @@ export async function queryCalendarDayAppointments(
   date: string,
   requestedBranchId?: string | null,
 ) {
-  const branchId = resolveBranchFilter(ctx, requestedBranchId);
+  const branchId = resolveJournalBranchFilter(ctx, requestedBranchId);
   const { dayStart, dayEnd } = dayBounds(date);
 
   return prisma.appointment.findMany({
@@ -50,7 +59,7 @@ export async function queryCalendarDay(
   date: string,
   requestedBranchId?: string | null,
 ) {
-  const branchId = resolveBranchFilter(ctx, requestedBranchId);
+  const branchId = resolveJournalBranchFilter(ctx, requestedBranchId);
 
   const { dayStart, dayEnd } = dayBounds(date);
 
@@ -66,7 +75,10 @@ export async function queryCalendarDay(
     }),
     queryCalendarDayAppointments(ctx, date, requestedBranchId),
     prisma.branch.findMany({
-      where: branchListWhere(ctx),
+      where:
+        ctx.isSuperAdmin || ctx.isBranchManager
+          ? { organizationId: ctx.organizationId, isActive: true }
+          : branchListWhere(ctx),
       orderBy: { sortOrder: "asc" },
       select: { id: true, name: true },
     }),
@@ -100,6 +112,19 @@ export async function queryCalendarDay(
       role: ctx.role,
       branchId: ctx.branchId,
       isSuperAdmin: ctx.isSuperAdmin,
+      isBranchManager: ctx.isBranchManager,
+      managedBranchIds: ctx.managedBranchIds,
+      canEditAppointments: canEditJournalAppointments(ctx),
+      canEditAppointmentsInBranch: branchId
+        ? canEditJournalInBranch(ctx, branchId)
+        : canEditJournalAppointments(ctx),
+      canCreateAppointmentsInBranch: branchId
+        ? canCreateJournalInBranch(ctx, branchId)
+        : true,
+      journalReadOnlyOutsideScope:
+        ctx.isBranchManager &&
+        Boolean(branchId) &&
+        !isInManagementScope(ctx, branchId!),
     },
   };
 }
@@ -110,7 +135,7 @@ export async function queryAppointmentsList(
   to: string,
   requestedBranchId?: string | null,
 ) {
-  const branchId = resolveBranchFilter(ctx, requestedBranchId);
+  const branchId = resolveJournalBranchFilter(ctx, requestedBranchId);
   const dayStart = parseTimeOnDate(from, "00:00");
   const toDate = parseTimeOnDate(to, "12:00");
   toDate.setDate(toDate.getDate() + 1);
@@ -128,6 +153,11 @@ export async function queryAppointmentsList(
       service: true,
       staff: true,
       rentalItem: true,
+      operatorMember: {
+        include: {
+          user: { select: { name: true, lastName: true, login: true, email: true } },
+        },
+      },
     },
     orderBy: { startAt: "desc" },
   });
@@ -138,6 +168,17 @@ export function resolveInitialBranchId(
   branches: { id: string }[],
   requested?: string,
 ): string {
+  if (ctx.isBranchManager) {
+    if (requested && branches.some((b) => b.id === requested)) return requested;
+    if (ctx.branchId && branches.some((b) => b.id === ctx.branchId)) {
+      return ctx.branchId;
+    }
+    const scoped = ctx.managedBranchIds.find((id) =>
+      branches.some((b) => b.id === id),
+    );
+    if (scoped) return scoped;
+    return branches[0]?.id ?? "";
+  }
   if (!ctx.isSuperAdmin && ctx.branchId) return ctx.branchId;
   if (requested && branches.some((b) => b.id === requested)) return requested;
   return branches[0]?.id ?? "";

@@ -1,52 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
-  canReviewShifts,
+  canApproveShift,
   handleAdminError,
   requireAdminContext,
 } from "@/lib/admin-access";
 import { prisma } from "@/lib/db";
 import {
-  SHIFT_INCLUDE,
-  snapshotRatesOnClose,
-} from "@/lib/payroll/work-shift-service";
+  approveShiftInternal,
+  closeShiftForReview,
+} from "@/lib/payroll/approve-shift";
+import { SHIFT_INCLUDE } from "@/lib/payroll/work-shift-service";
 
 const schema = z.object({
   comment: z.string().min(1),
   closeIfOpen: z.boolean().optional(),
 });
-
-async function closeShiftForReview(shiftId: string) {
-  const shift = await prisma.workShift.findUnique({
-    where: { id: shiftId },
-    include: SHIFT_INCLUDE,
-  });
-  if (!shift || shift.status !== "open") return shift;
-
-  const activeSpot = shift.spotEntries.find((e) => e.isActive);
-  if (activeSpot) {
-    await prisma.spotWorkEntry.update({
-      where: { id: activeSpot.id },
-      data: { isActive: false, endedAt: new Date() },
-    });
-  }
-  const openAssign = shift.reverseAssignments.find((a) => !a.endedAt);
-  if (openAssign) {
-    await prisma.reverseAssignment.update({
-      where: { id: openAssign.id },
-      data: { endedAt: new Date() },
-    });
-  }
-  const ratesSnapshot = await snapshotRatesOnClose(shift.memberId, shift.date);
-  return prisma.workShift.update({
-    where: { id: shiftId },
-    data: {
-      status: "closed",
-      actualEnd: shift.actualEnd ?? new Date(),
-      ratesSnapshot,
-    },
-  });
-}
 
 export async function POST(
   req: NextRequest,
@@ -54,15 +23,19 @@ export async function POST(
 ) {
   try {
     const ctx = await requireAdminContext();
-    if (!canReviewShifts(ctx)) {
-      return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
-    }
     const { id } = await params;
     const body = schema.parse(await req.json());
 
-    let shift = await prisma.workShift.findUnique({ where: { id } });
+    let shift = await prisma.workShift.findUnique({
+      where: { id },
+      include: { member: { select: { role: true } } },
+    });
     if (!shift || shift.organizationId !== ctx.organizationId) {
       return NextResponse.json({ error: "Не найдено" }, { status: 404 });
+    }
+
+    if (!canApproveShift(ctx, shift.member.role, shift.branchId)) {
+      return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
     }
 
     if (shift.status === "open") {
@@ -72,7 +45,11 @@ export async function POST(
           { status: 400 },
         );
       }
-      shift = await closeShiftForReview(id);
+      await closeShiftForReview(id);
+      shift = await prisma.workShift.findUnique({
+        where: { id },
+        include: { member: { select: { role: true } } },
+      });
       if (!shift) {
         return NextResponse.json({ error: "Не удалось закрыть смену" }, { status: 400 });
       }
@@ -85,22 +62,10 @@ export async function POST(
       );
     }
 
-    await prisma.shiftAdjustment.create({
-      data: {
-        shiftId: id,
-        field: "status",
-        oldValue: shift.status,
-        newValue: "approved",
-        comment: body.comment,
-        createdByMemberId: ctx.memberId,
-      },
-    });
-
-    const updated = await prisma.workShift.update({
-      where: { id },
-      data: { status: "approved" },
-      include: SHIFT_INCLUDE,
-    });
+    const updated = await approveShiftInternal(id, ctx.memberId, body.comment);
+    if (!updated) {
+      return NextResponse.json({ error: "Не удалось утвердить смену" }, { status: 400 });
+    }
 
     return NextResponse.json({ ok: true, status: updated.status });
   } catch (e) {

@@ -33,6 +33,7 @@ import {
 import {
   buildStaffSchedulesFromService,
 } from "@/lib/admin/service-staff-schedule";
+import { ShiftChecklistEditor } from "./shift/ShiftChecklistEditor";
 
 type ScheduleRow = {
   weekday: number;
@@ -907,6 +908,8 @@ export function BranchEditor({ branchId }: Props) {
           </button>
         </div>
       </section>
+
+      <ShiftChecklistEditor branchId={branchId} />
     </div>
   );
 }

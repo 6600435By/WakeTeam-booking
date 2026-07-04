@@ -62,6 +62,7 @@ describe("widget tariffs visibility", () => {
     assert.equal(
       shouldShowWidgetTariffs({
         allowedDurations: "30,60",
+        durationMinutes: 30,
         priceRules: [],
       }),
       true,

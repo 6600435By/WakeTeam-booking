@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { formatMinutesLabel } from "@/lib/calendar-grid";
+import { useSuperAdminBranchOptional } from "@/components/admin/SuperAdminBranchProvider";
 import { ShiftReportCard, type ShiftData } from "./ShiftReportCard";
 import { ShiftPayrollPanel } from "./ShiftPayrollPanel";
 
@@ -31,10 +32,22 @@ function reviewStatusLabel(status: string): string {
   return status;
 }
 
-export function ShiftReviewPage() {
+export function ShiftReviewPage({
+  usesBranchPicker = true,
+  branchId: fixedBranchId = null,
+}: {
+  usesBranchPicker?: boolean;
+  branchId?: string | null;
+}) {
+  const superBranch = useSuperAdminBranchOptional();
   const [tab, setTab] = useState<ReviewTab>("payroll");
   const [reviewFrom, setReviewFrom] = useState("2026-06-01");
   const [reviewTo, setReviewTo] = useState("2026-06-30");
+  const [reviewBranchId, setReviewBranchId] = useState(
+    () => fixedBranchId ?? superBranch?.branchId ?? "",
+  );
+  const [employees, setEmployees] = useState<{ memberId: string; name: string }[]>([]);
+  const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set());
   const [shifts, setShifts] = useState<EnrichedShift[]>([]);
   const [selected, setSelected] = useState<EnrichedShift | null>(null);
   const [loading, setLoading] = useState(true);
@@ -58,6 +71,54 @@ export function ShiftReviewPage() {
   >([]);
   const [baselineLoading, setBaselineLoading] = useState(false);
 
+  const memberIdsKey = [...selectedMembers].sort().join(",");
+
+  useEffect(() => {
+    if (usesBranchPicker && superBranch?.branchId && superBranch.branchId !== reviewBranchId) {
+      setReviewBranchId(superBranch.branchId);
+      setSelectedMembers(new Set());
+    }
+  }, [usesBranchPicker, superBranch?.branchId, reviewBranchId]);
+
+  useEffect(() => {
+    if (!fixedBranchId && usesBranchPicker) return;
+    const bid = fixedBranchId ?? reviewBranchId;
+    if (!bid) {
+      setEmployees([]);
+      return;
+    }
+    fetch(`/api/admin/shift-resources?branchId=${bid}`)
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) return;
+        setEmployees(
+          (d.members ?? []).map((m: { memberId: string; name: string }) => ({
+            memberId: m.memberId,
+            name: m.name,
+          })),
+        );
+      })
+      .catch(() => setEmployees([]));
+  }, [fixedBranchId, usesBranchPicker, reviewBranchId]);
+
+  function applyReviewBranch(id: string) {
+    setReviewBranchId(id);
+    setSelectedMembers(new Set());
+    if (usesBranchPicker && id) superBranch?.setBranchId(id);
+  }
+
+  function toggleMember(id: string) {
+    setSelectedMembers((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const allMembersSelected =
+    employees.length > 0 && selectedMembers.size === employees.length;
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -66,6 +127,11 @@ export function ShiftReviewPage() {
       from: reviewFrom,
       to: reviewTo,
     });
+    const bid = fixedBranchId ?? reviewBranchId;
+    if (bid) q.set("branchId", bid);
+    if (selectedMembers.size > 0) {
+      q.set("memberIds", memberIdsKey);
+    }
     const r = await fetch(`/api/admin/work-shifts?${q}`);
     const d = await r.json();
     if (!r.ok) {
@@ -78,7 +144,7 @@ export function ShiftReviewPage() {
       setSelected((prev) => list.find((s) => s.shift.id === prev?.shift.id) ?? list[0] ?? null);
     }
     setLoading(false);
-  }, [reviewFrom, reviewTo]);
+  }, [reviewFrom, reviewTo, fixedBranchId, reviewBranchId, memberIdsKey, selectedMembers.size]);
 
   useEffect(() => {
     if (tab === "review") void load();
@@ -340,7 +406,79 @@ export function ShiftReviewPage() {
                   onChange={(e) => setReviewTo(e.target.value)}
                 />
               </label>
+              {usesBranchPicker && (superBranch?.branches.length ?? 0) > 0 && (
+                <label className="block sm:col-span-2">
+                  <span className="mb-1 block text-xs text-slate-500">Филиал</span>
+                  <select
+                    className={inputClass}
+                    value={reviewBranchId}
+                    onChange={(e) => applyReviewBranch(e.target.value)}
+                  >
+                    <option value="">Все филиалы</option>
+                    {superBranch!.branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
+
+            {employees.length > 0 && (
+              <div className="mt-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-600">Сотрудники</span>
+                  <button
+                    type="button"
+                    className="text-xs text-lime-700 hover:underline"
+                    onClick={() =>
+                      setSelectedMembers(
+                        allMembersSelected
+                          ? new Set()
+                          : new Set(employees.map((e) => e.memberId)),
+                      )
+                    }
+                  >
+                    {allMembersSelected ? "Снять все" : "Выбрать все"}
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {employees.map((e) => {
+                    const active = selectedMembers.has(e.memberId);
+                    return (
+                      <label
+                        key={e.memberId}
+                        className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm ${
+                          active
+                            ? "border-lime-600 bg-lime-50 text-lime-900"
+                            : "border-slate-200 text-slate-700"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="sr-only"
+                          checked={active}
+                          onChange={() => toggleMember(e.memberId)}
+                        />
+                        {e.name}
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  Пустой выбор — все сотрудники филиала
+                </p>
+              </div>
+            )}
+
+            <button
+              type="button"
+              className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white"
+              onClick={() => void load()}
+            >
+              Обновить
+            </button>
           </div>
 
           {error && (

@@ -183,6 +183,7 @@ export async function saveAppointmentEdit(params: {
   paymentMethod?: "cash" | "card" | "corporate" | null;
   rentalItemId?: string | null;
   rentalQuantity?: number;
+  operatorMemberId?: string | null;
 }): Promise<void> {
   const createTemplate: CreateTemplate = {
     serviceId: params.newServiceId,
@@ -210,11 +211,12 @@ export async function saveAppointmentEdit(params: {
       paymentMethod: params.paymentMethod ?? null,
       rentalItemId: params.rentalItemId ?? null,
       rentalQuantity: params.rentalQuantity ?? 0,
+      operatorMemberId: params.operatorMemberId ?? null,
     });
     return;
   }
 
-  let group = await resizeGroupAppointments(
+  const group = await resizeGroupAppointments(
     params.group,
     params.newDuration,
     createTemplate,
@@ -244,8 +246,9 @@ export async function saveAppointmentEdit(params: {
               paymentMethod: params.paymentMethod ?? null,
               rentalItemId: params.rentalItemId ?? null,
               rentalQuantity: params.rentalQuantity ?? 0,
+              operatorMemberId: params.operatorMemberId ?? null,
             }
-          : {}),
+          : { operatorMemberId: params.operatorMemberId ?? null }),
       }),
     ),
   );

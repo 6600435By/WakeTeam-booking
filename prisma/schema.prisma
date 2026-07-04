@@ -48,8 +48,39 @@ model OrganizationMember {
   spotTasksAssigned SpotTask[] @relation("SpotTaskAssignee")
   spotTasksCreated  SpotTask[] @relation("SpotTaskAssigner")
   shiftChangeRequests ShiftChangeRequest[]
+  branchScopes   MemberBranchScope[]
+  payrollMonthlyAccruals PayrollMonthlyAccrual[]
+  operatorAppointments Appointment[] @relation("AppointmentOperator")
 
   @@unique([organizationId, userId])
+}
+
+model MemberBranchScope {
+  id       String @id @default(cuid())
+  memberId String
+  branchId String
+  member   OrganizationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, branchId])
+  @@index([branchId])
+}
+
+model PayrollMonthlyAccrual {
+  id                  String   @id @default(cuid())
+  organizationId      String
+  memberId            String
+  periodFrom          String
+  periodTo            String
+  suggestedAmount     Float
+  confirmedAmount     Float?
+  comment             String?
+  confirmedAt         DateTime?
+  confirmedByMemberId String?
+  member              OrganizationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, periodFrom, periodTo])
+  @@index([organizationId, periodFrom, periodTo])
 }
 
 model Branch {
@@ -68,6 +99,7 @@ model Branch {
   services       Service[]
   rentalItems    BranchRentalItem[]
   members        OrganizationMember[]
+  memberScopes   MemberBranchScope[]
 }
 
 model BranchRentalItem {
@@ -101,6 +133,7 @@ model Staff {
   appointments   Appointment[]
   reverseAssignments ReverseAssignment[]
   plannedWorkShifts  WorkShift[] @relation("PlannedReverse")
+  shiftPlannedReverses WorkShiftPlannedReverse[] @relation("ShiftPlannedReverses")
 }
 
 /// weekday: 1 = Monday … 7 = Sunday
@@ -213,6 +246,8 @@ model Appointment {
   rentalItem                BranchRentalItem? @relation(fields: [rentalItemId], references: [id], onDelete: SetNull)
   rentalQuantity            Int         @default(0)
   rentalAmount              Float       @default(0)
+  operatorMemberId          String?
+  operatorMember            OrganizationMember? @relation("AppointmentOperator", fields: [operatorMemberId], references: [id], onDelete: SetNull)
 
   @@unique([staffId, startAt])
   @@index([startAt])
@@ -293,15 +328,19 @@ model WorkShift {
   ratesSnapshot        String?
   plannedStaffId       String?
   plannedStaff         Staff?             @relation("PlannedReverse", fields: [plannedStaffId], references: [id], onDelete: SetNull)
-  workAsAdmin          Boolean            @default(false)
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
-  reverseAssignments   ReverseAssignment[]
-  spotEntries          SpotWorkEntry[]
-  adjustments          ShiftAdjustment[]
-  changeRequests       ShiftChangeRequest[]
-  baselineCompletions  ShiftBaselineCompletion[]
-  handoffNotes         ShiftHandoffNote[]
+  workAsAdmin            Boolean            @default(false)
+  employeeSubmittedAt    DateTime?
+  employeeSubmitComment  String?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  reverseAssignments     ReverseAssignment[]
+  spotEntries            SpotWorkEntry[]
+  adjustments            ShiftAdjustment[]
+  changeRequests         ShiftChangeRequest[]
+  baselineCompletions    ShiftBaselineCompletion[]
+  checklistCompletions   ShiftChecklistCompletion[]
+  handoffNotes           ShiftHandoffNote[]
+  plannedReverses        WorkShiftPlannedReverse[]
 
   @@unique([memberId, date])
   @@index([branchId, date, status])
@@ -319,6 +358,18 @@ model ReverseAssignment {
   @@index([shiftId])
 }
 
+model WorkShiftPlannedReverse {
+  id       String    @id @default(cuid())
+  shiftId  String
+  shift    WorkShift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  staffId  String
+  staff    Staff     @relation("ShiftPlannedReverses", fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([shiftId, staffId])
+  @@index([shiftId])
+  @@index([staffId])
+}
+
 model SpotWorkEntry {
   id                String    @id @default(cuid())
   shiftId           String
@@ -331,9 +382,38 @@ model SpotWorkEntry {
   endedAt           DateTime?
   source            String    @default("manual")
   isActive          Boolean   @default(false)
+  confirmedAt       DateTime?
+  confirmedById     String?
   createdByMemberId String
 
   @@index([shiftId])
+}
+
+model BranchShiftChecklistItem {
+  id             String   @id @default(cuid())
+  organizationId String
+  branchId       String
+  label          String
+  sortOrder      Int      @default(0)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  completions    ShiftChecklistCompletion[]
+
+  @@index([branchId, isActive, sortOrder])
+}
+
+model ShiftChecklistCompletion {
+  id          String                   @id @default(cuid())
+  itemId      String
+  item        BranchShiftChecklistItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  workShiftId String
+  workShift   WorkShift                @relation(fields: [workShiftId], references: [id], onDelete: Cascade)
+  memberId    String
+  completedAt DateTime                 @default(now())
+
+  @@unique([itemId, workShiftId])
+  @@index([workShiftId])
 }
 
 model SpotTask {
@@ -443,5 +523,22 @@ model ShiftChangeRequest {
 
   @@index([memberId, status])
   @@index([branchId, status, date])
+}
+
+model AdminActivityLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  createdAt      DateTime @default(now())
+  action         String
+  actorMemberId  String?
+  actorName      String   @db.VarChar(80)
+  branchId       String?
+  entityType     String?
+  entityId       String?
+  summary        String   @db.VarChar(280)
+
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@index([organizationId, action, createdAt(sort: Desc)])
+  @@index([createdAt])
 }
 

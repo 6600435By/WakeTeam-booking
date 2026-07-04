@@ -145,11 +145,7 @@ export function ShiftBulkFillModal({
     }
     for (const row of filledRows) {
       const member = members.find((m) => m.memberId === row.memberId);
-      if (
-        member?.role === BRANCH_OPERATOR_ROLE &&
-        !row.workAsAdmin &&
-        !row.plannedStaffId
-      ) {
+      if (member?.role === BRANCH_OPERATOR_ROLE && !row.plannedStaffId) {
         setError(`Выберите реверс для ${member.name}`);
         return;
       }
@@ -173,7 +169,7 @@ export function ShiftBulkFillModal({
             weekdays: row.weekdays,
             plannedStart: row.plannedStart,
             plannedEnd: row.plannedEnd,
-            plannedStaffId: row.workAsAdmin ? undefined : row.plannedStaffId || undefined,
+            plannedStaffId: row.plannedStaffId || undefined,
             workAsAdmin: row.workAsAdmin,
           })),
           taskRows: filledTaskRows.map((row) => ({
@@ -327,28 +323,30 @@ export function ShiftBulkFillModal({
                           onChange={(e) =>
                             updateRow(row.key, {
                               workAsAdmin: e.target.checked,
-                              plannedStaffId: e.target.checked ? "" : row.plannedStaffId,
                             })
                           }
                         />
-                        <span>Работает как админ</span>
+                        <span>
+                          Работает как админ
+                          <span className="block text-xs text-slate-500">
+                            Тарифы оператора; в этот день — правка журнала и назначение операторов
+                          </span>
+                        </span>
                       </label>
-                      {!row.workAsAdmin && (
-                        <select
-                          className={inputClass}
-                          value={row.plannedStaffId}
-                          onChange={(e) =>
-                            updateRow(row.key, { plannedStaffId: e.target.value })
-                          }
-                        >
-                          <option value="">Реверс</option>
-                          {reverses.map((r) => (
-                            <option key={r.id} value={r.id}>
-                              {r.name}
-                            </option>
-                          ))}
-                        </select>
-                      )}
+                      <select
+                        className={inputClass}
+                        value={row.plannedStaffId}
+                        onChange={(e) =>
+                          updateRow(row.key, { plannedStaffId: e.target.value })
+                        }
+                      >
+                        <option value="">Реверс</option>
+                        {reverses.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.name}
+                          </option>
+                        ))}
+                      </select>
                     </>
                   )}
                 </div>

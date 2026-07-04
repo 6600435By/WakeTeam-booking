@@ -34,6 +34,12 @@ const REVIEW_LINK: NavLink = {
   short: "Смены",
 };
 
+const LOGS_LINK: NavLink = {
+  href: "/admin/logs",
+  label: "Журнал логов",
+  short: "Логи",
+};
+
 const CALENDAR_LINK: NavLink = {
   href: "/admin/shift",
   label: "Календарь",
@@ -46,12 +52,21 @@ function linksForRole(role: AdminRole): NavLink[] {
       ...ALL_LINKS.filter((l) => l.href !== "/admin/widget"),
       CALENDAR_LINK,
       REVIEW_LINK,
+      LOGS_LINK,
+    ];
+  }
+  if (role === "branch_manager") {
+    return [
+      ...ALL_LINKS.filter((l) => l.href !== "/admin/widget"),
+      CALENDAR_LINK,
+      REVIEW_LINK,
     ];
   }
   if (role === "branch_admin") {
     return [
       ...ALL_LINKS.filter((l) => l.href !== "/admin/widget"),
       SHIFT_LINK,
+      REVIEW_LINK,
     ];
   }
   return [

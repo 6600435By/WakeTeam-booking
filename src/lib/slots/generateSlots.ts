@@ -385,11 +385,10 @@ export async function getAvailableSlots(params: {
 }
 
 export async function nextPublicNumber(): Promise<number> {
-  const last = await prisma.appointment.findFirst({
-    orderBy: { publicNumber: "desc" },
-    select: { publicNumber: true },
+  const result = await prisma.appointment.aggregate({
+    _max: { publicNumber: true },
   });
-  return (last?.publicNumber ?? 8_330_000) + 1;
+  return (result._max.publicNumber ?? 8_330_000) + 1;
 }
 
 export { normalizePhone } from "@/lib/phone";
@@ -559,17 +558,38 @@ async function isWakeCellFree(params: {
   serviceId: string;
   staffId: string;
   startAt: Date;
+  cellMinutes?: number;
 }): Promise<boolean> {
+  const cellMinutes = params.cellMinutes ?? WAKE_CELL_MINUTES;
+  const endAt = addMinutes(params.startAt, cellMinutes);
   const dateStr = formatDateKey(params.startAt);
+
   const { slots } = await getDaySlots({
     serviceId: params.serviceId,
     staffId: params.staffId,
     date: dateStr,
+    durationMinutes: cellMinutes,
   });
   const t = params.startAt.getTime();
-  return slots.some(
-    (s) => new Date(s.startAt).getTime() === t && s.status === "free",
-  );
+  if (slots.some((s) => new Date(s.startAt).getTime() === t && s.status === "free")) {
+    return true;
+  }
+
+  // Слот мог исчезнуть из сетки из‑за filterPastSlotsForToday — проверяем занятость реверса напрямую.
+  if (dateStr === formatDateKey(new Date()) && params.startAt.getTime() <= Date.now()) {
+    return false;
+  }
+  const dayStart = parseTimeOnDate(dateStr, "00:00");
+  const dayEnd = parseTimeOnDate(dateStr, "23:59");
+  const appointments = await prisma.appointment.findMany({
+    where: {
+      staffId: params.staffId,
+      startAt: { gte: dayStart, lte: dayEnd },
+      status: { in: ACTIVE_APPOINTMENT_STATUSES },
+    },
+    select: { staffId: true, startAt: true, endAt: true },
+  });
+  return staffFreeForInterval(params.staffId, params.startAt, endAt, appointments);
 }
 
 async function createSupBooking(
@@ -874,6 +894,7 @@ export async function updateAppointment(
     phone?: string;
     price?: number;
     paymentMethod?: string | null;
+    operatorMemberId?: string | null;
   },
   opts?: { skipSlotCheck?: boolean; db?: DbClient },
 ) {
@@ -962,6 +983,9 @@ export async function updateAppointment(
         comment: data.comment,
         ...(data.paymentMethod !== undefined
           ? { paymentMethod: data.paymentMethod }
+          : {}),
+        ...(data.operatorMemberId !== undefined
+          ? { operatorMemberId: data.operatorMemberId }
           : {}),
       },
       include: { client: true, service: true, staff: true },

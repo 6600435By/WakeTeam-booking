@@ -11,13 +11,12 @@ import {
   workShiftStatusLabel,
 } from "@/lib/payroll/spot-task-status";
 
-import { ShiftMyScheduleList } from "./ShiftMyScheduleList";
 import { ShiftChangeRequestsPanel } from "./ShiftChangeRequestsPanel";
 import { ShiftBulkFillModal } from "./ShiftBulkFillModal";
+import { useSuperAdminBranchOptional } from "@/components/admin/SuperAdminBranchProvider";
 
-type CalendarView = "grid" | "mine" | "requests";
 type ScheduleFilter = "branch" | "mine";
-type AdminRole = "super_admin" | "branch_admin" | "branch_operator";
+type AdminRole = "super_admin" | "branch_manager" | "branch_admin" | "branch_operator";
 const SUPER_ADMIN_ROLE = "super_admin";
 
 type CalendarShift = {
@@ -190,8 +189,13 @@ function emptyShiftForm(date: string): ShiftFormState {
 
 function shiftDetailLabel(s: CalendarShift): string {
   const parts = [s.memberName];
-  if (s.workAsAdmin) parts.push("как админ");
-  else if (s.plannedStaffName) parts.push(s.plannedStaffName);
+  if (s.workAsAdmin) {
+    parts.push(
+      s.plannedStaffName ? `${s.plannedStaffName} · доступ админа` : "доступ админа",
+    );
+  } else if (s.plannedStaffName) {
+    parts.push(s.plannedStaffName);
+  }
   if (s.plannedStart && s.plannedEnd) parts.push(`${s.plannedStart}–${s.plannedEnd}`);
   return parts.join(" · ");
 }
@@ -221,8 +225,9 @@ export function ShiftCalendar({
   canEdit,
   canRequestChanges,
 }: Props) {
+  const superBranch = useSuperAdminBranchOptional();
   const [month, setMonth] = useState(currentMonthKey);
-  const [calendarView, setCalendarView] = useState<CalendarView>("grid");
+  const [showRequests, setShowRequests] = useState(false);
   const [scheduleFilter, setScheduleFilter] = useState<ScheduleFilter>(
     canEdit ? "branch" : "mine",
   );
@@ -230,8 +235,8 @@ export function ShiftCalendar({
     date: string;
     workShiftId?: string;
   } | null>(null);
-  const [calendarBranchId, setCalendarBranchId] = useState(branchId ?? "");
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const calendarBranchId =
+    branchId ?? superBranch?.branchId ?? "";
   const [operators, setOperators] = useState<Operator[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [reverses, setReverses] = useState<Reverse[]>([]);
@@ -246,21 +251,6 @@ export function ShiftCalendar({
   const [addTaskAfterShift, setAddTaskAfterShift] = useState(false);
   const [bulkFillOpen, setBulkFillOpen] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
-
-  const showBranchNames = role === SUPER_ADMIN_ROLE && !calendarBranchId;
-
-  useEffect(() => {
-    if (role === SUPER_ADMIN_ROLE && !branchId) {
-      adminFetch("/api/admin/branches")
-        .then((r) => r.json())
-        .then((d) => {
-          setBranches(d.branches ?? []);
-          if (d.branches?.[0] && !calendarBranchId) {
-            setCalendarBranchId(d.branches[0].id);
-          }
-        });
-    }
-  }, [role, branchId, calendarBranchId]);
 
   const loadBranchResources = useCallback(async (bid: string) => {
     const r = await adminFetch(`/api/admin/shift-resources?branchId=${bid}`);
@@ -326,11 +316,11 @@ export function ShiftCalendar({
     if (!selectedDate || !data) return null;
     const raw = data.days.find((d) => d.date === selectedDate);
     if (!raw) return null;
-    if (calendarView === "mine" || scheduleFilter === "mine") {
+    if (scheduleFilter === "mine") {
       return filterDayData(raw, memberId, "mine");
     }
     return raw;
-  }, [selectedDate, data, calendarView, scheduleFilter, memberId]);
+  }, [selectedDate, data, scheduleFilter, memberId]);
 
   async function loadShiftDefaults(date: string): Promise<{ plannedStart: string; plannedEnd: string }> {
     const bid = calendarBranchId || branchId;
@@ -374,6 +364,10 @@ export function ShiftCalendar({
       setError("Выберите сотрудника");
       return;
     }
+    if (isOperatorShift && !shiftForm.plannedStaffId) {
+      setError("Выберите реверс для оператора");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -383,7 +377,7 @@ export function ShiftCalendar({
         date: shiftForm.date,
         plannedStart: shiftForm.plannedStart,
         plannedEnd: shiftForm.plannedEnd,
-        plannedStaffId: shiftForm.workAsAdmin ? undefined : shiftForm.plannedStaffId || undefined,
+        plannedStaffId: shiftForm.plannedStaffId || undefined,
         workAsAdmin: shiftForm.workAsAdmin,
       };
       const r = shiftForm.id
@@ -602,44 +596,35 @@ export function ShiftCalendar({
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
-        {(
-          [
-            { id: "grid" as CalendarView, label: "Календарь" },
-            { id: "mine" as CalendarView, label: "Мои смены" },
-            { id: "requests" as CalendarView, label: "Заявки" },
-          ] as const
-        ).map((t) => (
+      {showRequests ? (
+        <>
           <button
-            key={t.id}
             type="button"
-            onClick={() => setCalendarView(t.id)}
-            className={`flex-1 rounded-md py-2 text-sm font-medium ${
-              calendarView === t.id
-                ? "bg-white text-slate-900 shadow-sm"
-                : "text-slate-600"
-            }`}
+            className={btnSecondary}
+            onClick={() => setShowRequests(false)}
           >
-            {t.label}
+            ← К календарю
           </button>
-        ))}
-      </div>
-
-      {calendarView === "grid" && (
+          <ShiftChangeRequestsPanel
+            canReview={canEdit}
+            canSubmit={canRequestChanges}
+            branchId={calendarBranchId || branchId}
+            initialForm={
+              requestFormSeed
+                ? {
+                    date: requestFormSeed.date,
+                    workShiftId: requestFormSeed.workShiftId ?? "",
+                  }
+                : null
+            }
+            onFormConsumed={() => setRequestFormSeed(null)}
+          />
+        </>
+      ) : (
       <>
       <div className="flex flex-wrap items-center gap-2">
-        {role === SUPER_ADMIN_ROLE && branches.length > 0 && (
-          <select
-            className={inputClass}
-            value={calendarBranchId}
-            onChange={(e) => setCalendarBranchId(e.target.value)}
-          >
-            {branches.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
+        {role === SUPER_ADMIN_ROLE && !calendarBranchId && (
+          <p className="text-sm text-amber-800">Выберите филиал в панели выше</p>
         )}
         <div className="flex flex-1 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1">
           <button
@@ -676,6 +661,15 @@ export function ShiftCalendar({
             Быстрое заполнение
           </button>
         )}
+        {(canRequestChanges || canEdit) && (
+          <button
+            type="button"
+            className={btnSecondary}
+            onClick={() => setShowRequests(true)}
+          >
+            Заявки
+          </button>
+        )}
       </div>
 
       <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
@@ -703,9 +697,14 @@ export function ShiftCalendar({
         </button>
       </div>
 
-      {!canEdit && (
+      {!canEdit && canRequestChanges && (
         <p className="text-xs text-slate-500">
-          Режим просмотра. Изменения — через вкладку «Заявки».
+          Режим просмотра. Изменения — через кнопку «Заявки».
+        </p>
+      )}
+      {canEdit && role === "branch_operator" && (
+        <p className="text-xs text-violet-700">
+          Назначение на смену: только на сегодня и только операторов филиала.
         </p>
       )}
 
@@ -736,7 +735,7 @@ export function ShiftCalendar({
                       highlightMine={scheduleFilter === "branch"}
                       isToday={cell.date === today}
                       canEdit={canEdit}
-                      showBranchNames={showBranchNames}
+                      showBranchNames={false}
                       onSelect={() => setSelectedDate(cell.date)}
                       onAddShift={() => openCreateShift(cell.date)}
                       onAddTask={() => openBaselineForm(cell.date)}
@@ -784,62 +783,6 @@ export function ShiftCalendar({
         </>
       )}
       </>
-      )}
-
-      {calendarView === "mine" && (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex flex-1 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1">
-              <button
-                type="button"
-                className="rounded px-2 py-1 text-slate-600 hover:bg-slate-100"
-                onClick={() => setMonth(shiftMonth(month, -1))}
-              >
-                ‹
-              </button>
-              <span className="text-sm font-medium capitalize">{monthLabel(month)}</span>
-              <button
-                type="button"
-                className="rounded px-2 py-1 text-slate-600 hover:bg-slate-100"
-                onClick={() => setMonth(shiftMonth(month, 1))}
-              >
-                ›
-              </button>
-            </div>
-          </div>
-          {loading && <p className="text-sm text-slate-500">Загрузка…</p>}
-          {!loading && data && (
-            <ShiftMyScheduleList
-              days={data.days}
-              memberId={memberId}
-              onRequestChange={
-                canRequestChanges
-                  ? (date, workShiftId) => {
-                      setRequestFormSeed({ date, workShiftId });
-                      setCalendarView("requests");
-                    }
-                  : undefined
-              }
-            />
-          )}
-        </div>
-      )}
-
-      {calendarView === "requests" && (
-        <ShiftChangeRequestsPanel
-          canReview={canEdit}
-          canSubmit={canRequestChanges}
-          branchId={calendarBranchId || branchId}
-          initialForm={
-            requestFormSeed
-              ? {
-                  date: requestFormSeed.date,
-                  workShiftId: requestFormSeed.workShiftId ?? "",
-                }
-              : null
-          }
-          onFormConsumed={() => setRequestFormSeed(null)}
-        />
       )}
 
       {successMsg && (
@@ -910,12 +853,16 @@ export function ShiftCalendar({
                             </p>
                           )}
                           {s.workAsAdmin && (
-                            <p className="text-xs text-violet-600">Работает как админ</p>
+                            <p className="text-xs text-violet-600">
+                              {s.plannedStaffName
+                                ? `Реверс: ${s.plannedStaffName} · доступ админа`
+                                : "Доступ админа"}
+                            </p>
                           )}
                           {!s.workAsAdmin && s.plannedStaffName && (
                             <p className="text-xs text-slate-500">Реверс: {s.plannedStaffName}</p>
                           )}
-                          {canEdit && s.status === "scheduled" && !s.workAsAdmin && (
+                          {canEdit && s.status === "scheduled" && (
                             <span
                               role="button"
                               tabIndex={0}
@@ -937,7 +884,7 @@ export function ShiftCalendar({
                             onClick={(e) => {
                               e.stopPropagation();
                               setRequestFormSeed({ date: selectedDate, workShiftId: s.id });
-                              setCalendarView("requests");
+                              setShowRequests(true);
                               setSelectedDate(null);
                             }}
                           >
@@ -1083,6 +1030,7 @@ export function ShiftCalendar({
                 <option key={m.memberId} value={m.memberId}>
                   {m.name}
                   {m.role === "branch_admin" ? " (админ)" : ""}
+                  {m.role === "branch_manager" ? " (упр.)" : ""}
                 </option>
               ))}
             </select>
@@ -1099,7 +1047,6 @@ export function ShiftCalendar({
                           ? {
                               ...f,
                               workAsAdmin: e.target.checked,
-                              plannedStaffId: e.target.checked ? "" : f.plannedStaffId,
                             }
                           : f,
                       )
@@ -1108,28 +1055,26 @@ export function ShiftCalendar({
                   <span>
                     Работает как админ
                     <span className="block text-xs text-slate-500">
-                      Почасовая смена без реверса и учёта пульт/спот
+                      Тарифы оператора на реверсе; в этот день — правка журнала и назначение операторов на смену
                     </span>
                   </span>
                 </label>
-                {!shiftForm.workAsAdmin && (
-                  <select
-                    className={inputClass}
-                    value={shiftForm.plannedStaffId}
-                    onChange={(e) =>
-                      setShiftForm((f) =>
-                        f ? { ...f, plannedStaffId: e.target.value } : f,
-                      )
-                    }
-                  >
-                    <option value="">Реверс</option>
-                    {reverses.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
+                <select
+                  className={inputClass}
+                  value={shiftForm.plannedStaffId}
+                  onChange={(e) =>
+                    setShiftForm((f) =>
+                      f ? { ...f, plannedStaffId: e.target.value } : f,
+                    )
+                  }
+                >
+                  <option value="">Реверс</option>
+                  {reverses.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
               </>
             )}
             <div className="flex gap-2">

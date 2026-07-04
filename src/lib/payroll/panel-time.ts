@@ -1,4 +1,9 @@
 import type { Appointment, ReverseAssignment } from "@prisma/client";
+import { isUnfinishedAppointmentStatus } from "@/lib/appointment-status";
+import {
+  effectiveOperatorMemberId,
+  type ReverseAssignmentWithShiftMember,
+} from "./resolve-appointment-operator";
 import {
   intersectInterval,
   mergeIntervals,
@@ -6,35 +11,114 @@ import {
   type TimeInterval,
 } from "./interval-merge";
 
-const EXCLUDED_STATUSES = new Set(["cancelled", "no_show", "canceled"]);
+const COUNTED_STATUSES = new Set(["completed"]);
+const IN_SERVICE_STATUS = "in_service";
 
-export function calcPanelMinutes(
-  assignments: ReverseAssignment[],
-  appointments: Pick<Appointment, "staffId" | "startAt" | "endAt" | "status">[],
+type PanelAppointment = Pick<
+  Appointment,
+  "staffId" | "startAt" | "endAt" | "status" | "operatorMemberId"
+>;
+
+function collectPanelIntervals(
+  shiftMemberId: string,
+  shiftAssignments: ReverseAssignment[],
+  appointments: PanelAppointment[],
+  allDayAssignments: ReverseAssignmentWithShiftMember[],
   shiftStart: Date,
   shiftEnd: Date,
+  statusFilter: (status: string) => boolean,
 ): number {
   const intervals: TimeInterval[] = [];
   const shiftWindow: TimeInterval = { start: shiftStart, end: shiftEnd };
 
-  for (const assignment of assignments) {
-    const assignStart = assignment.startedAt;
-    const assignEnd = assignment.endedAt ?? shiftEnd;
-    const assignWindow: TimeInterval = { start: assignStart, end: assignEnd };
-    const window = intersectInterval(shiftWindow, assignWindow);
-    if (!window) continue;
+  for (const appt of appointments) {
+    if (!statusFilter(appt.status)) continue;
 
-    for (const appt of appointments) {
-      if (appt.staffId !== assignment.staffId) continue;
-      if (EXCLUDED_STATUSES.has(appt.status)) continue;
-      const apptWindow: TimeInterval = {
-        start: new Date(appt.startAt),
-        end: new Date(appt.endAt),
+    const effectiveOperator = effectiveOperatorMemberId(
+      {
+        staffId: appt.staffId,
+        startAt: new Date(appt.startAt),
+        operatorMemberId: appt.operatorMemberId,
+      },
+      allDayAssignments,
+    );
+    if (effectiveOperator !== shiftMemberId) continue;
+
+    const apptWindow: TimeInterval = {
+      start: new Date(appt.startAt),
+      end: new Date(appt.endAt),
+    };
+    const hitShift = intersectInterval(shiftWindow, apptWindow);
+    if (!hitShift) continue;
+
+    if (appt.operatorMemberId) {
+      intervals.push(hitShift);
+      continue;
+    }
+
+    for (const assignment of shiftAssignments) {
+      if (assignment.staffId !== appt.staffId) continue;
+      const assignWindow: TimeInterval = {
+        start: assignment.startedAt,
+        end: assignment.endedAt ?? shiftEnd,
       };
-      const hit = intersectInterval(window, apptWindow);
-      if (hit) intervals.push(hit);
+      const hit = intersectInterval(hitShift, assignWindow);
+      if (hit) {
+        intervals.push(hit);
+        break;
+      }
     }
   }
 
-  return Math.round(totalMinutes(intervals));
+  return Math.round(totalMinutes(mergeIntervals(intervals)));
+}
+
+export function calcPanelMinutes(
+  shiftMemberId: string,
+  shiftAssignments: ReverseAssignment[],
+  appointments: PanelAppointment[],
+  allDayAssignments: ReverseAssignmentWithShiftMember[],
+  shiftStart: Date,
+  shiftEnd: Date,
+): number {
+  return collectPanelIntervals(
+    shiftMemberId,
+    shiftAssignments,
+    appointments,
+    allDayAssignments,
+    shiftStart,
+    shiftEnd,
+    (status) => COUNTED_STATUSES.has(status),
+  );
+}
+
+export function calcInServicePanelMinutes(
+  shiftMemberId: string,
+  shiftAssignments: ReverseAssignment[],
+  appointments: PanelAppointment[],
+  allDayAssignments: ReverseAssignmentWithShiftMember[],
+  shiftStart: Date,
+  shiftEnd: Date,
+): number {
+  return collectPanelIntervals(
+    shiftMemberId,
+    shiftAssignments,
+    appointments,
+    allDayAssignments,
+    shiftStart,
+    shiftEnd,
+    (status) => status === IN_SERVICE_STATUS,
+  );
+}
+
+export function countInServiceAppointments(
+  appointments: Pick<Appointment, "status">[],
+): number {
+  return appointments.filter((a) => a.status === IN_SERVICE_STATUS).length;
+}
+
+export function countUnfinishedAppointments(
+  appointments: Pick<Appointment, "status">[],
+): number {
+  return appointments.filter((a) => isUnfinishedAppointmentStatus(a.status)).length;
 }

@@ -7,6 +7,8 @@ import {
   type PayRateKind,
 } from "./resolve-rates";
 
+export type SpotMinutesMode = "preview" | "payroll";
+
 export type ShiftLineItem = {
   kind: PayRateKind | "shift";
   label: string;
@@ -26,6 +28,10 @@ export type ShiftSummary = {
   totalAmount: number;
   lines: ShiftLineItem[];
   isOperator: boolean;
+  inServicePanelMinutes?: number;
+  inServiceCount?: number;
+  unfinishedAppointmentCount?: number;
+  unconfirmedSpotMinutes?: number;
 };
 
 /** Человекочитаемая длительность: «2 ч 15 мин». */
@@ -38,9 +44,30 @@ export function formatDurationMinutes(minutes: number): string {
   return `${h} ч ${m} мин`;
 }
 
-export function calcSpotMinutes(entries: SpotWorkEntry[], now = new Date()): number {
+export function calcSpotMinutes(
+  entries: Pick<SpotWorkEntry, "startedAt" | "endedAt" | "isActive" | "confirmedAt">[],
+  now = new Date(),
+  mode: SpotMinutesMode = "preview",
+): number {
   let total = 0;
   for (const e of entries) {
+    if (mode === "payroll" && !e.confirmedAt) continue;
+    if (e.isActive) {
+      total += Math.max(0, (now.getTime() - e.startedAt.getTime()) / 60_000);
+    } else if (e.endedAt) {
+      total += Math.max(0, (e.endedAt.getTime() - e.startedAt.getTime()) / 60_000);
+    }
+  }
+  return Math.round(total);
+}
+
+export function calcUnconfirmedSpotMinutes(
+  entries: Pick<SpotWorkEntry, "startedAt" | "endedAt" | "isActive" | "confirmedAt">[],
+  now = new Date(),
+): number {
+  let total = 0;
+  for (const e of entries) {
+    if (e.confirmedAt) continue;
     if (e.isActive) {
       total += Math.max(0, (now.getTime() - e.startedAt.getTime()) / 60_000);
     } else if (e.endedAt) {

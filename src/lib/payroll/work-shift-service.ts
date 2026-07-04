@@ -1,15 +1,19 @@
 import type { WorkShift } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { staffDisplayName } from "@/lib/staff-user";
-import { BRANCH_OPERATOR_ROLE, SUPER_ADMIN_ROLE, BRANCH_ADMIN_ROLE, parseAdminRole } from "@/lib/admin-access";
+import { BRANCH_OPERATOR_ROLE, SUPER_ADMIN_ROLE, BRANCH_ADMIN_ROLE, BRANCH_MANAGER_ROLE, parseAdminRole } from "@/lib/admin-access";
 import { parseTimeOnDate } from "@/lib/time";
 import { getBranchPlannedWindow } from "./branch-planned-window";
 import { listBaselineTasksForDay } from "./shift-baseline-tasks";
-import { calcPanelMinutes } from "./panel-time";
+import { getChecklistForShift } from "./shift-checklist";
+import { calcPanelMinutes, calcInServicePanelMinutes, countInServiceAppointments, countUnfinishedAppointments } from "./panel-time";
+import { loadDayReverseAssignments } from "./resolve-appointment-operator";
 import {
   buildShiftSummary,
   calcSpotMinutes,
+  calcUnconfirmedSpotMinutes,
   type ShiftSummary,
+  type SpotMinutesMode,
 } from "./shift-summary";
 import {
   parseRatesSnapshot,
@@ -64,13 +68,17 @@ export async function resolveShiftRates(
 export async function computeShiftSummary(
   shift: NonNullable<ShiftWithRelations>,
   now = new Date(),
+  options?: { spotMode?: SpotMinutesMode },
 ): Promise<ShiftSummary> {
+  const spotMode: SpotMinutesMode =
+    options?.spotMode ??
+    (shift.status === "approved" ? "payroll" : "preview");
   const role = parseAdminRole(shift.member.role);
   const isOperator =
-    !shift.workAsAdmin &&
-    (role === BRANCH_OPERATOR_ROLE ||
-      role === SUPER_ADMIN_ROLE ||
-      role === BRANCH_ADMIN_ROLE);
+    role === BRANCH_OPERATOR_ROLE ||
+    role === SUPER_ADMIN_ROLE ||
+    role === BRANCH_ADMIN_ROLE ||
+    role === BRANCH_MANAGER_ROLE;
 
   const shiftStart = shift.actualStart;
   const shiftEnd = shift.status === "open" ? now : shift.actualEnd ?? now;
@@ -94,37 +102,62 @@ export async function computeShiftSummary(
   }
 
   let panelMinutes = 0;
+  let inServicePanelMinutes = 0;
+  let inServiceCount = 0;
+  let unfinishedAppointmentCount = 0;
   if (shiftStart && shiftEnd && shift.reverseAssignments.length) {
     const staffIds = [...new Set(shift.reverseAssignments.map((a) => a.staffId))];
     const dayStart = parseTimeOnDate(shift.date, "00:00");
     const dayEnd = parseTimeOnDate(shift.date, "23:59");
-    const appointments = await prisma.appointment.findMany({
-      where: {
-        branchId: shift.branchId,
-        staffId: { in: staffIds },
-        startAt: { gte: dayStart, lte: dayEnd },
-      },
-      select: { staffId: true, startAt: true, endAt: true, status: true },
-    });
+    const [appointments, allDayAssignments] = await Promise.all([
+      prisma.appointment.findMany({
+        where: {
+          branchId: shift.branchId,
+          staffId: { in: staffIds },
+          startAt: { gte: dayStart, lte: dayEnd },
+        },
+        select: {
+          staffId: true,
+          startAt: true,
+          endAt: true,
+          status: true,
+          operatorMemberId: true,
+        },
+      }),
+      loadDayReverseAssignments(shift.branchId, shift.date),
+    ]);
     panelMinutes = calcPanelMinutes(
+      shift.memberId,
       shift.reverseAssignments,
       appointments,
+      allDayAssignments,
       shiftStart,
       shiftEnd,
     );
+    inServicePanelMinutes = calcInServicePanelMinutes(
+      shift.memberId,
+      shift.reverseAssignments,
+      appointments,
+      allDayAssignments,
+      shiftStart,
+      shiftEnd,
+    );
+    inServiceCount = countInServiceAppointments(appointments);
+    unfinishedAppointmentCount = countUnfinishedAppointments(appointments);
   }
 
   if (shift.panelMinutesOverride != null) {
     panelMinutes = shift.panelMinutesOverride;
   }
 
-  const spotMinutes = calcSpotMinutes(shift.spotEntries, now);
+  const spotMinutes = calcSpotMinutes(shift.spotEntries, now, spotMode);
+  const unconfirmedSpotMinutes = calcUnconfirmedSpotMinutes(shift.spotEntries, now);
   let idleMinutes = Math.max(0, shiftMinutes - panelMinutes - spotMinutes);
   if (shift.idleMinutesOverride != null) {
     idleMinutes = shift.idleMinutesOverride;
   }
 
-  return buildShiftSummary({
+  const summary = buildShiftSummary({
     isOperator: true,
     shiftMinutes,
     panelMinutes,
@@ -133,6 +166,14 @@ export async function computeShiftSummary(
     rates,
     spotEntries: shift.spotEntries,
   });
+
+  return {
+    ...summary,
+    inServicePanelMinutes,
+    inServiceCount,
+    unfinishedAppointmentCount,
+    unconfirmedSpotMinutes,
+  };
 }
 
 export async function snapshotRatesOnClose(memberId: string, date: string) {
@@ -161,6 +202,8 @@ export async function enrichShiftResponse(shift: NonNullable<ShiftWithRelations>
   });
   const completedIds = new Set(completions.map((c) => c.taskId));
 
+  const checklistItems = await getChecklistForShift(shift.id, shift.branchId);
+
   return {
     shift: {
       id: shift.id,
@@ -172,6 +215,8 @@ export async function enrichShiftResponse(shift: NonNullable<ShiftWithRelations>
       plannedEnd: shift.plannedEnd ?? planned.end,
       actualStart: shift.actualStart?.toISOString() ?? null,
       actualEnd: shift.actualEnd?.toISOString() ?? null,
+      employeeSubmittedAt: shift.employeeSubmittedAt?.toISOString() ?? null,
+      employeeSubmitComment: shift.employeeSubmitComment ?? null,
       memberName: staffDisplayName(shift.member.user),
       branchName: shift.member.branch?.name ?? null,
       role: shift.member.role,
@@ -194,6 +239,7 @@ export async function enrichShiftResponse(shift: NonNullable<ShiftWithRelations>
       endedAt: e.endedAt?.toISOString() ?? null,
       source: e.source,
       isActive: e.isActive,
+      confirmedAt: e.confirmedAt?.toISOString() ?? null,
     })),
     spotTasks: spotTasks.map((t) => ({
       id: t.id,
@@ -209,6 +255,7 @@ export async function enrichShiftResponse(shift: NonNullable<ShiftWithRelations>
       description: t.description,
       completed: completedIds.has(t.id),
     })),
+    checklistItems,
     adjustments: shift.adjustments.map((a) => ({
       id: a.id,
       field: a.field,

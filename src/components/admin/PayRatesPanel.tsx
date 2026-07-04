@@ -30,6 +30,7 @@ export function PayRatesPanel({ userId, open }: Props) {
     new Date().toISOString().slice(0, 10),
   );
   const [msg, setMsg] = useState("");
+  const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     const r = await fetch(`/api/admin/users/${userId}/pay-rates`);
@@ -46,20 +47,34 @@ export function PayRatesPanel({ userId, open }: Props) {
   }, [open, load]);
 
   async function addRate() {
+    setError("");
+    setMsg("");
+    const parsed = Number(amount);
+    if (!amount.trim() || !Number.isFinite(parsed) || parsed <= 0) {
+      setError("Укажите сумму больше нуля");
+      return;
+    }
     const r = await fetch(`/api/admin/users/${userId}/pay-rates`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         kind,
-        amount: Number(amount),
+        amount: parsed,
         effectiveFrom,
       }),
     });
+    const d = await r.json().catch(() => ({}));
     if (r.ok) {
       setAmount("");
       setMsg("Сохранено");
       load();
+      return;
     }
+    setError(
+      typeof d.error === "string"
+        ? d.error
+        : "Не удалось сохранить тариф",
+    );
   }
 
   async function removeRate(id: string) {
@@ -70,10 +85,13 @@ export function PayRatesPanel({ userId, open }: Props) {
   if (!open) return null;
 
   const current = rates.filter((r) => r.isCurrent);
+  const isMonthlyKind = kind === "monthly" || kind === "other";
 
   return (
     <div className="mt-4 rounded-lg border border-slate-200 p-4">
-      <h3 className="mb-3 text-sm font-semibold text-slate-800">Тарифы (BYN/час)</h3>
+      <h3 className="mb-3 text-sm font-semibold text-slate-800">
+        Тарифы {isMonthlyKind ? "(BYN)" : "(BYN/час)"}
+      </h3>
       {current.length === 0 && (
         <p className="mb-2 text-xs text-slate-500">Ставки не назначены</p>
       )}
@@ -128,6 +146,7 @@ export function PayRatesPanel({ userId, open }: Props) {
         </button>
       </div>
       {msg && <p className="mt-2 text-xs text-green-600">{msg}</p>}
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
       {rates.length > current.length && (
         <details className="mt-3">
           <summary className="cursor-pointer text-xs text-slate-500">История</summary>

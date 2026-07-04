@@ -10,7 +10,13 @@ import { staffDisplayName } from "@/lib/staff-user";
 import { getBranchPlannedWindow } from "@/lib/payroll/branch-planned-window";
 import { expandScheduleDates } from "@/lib/payroll/shift-schedule-bulk";
 import { validateShiftSchedule } from "@/lib/payroll/shift-schedule";
+import { setShiftPlannedReverses } from "@/lib/payroll/shift-planned-reverses";
 import { createBaselineTask } from "@/lib/payroll/shift-baseline-tasks";
+
+type ValidatedShiftSchedule = Exclude<
+  Awaited<ReturnType<typeof validateShiftSchedule>>,
+  { error: string }
+>;
 
 const rowSchema = z.object({
   memberId: z.string(),
@@ -69,7 +75,7 @@ export async function POST(req: NextRequest) {
       plannedEnd?: string;
       plannedStaffId?: string;
       workAsAdmin?: boolean;
-      schedule: Awaited<ReturnType<typeof validateShiftSchedule>>;
+      schedule: ValidatedShiftSchedule;
       dates: string[];
     }[] = [];
 
@@ -128,6 +134,7 @@ export async function POST(req: NextRequest) {
                 workAsAdmin: row.schedule.workAsAdmin,
               },
             });
+            await setShiftPlannedReverses(existing.id, row.schedule.plannedStaffIds);
             replaced++;
             continue;
           }
@@ -148,7 +155,7 @@ export async function POST(req: NextRequest) {
         }
 
         const planned = await getBranchPlannedWindow(body.branchId, date);
-        await prisma.workShift.create({
+        const shift = await prisma.workShift.create({
           data: {
             organizationId: ctx.organizationId,
             branchId: body.branchId,
@@ -161,6 +168,7 @@ export async function POST(req: NextRequest) {
             status: "scheduled",
           },
         });
+        await setShiftPlannedReverses(shift.id, row.schedule.plannedStaffIds);
         created++;
       }
     }
