@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -73,11 +73,12 @@ export function ClientPhoneSearch({ branchId, onOpenAppointment, compact = false
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<LookupResult | null>(null);
-  const [open, setOpen] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const dismissedRef = useRef(false);
   const [pickedClientId, setPickedClientId] = useState<string | null>(null);
 
   const runSearch = useCallback(
-    async (raw: string, clientId?: string) => {
+    async (raw: string, clientId?: string, opts?: { reopen?: boolean }) => {
       const trimmed = raw.trim();
       if (!isSearchablePhone(trimmed)) {
         setResult(null);
@@ -98,7 +99,9 @@ export function ClientPhoneSearch({ branchId, onOpenAppointment, compact = false
           upcoming: data.upcoming ?? [],
           history: data.history ?? [],
         });
-        setOpen(true);
+        if (opts?.reopen || !dismissedRef.current) {
+          setDialogOpen(true);
+        }
       } catch {
         setResult(null);
       } finally {
@@ -112,7 +115,8 @@ export function ClientPhoneSearch({ branchId, onOpenAppointment, compact = false
     const trimmed = phone.trim();
     if (!isSearchablePhone(trimmed)) {
       setResult(null);
-      setOpen(false);
+      setDialogOpen(false);
+      dismissedRef.current = false;
       setPickedClientId(null);
       return;
     }
@@ -123,15 +127,22 @@ export function ClientPhoneSearch({ branchId, onOpenAppointment, compact = false
   }, [phone, pickedClientId, runSearch]);
 
   function pickClient(client: ClientInfo) {
+    dismissedRef.current = false;
     setPickedClientId(client.id);
     setPhone(client.phone);
-    void runSearch(client.phone, client.id);
+    void runSearch(client.phone, client.id, { reopen: true });
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    dismissedRef.current = false;
     setPickedClientId(null);
-    void runSearch(phone);
+    void runSearch(phone, undefined, { reopen: true });
+  }
+
+  function handleDialogOpenChange(next: boolean) {
+    setDialogOpen(next);
+    if (!next) dismissedRef.current = true;
   }
 
   const hasClient = result?.client != null;
@@ -161,11 +172,9 @@ export function ClientPhoneSearch({ branchId, onOpenAppointment, compact = false
           placeholder="Поиск по телефону"
           value={phone}
           onChange={(e) => {
+            dismissedRef.current = false;
             setPhone(e.target.value);
             setPickedClientId(null);
-          }}
-          onFocus={() => {
-            if (result?.client) setOpen(true);
           }}
           className={cn(
             controlClass,
@@ -186,7 +195,7 @@ export function ClientPhoneSearch({ branchId, onOpenAppointment, compact = false
         </button>
       </form>
 
-      <Dialog open={open && isSearchablePhone(phone) && !!result} onOpenChange={setOpen}>
+      <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
         <DialogContent className="max-h-[80vh] w-[min(100vw-2rem,28rem)] overflow-y-auto sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Результаты поиска</DialogTitle>
@@ -237,7 +246,7 @@ export function ClientPhoneSearch({ branchId, onOpenAppointment, compact = false
                           type="button"
                           onClick={() => {
                             onOpenAppointment(a);
-                            setOpen(false);
+                            handleDialogOpenChange(false);
                           }}
                           className="flex w-full items-start justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-slate-50"
                         >
@@ -285,7 +294,7 @@ export function ClientPhoneSearch({ branchId, onOpenAppointment, compact = false
                               type="button"
                               onClick={() => {
                                 onOpenAppointment(a);
-                                setOpen(false);
+                                handleDialogOpenChange(false);
                               }}
                               className="flex w-full items-start justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-slate-50"
                             >
