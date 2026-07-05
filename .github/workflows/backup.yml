@@ -1,0 +1,97 @@
+name: Backup
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+    - cron: "0 4 * * *"
+    - cron: "0 4 1 11,12,1,2,3,4 *"
+  workflow_dispatch:
+    inputs:
+      part:
+        description: "db | files | all | trim"
+        required: true
+        default: "all"
+      force:
+        description: "Force backup even if unchanged"
+        required: false
+        default: "false"
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      BACKUP_RESTORE_SECRET: ${{ secrets.BACKUP_RESTORE_SECRET }}
+      BACKUP_SEASON_START_MONTH: ${{ vars.BACKUP_SEASON_START_MONTH || '5' }}
+      BACKUP_SEASON_END_MONTH: ${{ vars.BACKUP_SEASON_END_MONTH || '10' }}
+      BACKUP_SEASON_DB_RETENTION_COUNT: ${{ vars.BACKUP_SEASON_DB_RETENTION_COUNT || '5' }}
+      BACKUP_SEASON_FILES_RETENTION_COUNT: ${{ vars.BACKUP_SEASON_FILES_RETENTION_COUNT || '2' }}
+      BACKUP_OFFSEASON_RETENTION_COUNT: ${{ vars.BACKUP_OFFSEASON_RETENTION_COUNT || '1' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client zip unzip
+
+      - name: Decide job mode
+        id: mode
+        run: |
+          PART="${{ github.event.inputs.part }}"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            MONTH=$(date -u +%-m)
+            DAY=$(date -u +%-d)
+            HOUR=$(date -u +%-H)
+            if [ "$MONTH" -ge 11 ] || [ "$MONTH" -le 4 ]; then
+              if [ "$DAY" = "1" ] && [ "$HOUR" = "4" ]; then
+                echo "mode=trim-offseason" >> "$GITHUB_OUTPUT"
+              else
+                echo "mode=skip" >> "$GITHUB_OUTPUT"
+              fi
+            elif [ "$HOUR" = "3" ]; then
+              echo "mode=db" >> "$GITHUB_OUTPUT"
+            elif [ "$HOUR" = "4" ]; then
+              echo "mode=files" >> "$GITHUB_OUTPUT"
+            else
+              echo "mode=skip" >> "$GITHUB_OUTPUT"
+            fi
+          elif [ -n "$PART" ]; then
+            echo "mode=$PART" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=all" >> "$GITHUB_OUTPUT"
+          fi
+          echo "force=${{ github.event.inputs.force || 'false' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Skip off-season run
+        if: steps.mode.outputs.mode == 'skip'
+        run: echo "Off-season scheduled slot — nothing to do."
+
+      - name: Backup database
+        if: steps.mode.outputs.mode == 'db' || steps.mode.outputs.mode == 'all'
+        run: |
+          ARGS="backup-db"
+          if [ "${{ steps.mode.outputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
+          npx tsx scripts/backup-cli.ts $ARGS
+
+      - name: Backup files
+        if: steps.mode.outputs.mode == 'files' || steps.mode.outputs.mode == 'all'
+        run: |
+          ARGS="backup-files"
+          if [ "${{ steps.mode.outputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
+          npx tsx scripts/backup-cli.ts $ARGS
+
+      - name: Trim backups
+        if: steps.mode.outputs.mode == 'trim' || steps.mode.outputs.mode == 'trim-offseason'
+        run: |
+          ARGS="trim"
+          if [ "${{ steps.mode.outputs.mode }}" = "trim-offseason" ]; then ARGS="$ARGS --offseason"; fi
+          npx tsx scripts/backup-cli.ts $ARGS

@@ -177,6 +177,10 @@ export function canViewAdminActivityLog(ctx: AdminContext) {
   return ctx.isSuperAdmin;
 }
 
+export function canManageBackups(ctx: AdminContext) {
+  return ctx.isSuperAdmin;
+}
+
 export function canViewStatistics(ctx: AdminContext) {
   return ctx.isSuperAdmin || ctx.isBranchAdmin || ctx.isBranchManager;
 }

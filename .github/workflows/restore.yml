@@ -1,0 +1,59 @@
+name: Restore backup
+
+on:
+  workflow_dispatch:
+    inputs:
+      backup_id:
+        description: Backup manifest id
+        required: true
+      restore_db:
+        description: Restore database
+        required: true
+        default: "true"
+      restore_files:
+        description: Restore files
+        required: true
+        default: "false"
+      confirm_token:
+        description: HMAC confirm token
+        required: true
+      restore_id:
+        description: Restore tracking id
+        required: true
+      requested_by:
+        description: Actor name
+        required: false
+        default: ""
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      BACKUP_RESTORE_SECRET: ${{ secrets.BACKUP_RESTORE_SECRET }}
+      GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client zip unzip
+
+      - name: Run restore
+        run: >
+          npx tsx scripts/backup-cli.ts restore
+          --backup-id=${{ github.event.inputs.backup_id }}
+          --restore-id=${{ github.event.inputs.restore_id }}
+          --confirm-token=${{ github.event.inputs.confirm_token }}
+          --restore-db=${{ github.event.inputs.restore_db }}
+          --restore-files=${{ github.event.inputs.restore_files }}
+          --requested-by=${{ github.event.inputs.requested_by }}

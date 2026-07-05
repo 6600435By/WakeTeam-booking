@@ -40,6 +40,12 @@ const LOGS_LINK: NavLink = {
   short: "Логи",
 };
 
+const BACKUPS_LINK: NavLink = {
+  href: "/admin/backups",
+  label: "Бэкапы",
+  short: "Бэкап",
+};
+
 const CALENDAR_LINK: NavLink = {
   href: "/admin/shift",
   label: "Календарь",
@@ -52,6 +58,7 @@ function linksForRole(role: AdminRole): NavLink[] {
       ...ALL_LINKS.filter((l) => l.href !== "/admin/widget"),
       CALENDAR_LINK,
       REVIEW_LINK,
+      BACKUPS_LINK,
       LOGS_LINK,
     ];
   }
@@ -89,6 +96,7 @@ function isLinkActive(pathname: string, href: string) {
   if (href === "/admin/users") return pathname.startsWith("/admin/users");
   if (href === "/admin/shift-review") return pathname.startsWith("/admin/shift-review");
   if (href === "/admin/shift") return pathname.startsWith("/admin/shift");
+  if (href === "/admin/backups") return pathname.startsWith("/admin/backups");
   return pathname.startsWith(href);
 }
 

@@ -14,6 +14,7 @@
     "db:push": "prisma db push",
     "db:seed": "prisma db seed",
     "db:import-clients": "npx tsx scripts/import-rubitime-clients.ts",
+    "backup:cli": "npx tsx scripts/backup-cli.ts",
     "db:reset": "prisma migrate reset --force",
     "postinstall": "prisma generate"
   },

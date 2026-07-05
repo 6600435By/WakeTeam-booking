@@ -62,7 +62,10 @@ flowchart LR
 3. **Storage** → **New bucket**:
    - Name: `uploads`
    - **Public bucket**: включить (фото услуг/ресурсов публичные)
-4. **Settings → API** — скопировать:
+4. **Storage** → **New bucket**:
+   - Name: `backups`
+   - **Public bucket**: выключить (private)
+5. **Settings → API** — скопировать:
    - `Project URL` → `SUPABASE_URL`
    - `service_role` key → `SUPABASE_SERVICE_ROLE_KEY` (только server-side, не в client!)
 
@@ -204,14 +207,16 @@ Workflow [`.github/workflows/ci.yml`](../.github/workflows/ci.yml):
 
 ## Бэкап на бесплатном тарифе
 
-Neon free: ограниченный PITR. Дополнительно — **ручной или scheduled dump**:
+Автоматические бэкапы через **GitHub Actions** → Supabase bucket `backups`. Подробно: [BACKUP.md](./BACKUP.md).
 
-```bash
-# Локально с установленным pg_dump
-pg_dump "$DATABASE_URL" -Fc -f backup-$(date +%Y%m%d).dump
-```
+Кратко:
 
-Опционально: GitHub Action раз в неделю → артефакт (бесплатно, хранение 90 дней).
+1. Создать private bucket `backups` в Supabase
+2. Добавить secrets в GitHub: `DATABASE_URL`, `SUPABASE_*`, `BACKUP_RESTORE_SECRET`
+3. В Vercel для restore из админки: `GITHUB_BACKUP_TOKEN`, `GITHUB_REPO`, `BACKUP_RESTORE_SECRET`
+4. Админка → **Бэкапы** (`/admin/backups`, super_admin)
+
+Neon PITR — опциональный запасной путь; основное восстановление — из админки.
 
 ---
 
