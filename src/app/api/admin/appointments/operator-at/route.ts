@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { handleAdminError, requireAdminContext, resolveBranchFilter } from "@/lib/admin-access";
+import { serviceRequiresOperator } from "@/lib/appointment-status";
+import { prisma } from "@/lib/db";
 import { resolveDefaultOperatorMemberId } from "@/lib/payroll/resolve-appointment-operator";
 
 const querySchema = z.object({
   branchId: z.string(),
   staffId: z.string(),
   startAt: z.string(),
+  serviceId: z.string().optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -25,6 +28,16 @@ export async function GET(req: NextRequest) {
     const startAt = new Date(params.startAt);
     if (Number.isNaN(startAt.getTime())) {
       return NextResponse.json({ error: "Некорректное время" }, { status: 400 });
+    }
+
+    if (params.serviceId) {
+      const service = await prisma.service.findUnique({
+        where: { id: params.serviceId },
+        select: { kind: true },
+      });
+      if (!serviceRequiresOperator(service?.kind)) {
+        return NextResponse.json({ operatorMemberId: null });
+      }
     }
 
     const operatorMemberId = await resolveDefaultOperatorMemberId(

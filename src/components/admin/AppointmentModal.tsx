@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DatePickerField } from "@/components/admin/DatePickerField";
-import { APPOINTMENT_STATUS_OPTIONS, CANCEL_REASON_OPTIONS, type CancelReason, validateOperatorForCompletedStatus } from "@/lib/appointment-status";
+import { APPOINTMENT_STATUS_OPTIONS, CANCEL_REASON_OPTIONS, type CancelReason, serviceRequiresOperator, validateOperatorForCompletedStatus } from "@/lib/appointment-status";
 import {
   fromDatetimeLocalValue,
   todayDatetimeLocalValue,
@@ -418,12 +418,17 @@ export function AppointmentModal({
   useEffect(() => {
     if (!open || operatorTouchedRef.current) return;
     if (!branchId || !staffId || !date || !time) return;
+    const svc = services.find((s) => s.id === serviceId);
+    if (!serviceRequiresOperator(svc?.kind)) {
+      setOperatorMemberId("");
+      return;
+    }
     const iso = fromDatetimeLocalValue(`${date}T${time}`);
     if (!iso) return;
 
     let cancelled = false;
     adminFetch(
-      `/api/admin/appointments/operator-at?branchId=${encodeURIComponent(branchId)}&staffId=${encodeURIComponent(staffId)}&startAt=${encodeURIComponent(iso)}`,
+      `/api/admin/appointments/operator-at?branchId=${encodeURIComponent(branchId)}&staffId=${encodeURIComponent(staffId)}&startAt=${encodeURIComponent(iso)}&serviceId=${encodeURIComponent(serviceId)}`,
     )
       .then((r) => r.json())
       .then((d) => {
@@ -435,7 +440,7 @@ export function AppointmentModal({
     return () => {
       cancelled = true;
     };
-  }, [open, branchId, staffId, date, time]);
+  }, [open, branchId, staffId, date, time, serviceId, services]);
 
   useEffect(() => {
     if (!branchId || !open) return;
@@ -619,6 +624,8 @@ export function AppointmentModal({
     [services, serviceId],
   );
 
+  const isSupService = selectedService?.kind === "sup";
+
   const showRental = selectedService
     ? serviceSupportsRental(selectedService.kind)
     : false;
@@ -705,7 +712,11 @@ export function AppointmentModal({
       setError("Укажите дату и время");
       return;
     }
-    const operatorError = validateOperatorForCompletedStatus(status, operatorMemberId || null);
+    const operatorError = validateOperatorForCompletedStatus(
+      status,
+      operatorMemberId || null,
+      selectedService?.kind,
+    );
     if (operatorError) {
       setError(operatorError);
       return;
@@ -733,7 +744,7 @@ export function AppointmentModal({
           paymentMethod: paymentMethod || null,
           rentalItemId: showRental && rentalItemId ? rentalItemId : null,
           rentalQuantity: showRental && rentalItemId ? rentalQuantity : 0,
-          operatorMemberId: operatorMemberId || null,
+          operatorMemberId: isSupService ? null : operatorMemberId || null,
         });
         onClose();
         onSaved();
@@ -762,7 +773,7 @@ export function AppointmentModal({
           rentalItemId: showRental && rentalItemId ? rentalItemId : null,
           rentalQuantity: showRental && rentalItemId ? rentalQuantity : 0,
           price: priceValue,
-          operatorMemberId: operatorMemberId || null,
+          operatorMemberId: isSupService ? null : operatorMemberId || null,
         }),
       });
       const data = await res.json();
@@ -852,9 +863,17 @@ export function AppointmentModal({
               <select
                 value={serviceId}
                 onChange={(e) => {
-                  setServiceId(e.target.value);
+                  const nextServiceId = e.target.value;
+                  setServiceId(nextServiceId);
                   setStaffId("");
                   setStaffName("");
+                  const svc = services.find((s) => s.id === nextServiceId);
+                  if (!serviceRequiresOperator(svc?.kind)) {
+                    setOperatorMemberId("");
+                    operatorTouchedRef.current = true;
+                  } else {
+                    operatorTouchedRef.current = false;
+                  }
                 }}
                 className={inputClass}
                 required
@@ -900,11 +919,15 @@ export function AppointmentModal({
                 setOperatorMemberId(e.target.value);
               }}
               className={inputClass}
-              disabled={!branchId || operatorsLoading}
-              required={status === "completed"}
+              disabled={!branchId || operatorsLoading || isSupService}
+              required={status === "completed" && !isSupService}
             >
               <option value="">
-                {operatorsLoading ? "…" : "Не назначен"}
+                {isSupService
+                  ? "Не требуется"
+                  : operatorsLoading
+                    ? "…"
+                    : "Не назначен"}
               </option>
               {operatorOptions.map((o) => (
                 <option key={o.memberId} value={o.memberId}>

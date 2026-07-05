@@ -20,6 +20,7 @@ import { resolveDefaultOperatorMemberId } from "@/lib/payroll/resolve-appointmen
 import { formatDateKey } from "@/lib/time";
 import {
   validateOperatorForCompletedStatus,
+  serviceRequiresOperator,
 } from "@/lib/appointment-status";
 
 const patchSchema = z.object({
@@ -105,8 +106,17 @@ export async function PATCH(
     const oldDateKey = formatDateKey(existing.startAt);
     const { membershipId, rentalItemId, rentalQuantity, price, operatorMemberId, ...rest } = body;
 
+    const nextServiceId = body.serviceId ?? existing.serviceId;
+    const nextService = await prisma.service.findUnique({
+      where: { id: nextServiceId },
+      select: { kind: true },
+    });
+    const supService = !serviceRequiresOperator(nextService?.kind);
+
     const updateFields: typeof rest & { operatorMemberId?: string | null } = { ...rest };
-    if (operatorMemberId !== undefined) {
+    if (supService) {
+      updateFields.operatorMemberId = null;
+    } else if (operatorMemberId !== undefined) {
       updateFields.operatorMemberId = operatorMemberId;
     } else if (body.staffId || body.startAt) {
       const nextStaffId = body.staffId ?? existing.staffId;
@@ -126,6 +136,7 @@ export async function PATCH(
     const operatorError = validateOperatorForCompletedStatus(
       nextStatus,
       finalOperatorMemberId,
+      nextService?.kind,
     );
     if (operatorError) {
       return NextResponse.json({ error: operatorError }, { status: 400 });

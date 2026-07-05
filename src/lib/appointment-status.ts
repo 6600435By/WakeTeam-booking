@@ -212,10 +212,16 @@ export function isUnfinishedAppointmentStatus(status: string): boolean {
   return !FINISHED_APPOINTMENT_STATUSES.has(normalizeStatus(status));
 }
 
+export function serviceRequiresOperator(serviceKind: string | null | undefined): boolean {
+  return serviceKind !== "sup";
+}
+
 export function validateOperatorForCompletedStatus(
   nextStatus: string | undefined,
   operatorMemberId: string | null | undefined,
+  serviceKind?: string | null,
 ): string | null {
+  if (!serviceRequiresOperator(serviceKind)) return null;
   if (normalizeStatus(nextStatus ?? "") !== "completed") return null;
   if (!operatorMemberId) {
     return "Выберите оператора перед завершением записи";

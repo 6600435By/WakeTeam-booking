@@ -11,6 +11,7 @@ import {
 import { finalizeAdminAppointmentCreate } from "@/lib/admin/appointment-mutations";
 import { logAppointmentCreate } from "@/lib/audit/appointment-audit";
 import { prisma } from "@/lib/db";
+import { serviceRequiresOperator } from "@/lib/appointment-status";
 import { resolveDefaultOperatorMemberId } from "@/lib/payroll/resolve-appointment-operator";
 import { createBooking } from "@/lib/slots/generateSlots";
 import { formatDateKey, parseTimeOnDate } from "@/lib/time";
@@ -109,6 +110,11 @@ export async function POST(req: NextRequest) {
 
     const { membershipId, paymentMethod, status: desiredStatus, rentalItemId, rentalQuantity, operatorMemberId, ...bookingBody } = body;
 
+    const service = await prisma.service.findUnique({
+      where: { id: body.serviceId },
+      select: { kind: true },
+    });
+
     const result = await createBooking(
       {
         organizationId: ctx.organizationId,
@@ -119,10 +125,11 @@ export async function POST(req: NextRequest) {
     );
 
     const startAt = new Date(bookingBody.startAt);
-    const resolvedOperatorId =
-      operatorMemberId !== undefined
+    const resolvedOperatorId = serviceRequiresOperator(service?.kind)
+      ? operatorMemberId !== undefined
         ? operatorMemberId
-        : await resolveDefaultOperatorMemberId(staff.branchId, body.staffId, startAt);
+        : await resolveDefaultOperatorMemberId(staff.branchId, body.staffId, startAt)
+      : null;
     if (resolvedOperatorId) {
       await prisma.appointment.update({
         where: { id: result.id },
