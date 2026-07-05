@@ -114,7 +114,6 @@ export function BookingWidget({
   const [configError, setConfigError] = useState("");
   const [error, setError] = useState("");
   const [tariffsOpen, setTariffsOpen] = useState(false);
-  const [supTariffsOpen, setSupTariffsOpen] = useState(false);
   const [done, setDone] = useState<{
     publicNumber: number;
     price: number;
@@ -532,7 +531,6 @@ export function BookingWidget({
     setSelectedWakeStarts([]);
     setSelectedSupStarts([]);
     setSupDurationMinutes(durations[0] ?? svc.durationMinutes);
-    setSupTariffsOpen(false);
     setStep(2);
   };
 
@@ -821,19 +819,6 @@ export function BookingWidget({
       {step === 2 && activityKind === "sup" && service && (
         <WidgetStepEnter stepKey="sup-time" className="mt-2">
           <WidgetBackButton onClick={() => setStep(1)} />
-          {settings.behavior.showTariffsExpandable &&
-            shouldShowWidgetTariffs(service) && (
-              <div className="mb-3">
-                <TariffsBlock
-                  open={supTariffsOpen}
-                  onToggle={() => setSupTariffsOpen((v) => !v)}
-                  rules={widgetTariffRulesForService(service)}
-                  durationMinutes={service.durationMinutes}
-                  bookingDurations={supBookingDurations}
-                  theme={theme}
-                />
-              </div>
-            )}
           <WidgetDateTimeStep
             kind="sup"
             date={date}

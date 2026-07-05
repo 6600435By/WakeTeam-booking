@@ -239,6 +239,9 @@ export async function getSupDaySlots(params: {
   if (params.durationMinutes && !allowedDurations.includes(params.durationMinutes)) {
     return { slots: [], allowedDurations };
   }
+  // Online booking: 60‑min sessions start on the hour, not every 30 min.
+  const startStep =
+    !params.forAdmin && duration > slotStep ? duration : slotStep;
 
   const boards = service.staff
     .map((s) => s.staff)
@@ -286,7 +289,7 @@ export async function getSupDaySlots(params: {
       for (
         let t = interval.from.getTime();
         t + duration * 60_000 <= interval.to.getTime();
-        t += slotStep * 60_000
+        t += startStep * 60_000
       ) {
         slotStarts.add(t);
       }

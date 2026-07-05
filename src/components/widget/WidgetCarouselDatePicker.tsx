@@ -1,14 +1,12 @@
 "use client";
 
-import { useMemo } from "react";
+import { useRef, useMemo } from "react";
 import { formatInTimeZone } from "date-fns-tz";
 import { ru } from "date-fns/locale";
+import { CalendarDays } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { parseTimeOnDate, TZ } from "@/lib/time";
-import {
-  WidgetCalendarLink,
-  WidgetDateNavButton,
-} from "@/components/widget/widget-primitives";
+import { WidgetDateNavButton } from "@/components/widget/widget-primitives";
 import { shiftDateStr, todayStr } from "./widget-booking-utils";
 
 const WEEKDAY_ABBR = ["", "ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"] as const;
@@ -44,6 +42,7 @@ export function WidgetCarouselDatePicker({
   date: string;
   onChange: (d: string) => void;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
   const today = todayStr();
   const carouselDates = useMemo(
     () => buildCarouselDates(date, today),
@@ -59,29 +58,17 @@ export function WidgetCarouselDatePicker({
     monthLabel.charAt(0).toLocaleUpperCase("ru") + monthLabel.slice(1);
 
   const openCalendar = () => {
-    const input = document.createElement("input");
-    input.type = "date";
-    input.value = date;
-    input.min = today;
-    input.style.cssText =
-      "position:fixed;top:-100px;left:-100px;width:1px;height:1px;opacity:0;pointer-events:none";
-    document.body.appendChild(input);
-
-    const cleanup = () => {
-      input.remove();
-    };
-
-    input.addEventListener("change", () => {
-      if (input.value) onChange(input.value);
-      cleanup();
-    });
-    input.addEventListener("blur", cleanup, { once: true });
-
+    const input = inputRef.current;
+    if (!input) return;
     if (typeof input.showPicker === "function") {
-      void Promise.resolve(input.showPicker()).catch(cleanup);
-    } else {
-      input.click();
+      try {
+        input.showPicker();
+        return;
+      } catch {
+        /* fall through to click */
+      }
     }
+    input.click();
   };
 
   return (
@@ -89,7 +76,27 @@ export function WidgetCarouselDatePicker({
       <p className="text-center text-sm font-medium tracking-tight text-slate-800">
         {monthCapitalized}
       </p>
-      <WidgetCalendarLink onClick={openCalendar} />
+
+      <button
+        type="button"
+        onClick={openCalendar}
+        className="mx-auto mt-0.5 flex items-center gap-1.5 text-xs font-medium text-[var(--widget-primary)] transition-opacity hover:opacity-80"
+      >
+        <CalendarDays className="size-3.5 shrink-0" strokeWidth={2.25} />
+        Выбрать дату в календаре
+      </button>
+      <input
+        ref={inputRef}
+        type="date"
+        value={date}
+        min={today}
+        onChange={(e) => {
+          if (e.target.value) onChange(e.target.value);
+        }}
+        className="sr-only"
+        tabIndex={-1}
+        aria-hidden
+      />
 
       <div className="mt-1.5 flex items-center gap-0.5">
         <WidgetDateNavButton

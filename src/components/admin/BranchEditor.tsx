@@ -185,6 +185,26 @@ export function BranchEditor({ branchId }: Props) {
     setBranchMsg(res.ok ? "Филиал сохранён" : "Ошибка сохранения");
   }
 
+  async function saveBranchPhoto(photoUrl: string | null) {
+    if (!branch) return;
+    setBranchSaving(true);
+    setBranchMsg("");
+    const res = await fetch(`/api/admin/branches?id=${branchId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ photoUrl }),
+    });
+    setBranchSaving(false);
+    if (res.ok) {
+      setBranchMsg("Фото сохранено");
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setBranchMsg(
+        typeof data.error === "string" ? data.error : "Ошибка сохранения фото",
+      );
+    }
+  }
+
   function updateBranch(patch: Partial<BranchDetail>) {
     setBranch((b) => (b ? { ...b, ...patch } : b));
   }
@@ -576,7 +596,10 @@ export function BranchEditor({ branchId }: Props) {
             label="Фото филиала"
             kind="branch"
             value={branch.photoUrl}
-            onChange={(url) => updateBranch({ photoUrl: url })}
+            onChange={(url) => {
+              updateBranch({ photoUrl: url });
+              void saveBranchPhoto(url);
+            }}
             title={branch.name}
             subtitle={branch.description || branch.address}
             previewAlways

@@ -284,12 +284,9 @@ export function WidgetDateTimeStep(props: {
         </WidgetPanel>
       )}
 
-      {props.kind === "sup" && (
+      {props.kind === "sup" && props.showDurationPicker && (
         <p className="mt-2 text-xs text-slate-500">
-          Шаг слотов: {slotMinutes} мин
-          {props.showDurationPicker
-            ? ` · длительность записи: ${bookingMinutes} мин`
-            : ""}
+          Длительность записи: {bookingMinutes} мин
         </p>
       )}
 
@@ -299,7 +296,7 @@ export function WidgetDateTimeStep(props: {
         aria-label={
           props.kind === "wake"
             ? `Выберите один или несколько интервалов по ${slotMinutes} минут`
-            : `Выберите один или несколько слотов с шагом ${slotMinutes} минут`
+            : `Выберите один или несколько слотов с шагом ${bookingMinutes} минут`
         }
       >
         <div className={slotGridClass}>

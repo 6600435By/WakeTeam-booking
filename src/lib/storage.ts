@@ -59,6 +59,11 @@ export async function uploadImage(
   if (supabase) {
     return uploadToSupabase(supabase, buffer, objectPath, options.contentType);
   }
+  if (process.env.VERCEL || process.env.NODE_ENV === "production") {
+    throw new Error(
+      "Загрузка фото на сервере недоступна: добавьте SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY в настройках Vercel",
+    );
+  }
   return uploadToLocal(buffer, objectPath);
 }
 
