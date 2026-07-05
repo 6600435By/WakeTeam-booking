@@ -933,7 +933,7 @@ export function ShiftAdminPage({
       {tab === "calendar" && (
         <ShiftCalendar
           role={role}
-          branchId={effectiveBranchId}
+          branchId={branchId}
           memberId={memberId}
           canEdit={canEditCalendar}
           canRequestChanges={canRequestChanges}
