@@ -70,6 +70,9 @@ export async function GET(req: NextRequest) {
             include: { user: { select: { name: true, lastName: true, login: true, email: true } } },
           },
           plannedStaff: { select: { id: true, name: true } },
+          plannedReverses: {
+            select: { staff: { select: { id: true, name: true } } },
+          },
         },
         orderBy: [{ date: "asc" }, { actualStart: "asc" }],
       }),
@@ -127,6 +130,8 @@ type ShiftRow = {
   plannedEnd: string | null;
   plannedStaffId: string | null;
   plannedStaffName: string | null;
+  plannedStaffIds: string[];
+  plannedStaffNames: string[];
   workAsAdmin: boolean;
   branchName?: string;
 };
@@ -176,6 +181,24 @@ function groupByDate(
     const member = (s as typeof s & {
       member: { user: { name: string | null; email: string } };
     }).member;
+    const shiftWithReverses = s as typeof s & {
+      plannedStaff?: { id: string; name: string } | null;
+      plannedReverses?: { staff: { id: string; name: string } }[];
+    };
+    const fromJunction = shiftWithReverses.plannedReverses?.map((r) => r.staff) ?? [];
+  const nameById = new Map(fromJunction.map((st) => [st.id, st.name]));
+    const plannedStaffIds =
+      fromJunction.length > 0
+        ? fromJunction.map((st) => st.id)
+        : s.plannedStaffId
+          ? [s.plannedStaffId]
+          : [];
+    for (const id of plannedStaffIds) {
+      if (!nameById.has(id) && shiftWithReverses.plannedStaff?.id === id) {
+        nameById.set(id, shiftWithReverses.plannedStaff.name);
+      }
+    }
+    const plannedStaffNames = plannedStaffIds.map((id) => nameById.get(id) ?? id);
     const row: ShiftRow = {
       id: s.id,
       date: s.date,
@@ -186,7 +209,9 @@ function groupByDate(
       plannedStart: s.plannedStart,
       plannedEnd: s.plannedEnd,
       plannedStaffId: s.plannedStaffId,
-      plannedStaffName: (s as typeof s & { plannedStaff?: { name: string } | null }).plannedStaff?.name ?? null,
+      plannedStaffName: shiftWithReverses.plannedStaff?.name ?? null,
+      plannedStaffIds,
+      plannedStaffNames,
       workAsAdmin: s.workAsAdmin,
       branchName: branchNames.get(s.branchId),
     };

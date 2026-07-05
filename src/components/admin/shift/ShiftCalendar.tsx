@@ -2,7 +2,9 @@
 
 import { adminFetch } from "@/lib/admin-fetch";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Trash2 } from "lucide-react";
 import { DatePickerField } from "@/components/admin/DatePickerField";
+import { BRANCH_MANAGER_ROLE, BRANCH_OPERATOR_ROLE } from "@/lib/admin-roles";
 import { SPOT_CATEGORIES } from "@/lib/payroll/spot-categories";
 import {
   SPOT_TASK_STATUSES,
@@ -28,6 +30,8 @@ type CalendarShift = {
   plannedEnd: string | null;
   plannedStaffId: string | null;
   plannedStaffName: string | null;
+  plannedStaffIds: string[];
+  plannedStaffNames: string[];
   workAsAdmin: boolean;
   branchName?: string;
 };
@@ -82,7 +86,7 @@ type ShiftFormState = {
   memberId: string;
   plannedStart: string;
   plannedEnd: string;
-  plannedStaffId: string;
+  plannedStaffIds: string[];
   workAsAdmin: boolean;
 };
 
@@ -182,19 +186,23 @@ function emptyShiftForm(date: string): ShiftFormState {
     memberId: "",
     plannedStart: "10:00",
     plannedEnd: "22:00",
-    plannedStaffId: "",
+    plannedStaffIds: [],
     workAsAdmin: false,
   };
 }
 
+function plannedStaffLabel(s: CalendarShift): string | null {
+  if (s.plannedStaffNames.length > 0) return s.plannedStaffNames.join(", ");
+  return s.plannedStaffName;
+}
+
 function shiftDetailLabel(s: CalendarShift): string {
   const parts = [s.memberName];
+  const staffLabel = plannedStaffLabel(s);
   if (s.workAsAdmin) {
-    parts.push(
-      s.plannedStaffName ? `${s.plannedStaffName} · доступ админа` : "доступ админа",
-    );
-  } else if (s.plannedStaffName) {
-    parts.push(s.plannedStaffName);
+    parts.push(staffLabel ? `${staffLabel} · доступ админа` : "доступ админа");
+  } else if (staffLabel) {
+    parts.push(staffLabel);
   }
   if (s.plannedStart && s.plannedEnd) parts.push(`${s.plannedStart}–${s.plannedEnd}`);
   return parts.join(" · ");
@@ -352,7 +360,12 @@ export function ShiftCalendar({
       memberId: shift.memberId,
       plannedStart: shift.plannedStart ?? "10:00",
       plannedEnd: shift.plannedEnd ?? "22:00",
-      plannedStaffId: shift.plannedStaffId ?? "",
+      plannedStaffIds:
+        shift.plannedStaffIds.length > 0
+          ? shift.plannedStaffIds
+          : shift.plannedStaffId
+            ? [shift.plannedStaffId]
+            : [],
       workAsAdmin: shift.workAsAdmin,
     });
     setSelectedDate(date);
@@ -365,7 +378,9 @@ export function ShiftCalendar({
       setError("Выберите сотрудника");
       return;
     }
-    if (isOperatorShift && !shiftForm.plannedStaffId) {
+    const member = members.find((m) => m.memberId === shiftForm.memberId);
+    const operatorShift = member?.role === BRANCH_OPERATOR_ROLE;
+    if (operatorShift && shiftForm.plannedStaffIds.length === 0) {
       setError("Выберите реверс для оператора");
       return;
     }
@@ -378,7 +393,8 @@ export function ShiftCalendar({
         date: shiftForm.date,
         plannedStart: shiftForm.plannedStart,
         plannedEnd: shiftForm.plannedEnd,
-        plannedStaffId: shiftForm.plannedStaffId || undefined,
+        plannedStaffIds:
+          shiftForm.plannedStaffIds.length > 0 ? shiftForm.plannedStaffIds : undefined,
         workAsAdmin: shiftForm.workAsAdmin,
       };
       const r = shiftForm.id
@@ -589,11 +605,23 @@ export function ShiftCalendar({
     loadCalendar();
   }
 
+  function toggleShiftPlannedStaffId(id: string) {
+    setShiftForm((f) => {
+      if (!f) return f;
+      const next = f.plannedStaffIds.includes(id)
+        ? f.plannedStaffIds.filter((x) => x !== id)
+        : [...f.plannedStaffIds, id];
+      return { ...f, plannedStaffIds: next };
+    });
+  }
+
   const today = new Date().toISOString().slice(0, 10);
   const shiftFormMember = shiftForm
     ? members.find((m) => m.memberId === shiftForm.memberId)
     : null;
-  const isOperatorShift = shiftFormMember?.role === "branch_operator";
+  const isOperatorShift = shiftFormMember?.role === BRANCH_OPERATOR_ROLE;
+  const isManagerShift = shiftFormMember?.role === BRANCH_MANAGER_ROLE;
+  const needsReverseSelection = isOperatorShift || isManagerShift;
 
   return (
     <div className="space-y-3">
@@ -853,11 +881,16 @@ export function ShiftCalendar({
                 <p className="text-sm text-slate-500">Никто не назначен</p>
               ) : (
                 <ul className="space-y-2">
-                  {selectedDay.shifts.map((s) => (
-                    <li key={s.id}>
+                  {selectedDay.shifts.map((s) => {
+                    const staffLabel = plannedStaffLabel(s);
+                    return (
+                    <li
+                      key={s.id}
+                      className="flex items-start gap-1 rounded-lg border border-slate-100 bg-slate-50"
+                    >
                       <button
                         type="button"
-                        className="flex w-full items-start justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-left text-sm hover:bg-slate-100"
+                        className="flex min-w-0 flex-1 items-start justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-slate-100"
                         onClick={() => openEditShift(s, selectedDate)}
                       >
                         <div>
@@ -869,13 +902,13 @@ export function ShiftCalendar({
                           )}
                           {s.workAsAdmin && (
                             <p className="text-xs text-violet-600">
-                              {s.plannedStaffName
-                                ? `Реверс: ${s.plannedStaffName} · доступ админа`
+                              {staffLabel
+                                ? `Реверс: ${staffLabel} · доступ админа`
                                 : "Доступ админа"}
                             </p>
                           )}
-                          {!s.workAsAdmin && s.plannedStaffName && (
-                            <p className="text-xs text-slate-500">Реверс: {s.plannedStaffName}</p>
+                          {!s.workAsAdmin && staffLabel && (
+                            <p className="text-xs text-slate-500">Реверс: {staffLabel}</p>
                           )}
                           {canEdit && s.status === "scheduled" && (
                             <span
@@ -913,8 +946,19 @@ export function ShiftCalendar({
                           {workShiftStatusLabel(s.status)}
                         </span>
                       </button>
+                      {canEdit && s.status === "scheduled" && (
+                        <button
+                          type="button"
+                          className="m-1 shrink-0 rounded-lg border border-red-200 p-2 text-red-600 hover:bg-red-50"
+                          aria-label="Убрать со смены"
+                          onClick={() => void deleteShift(s.id)}
+                        >
+                          <Trash2 className="size-4" />
+                        </button>
+                      )}
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               )}
             </section>
@@ -1032,7 +1076,7 @@ export function ShiftCalendar({
                         ...f,
                         memberId: e.target.value,
                         workAsAdmin: false,
-                        plannedStaffId: "",
+                        plannedStaffIds: [],
                       }
                     : f,
                 )
@@ -1048,47 +1092,62 @@ export function ShiftCalendar({
               ))}
             </select>
             {isOperatorShift && (
-              <>
-                <label className="flex items-start gap-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5"
-                    checked={shiftForm.workAsAdmin}
-                    onChange={(e) =>
-                      setShiftForm((f) =>
-                        f
-                          ? {
-                              ...f,
-                              workAsAdmin: e.target.checked,
-                            }
-                          : f,
-                      )
-                    }
-                  />
-                  <span>
-                    Работает как админ
-                    <span className="block text-xs text-slate-500">
-                      Тарифы оператора на реверсе; в этот день — правка журнала и назначение операторов на смену
-                    </span>
-                  </span>
-                </label>
-                <select
-                  className={inputClass}
-                  value={shiftForm.plannedStaffId}
+              <label className="flex items-start gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={shiftForm.workAsAdmin}
                   onChange={(e) =>
                     setShiftForm((f) =>
-                      f ? { ...f, plannedStaffId: e.target.value } : f,
+                      f
+                        ? {
+                            ...f,
+                            workAsAdmin: e.target.checked,
+                          }
+                        : f,
                     )
                   }
-                >
-                  <option value="">Реверс</option>
-                  {reverses.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-              </>
+                />
+                <span>
+                  Работает как админ
+                  <span className="block text-xs text-slate-500">
+                    Тарифы оператора на реверсе; в этот день — правка журнала и назначение операторов на смену
+                  </span>
+                </span>
+              </label>
+            )}
+            {needsReverseSelection && (
+              <div>
+                <span className="mb-1 block text-xs text-slate-500">
+                  Реверсы
+                  {isManagerShift && (
+                    <span className="text-slate-400"> — необязательно</span>
+                  )}
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {reverses.map((r) => {
+                    const checked = shiftForm.plannedStaffIds.includes(r.id);
+                    return (
+                      <label
+                        key={r.id}
+                        className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs touch-manipulation ${
+                          checked
+                            ? "border-slate-900 bg-slate-900 text-white"
+                            : "border-slate-200 bg-white text-slate-700"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="sr-only"
+                          checked={checked}
+                          onChange={() => toggleShiftPlannedStaffId(r.id)}
+                        />
+                        {r.name}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
             )}
             <div className="flex gap-2">
               <input
