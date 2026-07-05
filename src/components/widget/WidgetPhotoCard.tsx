@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { ChevronRight, MapPin, UserRound } from "lucide-react";
 import {
   widgetPhotoAspectStyle,
@@ -73,6 +74,8 @@ export function WidgetPhotoCard({
   const isLarge = previewSize === "large";
   const KindIcon = kind === "branch" ? MapPin : UserRound;
   const textStyles = cardTextStyles(subtitle, isLarge);
+  const [imageFailed, setImageFailed] = useState(false);
+  const showPhoto = Boolean(photoUrl) && !imageFailed;
 
   const inner = (
     <div
@@ -83,11 +86,12 @@ export function WidgetPhotoCard({
       )}
       style={widgetPhotoAspectStyle(kind)}
     >
-      {photoUrl ? (
+      {showPhoto ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={photoUrl}
+          src={photoUrl!}
           alt=""
+          onError={() => setImageFailed(true)}
           className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
         />
       ) : (
@@ -121,7 +125,7 @@ export function WidgetPhotoCard({
           ) : null}
         </div>
       </div>
-      {!photoUrl ? (
+      {!showPhoto ? (
         <div className="pointer-events-none absolute left-3 top-3 flex size-8 items-center justify-center rounded-lg bg-white/10 text-white/80 backdrop-blur-sm sm:size-9">
           <KindIcon className="size-4 sm:size-[1.125rem]" strokeWidth={2} />
         </div>

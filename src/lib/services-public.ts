@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { catalogServices, serviceResourceLabel } from "@/lib/admin/service-catalog";
+import { sanitizePhotoUrlForClient } from "@/lib/photo-url";
 import { minPriceFromRules, parsePricesByDuration } from "@/lib/service-pricing";
 import {
   DEFAULT_WIDGET_SETTINGS,
@@ -86,7 +87,7 @@ export async function getPublicServices(branchId: string) {
         name,
         kind,
         description,
-        photoUrl,
+        photoUrl: sanitizePhotoUrlForClient(photoUrl),
       })),
     };
   });
@@ -113,7 +114,7 @@ export async function getWidgetConfig(slug: string) {
       address: b.address,
       phone: b.phone,
       description: b.description,
-      photoUrl: b.photoUrl,
+      photoUrl: sanitizePhotoUrlForClient(b.photoUrl),
       services: await getPublicServices(b.id),
     })),
   );

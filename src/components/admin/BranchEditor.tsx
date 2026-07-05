@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { PhotoUploadField } from "./PhotoUploadField";
+import { isLocalUploadPhotoUrl } from "@/lib/photo-url";
 import { ServiceEditor, type ServiceRow } from "./ServiceEditor";
 import { ServicePriceRulesEditor } from "./ServicePriceRulesEditor";
 import { ServiceDurationSettings } from "./ServiceDurationSettings";
@@ -606,6 +607,13 @@ export function BranchEditor({ branchId }: Props) {
             previewWide
             previewSize="large"
           />
+          {isLocalUploadPhotoUrl(branch.photoUrl) && (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Фото сохранено только на этом компьютере (локальный путь). Загрузите
+              фото ещё раз на production — в БД появится ссылка Supabase, и картинка
+              будет видна в виджете на сайте.
+            </p>
+          )}
 
           <div className="grid max-w-xl gap-3">
             <label className="block">
