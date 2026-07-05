@@ -128,6 +128,7 @@ model Staff {
   slotMinutes    Int       @default(10)
   createdAt      DateTime  @default(now())
   schedules      StaffSchedule[]
+  scheduleOverrides StaffScheduleOverride[]
   breaks         StaffBreak[]
   services       ServiceStaff[]
   appointments   Appointment[]
@@ -147,6 +148,19 @@ model StaffSchedule {
   timeTo    String
 
   @@unique([staffId, weekday])
+}
+
+/// Исключение из недельного графика на конкретную дату (YYYY-MM-DD, Europe/Minsk)
+model StaffScheduleOverride {
+  id        String  @id @default(cuid())
+  staffId   String
+  staff     Staff   @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  date      String
+  isWorking Boolean @default(true)
+  timeFrom  String
+  timeTo    String
+
+  @@unique([staffId, date])
 }
 
 model StaffBreak {

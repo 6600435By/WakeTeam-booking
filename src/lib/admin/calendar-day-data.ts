@@ -10,7 +10,8 @@ import {
 import { JOURNAL_HIDDEN_STATUSES } from "@/lib/appointment-status";
 import { isLegacyTariffServiceName } from "@/lib/admin/service-catalog";
 import { prisma } from "@/lib/db";
-import { formatDateKey, parseTimeOnDate } from "@/lib/time";
+import { effectiveSchedulesForDay } from "@/lib/staff-schedule-effective";
+import { formatDateKey, parseTimeOnDate, weekdayMinsk } from "@/lib/time";
 
 function dayBounds(date: string) {
   const dayStart = parseTimeOnDate(date, "00:00");
@@ -63,7 +64,10 @@ export async function queryCalendarDay(
 
   const { dayStart, dayEnd } = dayBounds(date);
 
-  const [staff, appointments, branches, services] = await Promise.all([
+  const weekday = weekdayMinsk(date);
+
+  const [staffRaw, appointments, branches, services, scheduleOverrides] =
+    await Promise.all([
     prisma.staff.findMany({
       where: {
         isActive: true,
@@ -98,7 +102,30 @@ export async function queryCalendarDay(
         staff: { select: { staffId: true } },
       },
     }),
+    prisma.staffScheduleOverride.findMany({
+      where: {
+        date,
+        staff: {
+          isActive: true,
+          organizationId: ctx.organizationId,
+          ...(branchId ? { branchId } : {}),
+        },
+      },
+    }),
   ]);
+
+  const overrideByStaff = new Map(
+    scheduleOverrides.map((row) => [row.staffId, row]),
+  );
+
+  const staff = staffRaw.map((row) => ({
+    ...row,
+    schedules: effectiveSchedulesForDay(
+      row.schedules,
+      overrideByStaff.get(row.id) ?? null,
+      weekday,
+    ),
+  }));
 
   const catalogServices = services.filter((s) => !isLegacyTariffServiceName(s.name));
 

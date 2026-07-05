@@ -20,6 +20,7 @@ import {
 import { ACTIVE_APPOINTMENT_STATUSES } from "@/lib/appointment-status";
 import { normalizeAdminDuration } from "@/lib/admin-duration";
 import { upsertClientByPhone } from "@/lib/clients/upsert";
+import { effectiveScheduleRule } from "@/lib/staff-schedule-effective";
 import { parseWeekdays, serviceAllowedOnDate, subtractBreaks } from "@/lib/slots/slot-helpers";
 
 export type SlotDto = {
@@ -73,6 +74,27 @@ function staffFreeForInterval(
   );
 }
 
+async function loadScheduleOverrides(staffIds: string[], date: string) {
+  if (staffIds.length === 0) return new Map<string, Awaited<ReturnType<typeof prisma.staffScheduleOverride.findFirst>>>();
+  const rows = await prisma.staffScheduleOverride.findMany({
+    where: { staffId: { in: staffIds }, date },
+  });
+  return new Map(rows.map((row) => [row.staffId, row]));
+}
+
+type StaffWithSchedules = {
+  id: string;
+  schedules: { weekday: number; isWorking: boolean; timeFrom: string; timeTo: string }[];
+};
+
+function dayScheduleRule(
+  staff: StaffWithSchedules,
+  weekday: number,
+  overrides: Map<string, { isWorking: boolean; timeFrom: string; timeTo: string } | null | undefined>,
+) {
+  return effectiveScheduleRule(staff.schedules, overrides.get(staff.id) ?? null, weekday);
+}
+
 export async function getDaySlots(params: {
   serviceId: string;
   staffId: string;
@@ -124,7 +146,8 @@ export async function getDaySlots(params: {
   });
 
   const wd = weekdayMinsk(params.date);
-  const rule = staff.schedules.find((r) => r.weekday === wd && r.isWorking);
+  const overrides = await loadScheduleOverrides([staff.id], params.date);
+  const rule = dayScheduleRule(staff, wd, overrides);
   if (!rule) return { slots: [], allowedDurations };
 
   let windowFrom = rule.timeFrom;
@@ -266,10 +289,11 @@ export async function getSupDaySlots(params: {
   });
 
   const wd = weekdayMinsk(params.date);
+  const overrides = await loadScheduleOverrides(boardIds, params.date);
   const slotStarts = new Set<number>();
 
   for (const board of boards) {
-    const rule = board.schedules.find((r) => r.weekday === wd && r.isWorking);
+    const rule = dayScheduleRule(board, wd, overrides);
     if (!rule) continue;
 
     let windowFrom = rule.timeFrom;
@@ -303,7 +327,7 @@ export async function getSupDaySlots(params: {
       const end = addMinutes(start, duration);
       let availableBoards = 0;
       for (const board of boards) {
-        const rule = board.schedules.find((r) => r.weekday === wd && r.isWorking);
+        const rule = dayScheduleRule(board, wd, overrides);
         if (!rule) continue;
         let windowFrom = rule.timeFrom;
         let windowTo = rule.timeTo;

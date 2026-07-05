@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { StaffDayScheduleModal } from "./StaffDayScheduleModal";
 import {
   formatMinutesLabel,
   generateTimeLabels,
@@ -148,8 +148,7 @@ type Props = {
   gridStep: JournalGridStep;
   gridScale?: JournalGridScale;
   fillViewport?: boolean;
-  hideInactive?: boolean;
-  onHideInactiveChange?: (value: boolean) => void;
+  onScheduleSaved?: () => void;
   onSlotClick: (initial: ModalInitial) => void;
   onAppointmentClick: (appt: Appointment, group: Appointment[]) => void;
   onOptimisticMove?: (
@@ -246,8 +245,7 @@ export function JournalGrid({
   gridStep,
   gridScale = 1,
   fillViewport = false,
-  hideInactive: hideInactiveProp,
-  onHideInactiveChange,
+  onScheduleSaved,
   onSlotClick,
   onAppointmentClick,
   onOptimisticMove,
@@ -255,9 +253,10 @@ export function JournalGrid({
   onMoved,
   onActionError,
 }: Props) {
-  const [hideInactiveInternal, setHideInactiveInternal] = useState(true);
-  const hideInactive = hideInactiveProp ?? hideInactiveInternal;
-  const setHideInactive = onHideInactiveChange ?? setHideInactiveInternal;
+  const [scheduleModal, setScheduleModal] = useState<{
+    staffId: string;
+    staffName: string;
+  } | null>(null);
   const viewport = useAdminViewport();
   const isDesktop = viewport === "desktop";
   const slotHeightPx = useMemo(
@@ -314,9 +313,8 @@ export function JournalGrid({
     const filtered = list.filter((s) =>
       staffMatchesResourceFilter(s, resourceKind, staffLinks),
     );
-    if (!hideInactive) return filtered;
-    return filtered.filter((s) => getStaffRule(s.schedules, weekday));
-  }, [staff, branchId, hideInactive, weekday, resourceKind, staffLinks]);
+    return filtered;
+  }, [staff, branchId, resourceKind, staffLinks]);
 
   const bounds = useMemo(
     () =>
@@ -771,13 +769,16 @@ export function JournalGrid({
             >
               {staffLabel}
             </p>
-            <Link
-              href={`/admin/staff/${s.id}/schedule`}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!drag) setScheduleModal({ staffId: s.id, staffName: staffLabel });
+              }}
               className="shrink-0 text-[10px] leading-none text-sky-600 hover:underline"
-              onClick={(e) => drag && e.preventDefault()}
             >
               график
-            </Link>
+            </button>
             <button
               type="button"
               onClick={(e) => {
@@ -798,19 +799,6 @@ export function JournalGrid({
 
   return (
       <div className="select-none">
-      {!fillViewport && (
-        <>
-      <label className="mb-3 flex items-center gap-2 text-sm text-slate-600">
-        <input
-          type="checkbox"
-          checked={hideInactive}
-          onChange={(e) => setHideInactive(e.target.checked)}
-        />
-        Скрыть нерабочие колонки
-      </label>
-        </>
-      )}
-
       {visibleStaff.length === 0 && (
         <p
           className={cn(
@@ -820,7 +808,7 @@ export function JournalGrid({
         >
           {staff.length === 0
             ? "Нет ресурсов для выбранного филиала. Выберите филиал или проверьте загрузку данных."
-            : "Нет ресурсов со сменой в этот день. Снимите «Скрыть нерабочие колонки» или выберите другой день."}
+            : "Нет ресурсов для выбранного фильтра."}
         </p>
       )}
 
@@ -1138,6 +1126,17 @@ export function JournalGrid({
         </div>
       </div>
       </div>
+
+      <StaffDayScheduleModal
+        open={scheduleModal !== null}
+        staffId={scheduleModal?.staffId ?? ""}
+        staffName={scheduleModal?.staffName ?? ""}
+        date={date}
+        onClose={() => setScheduleModal(null)}
+        onSaved={() => {
+          onScheduleSaved?.();
+        }}
+      />
     </div>
   );
 }

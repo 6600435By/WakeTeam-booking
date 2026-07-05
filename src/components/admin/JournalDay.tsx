@@ -25,7 +25,7 @@ import {
   saveJournalResourceFilter,
   type JournalResourceFilter,
 } from "@/lib/journal-resources";
-import { StatusBadge, StatusLegend } from "./StatusBadge";
+import { StatusBadge } from "./StatusBadge";
 import { cancelReasonLabel, JOURNAL_HIDDEN_STATUSES } from "@/lib/appointment-status";
 import { groupConsecutiveClientAppointments, isoAtMinutes } from "@/lib/calendar-grid";
 import {
@@ -266,7 +266,6 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   const [periodListOpen, setPeriodListOpen] = useState(false);
   const periodListOpenRef = useRef(periodListOpen);
   periodListOpenRef.current = periodListOpen;
-  const [hideInactiveColumns, setHideInactiveColumns] = useState(true);
   const [freeSlotsOpen, setFreeSlotsOpen] = useState(false);
   const viewport = useAdminViewport();
   const isCompactJournal = isAdminCompact(viewport);
@@ -807,22 +806,8 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
               + Запись
             </button>
             )}
-          </div>
 
-          {showGrid ? (
-            <div className="mt-1.5 flex w-full min-w-0 items-center gap-x-2 gap-y-1">
-              <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-slate-600">
-                <input
-                  type="checkbox"
-                  className="size-3.5 rounded border-slate-300"
-                  checked={hideInactiveColumns}
-                  onChange={(e) => setHideInactiveColumns(e.target.checked)}
-                />
-                Скрыть пустые
-              </label>
-              <div className="min-w-0 flex-1 overflow-x-auto">
-                <StatusLegend compact inline />
-              </div>
+            {showGrid ? (
               <div className="ml-auto flex shrink-0 items-center gap-2 pr-[0.5cm]">
                 <JournalGridStepPicker
                   value={gridStep}
@@ -834,8 +819,8 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
                   onChange={handleGridScaleChange}
                 />
               </div>
-            </div>
-          ) : null}
+            ) : null}
+          </div>
         </div>
       )}
 
@@ -975,9 +960,10 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
               gridStep={gridStep}
               gridScale={gridScale}
               fillViewport={fillGridViewport}
-              hideInactive={hideInactiveColumns}
-              onHideInactiveChange={setHideInactiveColumns}
               onSlotClick={canCreateAppointments ? openNew : () => {}}
+              onScheduleSaved={() => {
+                void reloadJournal({ silent: true });
+              }}
               onAppointmentClick={canEditAppointments ? openEdit : () => {}}
               onOptimisticMove={applyOptimisticMove}
               onOptimisticResize={applyOptimisticResize}

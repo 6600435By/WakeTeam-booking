@@ -163,16 +163,7 @@ export function statusColor(status: string): string {
 }
 
 export const APPOINTMENT_STATUS_OPTIONS = defs.filter((d) =>
-  [
-    "booked",
-    "in_service",
-    "completed",
-    "awaiting_prepayment",
-    "awaiting_confirmation",
-    "in_cart",
-    "rescheduling",
-    "no_show",
-  ].includes(d.value),
+  ["booked", "in_service", "completed", "no_show"].includes(d.value),
 );
 
 /** Не показывать в сетке журнала — слот свободен */
@@ -204,12 +195,9 @@ export const BOARD_STATUSES = [
   "booked",
   "in_service",
   "completed",
-  "awaiting_prepayment",
   "cancelled",
   "deleted",
-  "awaiting_confirmation",
-  "in_cart",
-  "rescheduling",
+  "no_show",
 ] as const;
 
 /** Запись считается завершённой для смены / журнала */
