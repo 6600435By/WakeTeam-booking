@@ -652,19 +652,19 @@ export function ShiftCalendar({
       ) : (
       <>
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1">
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm">
           <button
             type="button"
-            className="rounded px-2 py-1 text-slate-600 hover:bg-slate-100"
+            className="rounded px-1 text-slate-600 hover:bg-slate-100"
             onClick={() => setMonth(shiftMonth(month, -1))}
             aria-label="Предыдущий месяц"
           >
             ‹
           </button>
-          <span className="text-sm font-medium capitalize">{monthLabel(month)}</span>
+          <span className="font-medium capitalize">{monthLabel(month)}</span>
           <button
             type="button"
-            className="rounded px-2 py-1 text-slate-600 hover:bg-slate-100"
+            className="rounded px-1 text-slate-600 hover:bg-slate-100"
             onClick={() => setMonth(shiftMonth(month, 1))}
             aria-label="Следующий месяц"
           >
@@ -672,21 +672,19 @@ export function ShiftCalendar({
           </button>
         </div>
         {showBranchPicker && superBranch && (
-          <label className="flex shrink-0 items-center gap-1.5">
-            <span className="text-xs font-medium text-slate-600">Филиал</span>
-            <select
-              className="max-w-[11rem] rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 sm:max-w-[14rem]"
-              value={superBranch.branchId}
-              disabled={superBranch.loading}
-              onChange={(e) => superBranch.setBranchId(e.target.value)}
-            >
-              {superBranch.branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <select
+            aria-label="Филиал"
+            className={`${btnSecondary} max-w-[11rem] shrink-0 sm:max-w-[14rem]`}
+            value={superBranch.branchId}
+            disabled={superBranch.loading}
+            onChange={(e) => superBranch.setBranchId(e.target.value)}
+          >
+            {superBranch.branches.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
         )}
         <button
           type="button"
