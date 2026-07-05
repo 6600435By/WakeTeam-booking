@@ -40,3 +40,22 @@ export function formatBackupLabel(id: string): string {
     minute: "2-digit",
   });
 }
+
+/** Calendar day in Europe/Minsk for grouping nightly db + files manifests. */
+export function backupDayKey(id: string): string {
+  const d = parseBackupId(id);
+  if (!d) return id;
+  return d.toLocaleDateString("en-CA", { timeZone: "Europe/Minsk" });
+}
+
+/** Date-only label for restore confirmation (DD.MM.YYYY). */
+export function formatBackupConfirmDate(id: string): string {
+  const d = parseBackupId(id);
+  if (!d) return id;
+  return d.toLocaleDateString("ru-RU", {
+    timeZone: "Europe/Minsk",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}

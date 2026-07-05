@@ -9,7 +9,7 @@ import {
   handleAdminError,
   requireAdminContext,
 } from "@/lib/admin-access";
-import { formatBackupLabel } from "@/lib/backups/season";
+import { formatBackupConfirmDate, formatBackupLabel } from "@/lib/backups/season";
 import { triggerRestoreWorkflow } from "@/lib/backups/restore-trigger";
 import {
   createRestoreConfirmToken,
@@ -24,6 +24,7 @@ const bodySchema = z.object({
   restoreDb: z.boolean(),
   restoreFiles: z.boolean(),
   confirmText: z.string().min(1),
+  filesBackupId: z.string().optional(),
 });
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -31,7 +32,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 function isConfirmValid(confirmText: string, backupId: string): boolean {
   const normalized = confirmText.trim().toUpperCase();
   if (normalized === "ВОССТАНОВИТЬ") return true;
-  const labelDate = formatBackupLabel(backupId).split(",")[0]?.trim();
+  const labelDate = formatBackupConfirmDate(backupId);
   return confirmText.trim() === labelDate;
 }
 
@@ -55,7 +56,7 @@ export async function POST(req: Request, context: RouteContext) {
     if (!isConfirmValid(body.confirmText, backupId)) {
       return NextResponse.json(
         {
-          error: `Введите дату бэкапа (${formatBackupLabel(backupId).split(",")[0]}) или слово ВОССТАНОВИТЬ`,
+          error: `Введите дату бэкапа (${formatBackupConfirmDate(backupId)}) или слово ВОССТАНОВИТЬ`,
         },
         { status: 400 },
       );
@@ -69,14 +70,18 @@ export async function POST(req: Request, context: RouteContext) {
       );
     }
 
-    const manifest = await readManifest(backupId);
-    if (!manifest) {
+    const filesBackupId = body.filesBackupId ?? backupId;
+    const dbManifest = await readManifest(backupId);
+    const filesManifest =
+      filesBackupId === backupId ? dbManifest : await readManifest(filesBackupId);
+
+    if (!dbManifest && !filesManifest) {
       return NextResponse.json({ error: "Бэкап не найден" }, { status: 404 });
     }
-    if (body.restoreDb && !manifest.db) {
+    if (body.restoreDb && !dbManifest?.db) {
       return NextResponse.json({ error: "В этом бэкапе нет базы данных" }, { status: 400 });
     }
-    if (body.restoreFiles && !manifest.files) {
+    if (body.restoreFiles && !filesManifest?.files) {
       return NextResponse.json({ error: "В этом бэкапе нет файлов" }, { status: 400 });
     }
 
@@ -85,6 +90,7 @@ export async function POST(req: Request, context: RouteContext) {
       backupId,
       body.restoreDb,
       body.restoreFiles,
+      filesBackupId !== backupId ? filesBackupId : undefined,
     );
     const actor = actorFromContext(ctx);
 
@@ -107,6 +113,7 @@ export async function POST(req: Request, context: RouteContext) {
 
     await triggerRestoreWorkflow({
       backupId,
+      filesBackupId: filesBackupId !== backupId ? filesBackupId : undefined,
       restoreDb: body.restoreDb,
       restoreFiles: body.restoreFiles,
       confirmToken,

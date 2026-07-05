@@ -4,8 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       backup_id:
-        description: Backup manifest id
+        description: Backup manifest id (database)
         required: true
+      files_backup_id:
+        description: Backup manifest id for files (if different from backup_id)
+        required: false
+        default: ""
       restore_db:
         description: Restore database
         required: true
@@ -58,6 +62,7 @@ jobs:
         run: >
           npx tsx scripts/backup-cli.ts restore
           --backup-id=${{ github.event.inputs.backup_id }}
+          --files-backup-id=${{ github.event.inputs.files_backup_id || github.event.inputs.backup_id }}
           --restore-id=${{ github.event.inputs.restore_id }}
           --confirm-token=${{ github.event.inputs.confirm_token }}
           --restore-db=${{ github.event.inputs.restore_db }}

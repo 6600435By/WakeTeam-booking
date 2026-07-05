@@ -20,6 +20,7 @@ import {
   computeFilesFingerprint,
   dbObjectPath,
   filesObjectPath,
+  findTodayDbManifest,
   getLatestManifest,
   listUploadFiles,
   readManifest,
@@ -211,13 +212,16 @@ async function backupFiles(force: boolean): Promise<void> {
 
   const entries = await listUploadFiles();
   const hash = hashFilesFingerprint(entries);
+  const sameDayDb = await findTodayDbManifest();
   const latest = await getLatestManifest();
-  if (!force && latest?.filesFingerprint === hash) {
+  const fingerprintSource = sameDayDb ?? latest;
+  if (!force && fingerprintSource?.filesFingerprint === hash) {
     log("skipped: files unchanged");
     return;
   }
 
-  const id = formatBackupId();
+  const existingManifest = sameDayDb;
+  const id = existingManifest?.id ?? formatBackupId();
   const tmp = mkdtempSync(join(tmpdir(), "booking-files-"));
   const zipPath = join(tmp, "files.zip");
   const sourceDir = join(tmp, "uploads");
@@ -233,16 +237,22 @@ async function backupFiles(force: boolean): Promise<void> {
 
     const fp = await queryDbFingerprint();
     const retention = getRetentionPolicy(fp.dbSize);
-    const manifest: BackupManifest = {
-      id,
-      createdAt: new Date().toISOString(),
-      files: { path, sizeBytes: body.length, fingerprint: hash },
-      filesFingerprint: hash,
-      dbSizeBytes: fp.dbSize,
-      forced: force,
-      seasonArchive: isSeasonEndForceDay() && force,
-      retentionWarning: retention.level,
-    };
+    const manifest: BackupManifest = existingManifest
+      ? {
+          ...existingManifest,
+          files: { path, sizeBytes: body.length, fingerprint: hash },
+          filesFingerprint: hash,
+        }
+      : {
+          id,
+          createdAt: new Date().toISOString(),
+          files: { path, sizeBytes: body.length, fingerprint: hash },
+          filesFingerprint: hash,
+          dbSizeBytes: fp.dbSize,
+          forced: force,
+          seasonArchive: isSeasonEndForceDay() && force,
+          retentionWarning: retention.level,
+        };
     await writeManifest(manifest);
     await trimManifests({
       dbRetention: retention.dbRetentionCount,
@@ -276,6 +286,7 @@ async function cmdTrim(offseason: boolean): Promise<void> {
 
 async function cmdRestore(values: Record<string, string>): Promise<void> {
   const backupId = values["backup-id"];
+  const filesBackupId = values["files-backup-id"] || backupId;
   const restoreId = values["restore-id"];
   const confirmToken = values["confirm-token"] ?? "";
   const restoreDb = values["restore-db"] === "true";
@@ -283,12 +294,24 @@ async function cmdRestore(values: Record<string, string>): Promise<void> {
   const requestedBy = values["requested-by"] ?? "";
 
   if (!backupId || !restoreId) throw new Error("backup-id and restore-id required");
-  if (!verifyRestoreConfirmToken(backupId, restoreDb, restoreFiles, confirmToken)) {
+  if (
+    !verifyRestoreConfirmToken(
+      backupId,
+      restoreDb,
+      restoreFiles,
+      confirmToken,
+      filesBackupId !== backupId ? filesBackupId : undefined,
+    )
+  ) {
     throw new Error("INVALID_CONFIRM_TOKEN");
   }
 
-  const manifest = await readManifest(backupId);
-  if (!manifest) throw new Error(`MANIFEST_NOT_FOUND:${backupId}`);
+  const dbManifest = await readManifest(backupId);
+  const filesManifest =
+    filesBackupId === backupId ? dbManifest : await readManifest(filesBackupId);
+  if (!dbManifest && !filesManifest) {
+    throw new Error(`MANIFEST_NOT_FOUND:${backupId}`);
+  }
 
   const status: RestoreStatus = {
     restoreId,
@@ -311,11 +334,11 @@ async function cmdRestore(values: Record<string, string>): Promise<void> {
   const tmp = mkdtempSync(join(tmpdir(), "booking-restore-"));
 
   try {
-    if (restoreDb && manifest.db?.path) {
+    if (restoreDb && dbManifest?.db?.path) {
       status.steps[0].status = "done";
       status.steps[1].status = "running";
       await writeRestoreStatus(status);
-      const dumpBuf = await downloadBackupObject(client, manifest.db.path);
+      const dumpBuf = await downloadBackupObject(client, dbManifest.db.path);
       const dumpPath = join(tmp, "restore.dump");
       const { writeFileSync } = await import("fs");
       writeFileSync(dumpPath, dumpBuf);
@@ -328,10 +351,10 @@ async function cmdRestore(values: Record<string, string>): Promise<void> {
       status.steps[1].status = "done";
     }
 
-    if (restoreFiles && manifest.files?.path) {
+    if (restoreFiles && filesManifest?.files?.path) {
       status.steps[2].status = "running";
       await writeRestoreStatus(status);
-      const zipBuf = await downloadBackupObject(client, manifest.files.path);
+      const zipBuf = await downloadBackupObject(client, filesManifest.files.path);
       const zipPath = join(tmp, "files.zip");
       const { writeFileSync } = await import("fs");
       writeFileSync(zipPath, zipBuf);

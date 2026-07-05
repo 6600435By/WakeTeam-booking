@@ -9,7 +9,12 @@ import {
 import type { UploadFileEntry } from "./fingerprint";
 import { hashFilesFingerprint } from "./fingerprint";
 import { getRetentionPolicy } from "./retention";
-import { formatBackupLabel } from "./season";
+import {
+  backupDayKey,
+  formatBackupConfirmDate,
+  formatBackupId,
+  formatBackupLabel,
+} from "./season";
 import {
   downloadBackupObject,
   getBackupSupabase,
@@ -78,16 +83,76 @@ export function toListItem(manifest: BackupManifest): BackupListItem {
   const hasFiles = Boolean(manifest.files?.path);
   let label = formatBackupLabel(manifest.id);
   if (manifest.seasonArchive) label += " · Архив сезона";
-  if (manifest.forced) label += " · Финальный";
   if (manifest.skipped) label += " · без изменений";
-  return { ...manifest, hasDb, hasFiles, label };
+  return {
+    ...manifest,
+    hasDb,
+    hasFiles,
+    label,
+    confirmDate: formatBackupConfirmDate(manifest.id),
+  };
+}
+
+function mergeManifestsForList(manifests: BackupManifest[]): BackupListItem[] {
+  const eligible = manifests.filter((m) => !m.skipped && (m.db || m.files));
+  const groups = new Map<string, BackupManifest[]>();
+
+  for (const m of eligible) {
+    const key = backupDayKey(m.id);
+    const group = groups.get(key) ?? [];
+    group.push(m);
+    groups.set(key, group);
+  }
+
+  const items: BackupListItem[] = [];
+  for (const group of groups.values()) {
+    group.sort((a, b) => b.id.localeCompare(a.id));
+    const dbManifest = group.find((m) => m.db);
+    const filesManifest = group.find((m) => m.files);
+    const primary = dbManifest ?? filesManifest;
+    if (!primary) continue;
+
+    const dbManifestId = dbManifest?.id;
+    const filesManifestId = filesManifest?.id;
+    const hasDb = Boolean(dbManifest?.db);
+    const hasFiles = Boolean(filesManifest?.files);
+
+    let label = formatBackupLabel(primary.id);
+    const seasonArchive = group.some((m) => m.seasonArchive);
+    if (seasonArchive) label += " · Архив сезона";
+
+    items.push({
+      ...primary,
+      id: primary.id,
+      db: dbManifest?.db,
+      files: filesManifest?.files,
+      dbFingerprint: dbManifest?.dbFingerprint ?? primary.dbFingerprint,
+      filesFingerprint: filesManifest?.filesFingerprint ?? primary.filesFingerprint,
+      seasonArchive,
+      forced: group.some((m) => m.forced),
+      hasDb,
+      hasFiles,
+      label,
+      confirmDate: formatBackupConfirmDate(primary.id),
+      dbManifestId:
+        dbManifestId && dbManifestId !== primary.id ? dbManifestId : undefined,
+      filesManifestId:
+        filesManifestId && filesManifestId !== primary.id ? filesManifestId : undefined,
+    });
+  }
+
+  return items.sort((a, b) => b.id.localeCompare(a.id));
+}
+
+export async function findTodayDbManifest(): Promise<BackupManifest | null> {
+  const todayKey = backupDayKey(formatBackupId());
+  const manifests = await listManifests();
+  return manifests.find((m) => m.db && backupDayKey(m.id) === todayKey) ?? null;
 }
 
 export async function listBackupItems(): Promise<BackupListItem[]> {
   const manifests = await listManifests();
-  return manifests
-    .filter((m) => !m.skipped && (m.db || m.files))
-    .map(toListItem);
+  return mergeManifestsForList(manifests);
 }
 
 export async function createSignedDownloadUrl(
@@ -186,11 +251,13 @@ export function createRestoreConfirmToken(
   backupId: string,
   restoreDb: boolean,
   restoreFiles: boolean,
+  filesBackupId?: string,
 ): string {
   const secret = process.env.BACKUP_RESTORE_SECRET;
   if (!secret) throw new Error("BACKUP_RESTORE_SECRET_NOT_SET");
+  const filesId = filesBackupId ?? backupId;
   return createHmac("sha256", secret)
-    .update(`${backupId}:${restoreDb}:${restoreFiles}`)
+    .update(`${backupId}:${filesId}:${restoreDb}:${restoreFiles}`)
     .digest("hex");
 }
 
@@ -199,9 +266,15 @@ export function verifyRestoreConfirmToken(
   restoreDb: boolean,
   restoreFiles: boolean,
   token: string,
+  filesBackupId?: string,
 ): boolean {
   try {
-    const expected = createRestoreConfirmToken(backupId, restoreDb, restoreFiles);
+    const expected = createRestoreConfirmToken(
+      backupId,
+      restoreDb,
+      restoreFiles,
+      filesBackupId,
+    );
     return expected === token;
   } catch {
     return false;

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import type { BackupListItem, BackupStorageWarning, RestoreStatus } from "@/lib/backups/types";
-import { formatBackupLabel } from "@/lib/backups/season";
 import { RestoreChecklist, RestoreProgress } from "./RestoreChecklist";
 
 type Props = {
@@ -27,7 +26,9 @@ export function RestoreBackupWizard({ backup, warning, onClose, onDone }: Props)
   const [restoreId, setRestoreId] = useState<string | null>(null);
   const [status, setStatus] = useState<RestoreStatus | null>(null);
 
-  const confirmDate = formatBackupLabel(backup.id).split(",")[0]?.trim() ?? "";
+  const confirmDate = backup.confirmDate;
+
+  const filesBackupId = backup.filesManifestId;
 
   useEffect(() => {
     if (!restoreId || status?.status !== "running") return;
@@ -49,7 +50,12 @@ export function RestoreBackupWizard({ backup, warning, onClose, onDone }: Props)
       const r = await fetch(`/api/admin/backups/${backup.id}/restore`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ restoreDb, restoreFiles, confirmText }),
+        body: JSON.stringify({
+          restoreDb,
+          restoreFiles,
+          confirmText,
+          ...(filesBackupId ? { filesBackupId } : {}),
+        }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Ошибка");

@@ -60,7 +60,7 @@ export function BackupsPage() {
       <div>
         <h1 className="text-xl font-semibold text-slate-900">Бэкапы</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Ежедневные копии в сезоне (5 дней), финальный архив на зиму
+          Полные снимки базы и фото в сезоне (хранятся 5 ночных копий), архив сезона на зиму
         </p>
       </div>
 
@@ -90,8 +90,19 @@ export function BackupsPage() {
         {helpOpen && (
           <div className="border-t border-slate-200 px-4 py-3 text-sm text-slate-600">
             <ul className="list-inside list-disc space-y-1">
-              <li>Удалили записи за последние 5 дней — выберите бэкап нужного дня ниже</li>
-              <li>Зимой — используйте финальный архив сезона</li>
+              <li>
+                Каждый бэкап — полная копия всей базы на момент ночи, а не «данные за один
+                день»
+              </li>
+              <li>
+                Хранятся 5 последних ночных снимков — это глубина отката, а не объём данных в
+                каждой копии
+              </li>
+              <li>
+                Ошибка сегодня или вчера — выберите бэкап дня до ошибки: восстановится вся база
+                целиком
+              </li>
+              <li>Зимой — используйте архив сезона</li>
               <li>Пропали только фото — восстановите без галочки «База данных»</li>
             </ul>
           </div>
@@ -133,8 +144,7 @@ export function BackupsPage() {
                     {item.files ? formatBytes(item.files.sizeBytes) : "—"}
                   </td>
                   <td className="px-3 py-2 text-slate-600">
-                    {item.seasonArchive && "Архив сезона"}
-                    {item.forced && !item.seasonArchive && "Финальный"}
+                    {item.seasonArchive ? "Архив сезона" : "—"}
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap gap-2">
@@ -142,7 +152,11 @@ export function BackupsPage() {
                         <button
                           type="button"
                           className={btnSecondary}
-                          onClick={() => void downloadBackup(item.id, "db").catch((e) => setError(String(e)))}
+                          onClick={() =>
+                            void downloadBackup(item.dbManifestId ?? item.id, "db").catch((e) =>
+                              setError(String(e)),
+                            )
+                          }
                         >
                           Скачать БД
                         </button>
@@ -152,7 +166,9 @@ export function BackupsPage() {
                           type="button"
                           className={btnSecondary}
                           onClick={() =>
-                            void downloadBackup(item.id, "files").catch((e) => setError(String(e)))
+                            void downloadBackup(item.filesManifestId ?? item.id, "files").catch(
+                              (e) => setError(String(e)),
+                            )
                           }
                         >
                           Скачать фото

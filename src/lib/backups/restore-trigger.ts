@@ -1,5 +1,6 @@
 export async function triggerRestoreWorkflow(input: {
   backupId: string;
+  filesBackupId?: string;
   restoreDb: boolean;
   restoreFiles: boolean;
   confirmToken: string;
@@ -26,6 +27,7 @@ export async function triggerRestoreWorkflow(input: {
         ref: process.env.GITHUB_BACKUP_REF ?? "main",
         inputs: {
           backup_id: input.backupId,
+          files_backup_id: input.filesBackupId ?? input.backupId,
           restore_db: String(input.restoreDb),
           restore_files: String(input.restoreFiles),
           confirm_token: input.confirmToken,

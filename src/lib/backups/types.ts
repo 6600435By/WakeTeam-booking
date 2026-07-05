@@ -44,6 +44,12 @@ export type BackupListItem = BackupManifest & {
   hasDb: boolean;
   hasFiles: boolean;
   label: string;
+  /** DD.MM.YYYY for restore confirmation */
+  confirmDate: string;
+  /** Manifest id when db part lives in a different manifest (merged row) */
+  dbManifestId?: string;
+  /** Manifest id when files part lives in a different manifest (merged row) */
+  filesManifestId?: string;
 };
 
 export type BackupStorageWarning = {
