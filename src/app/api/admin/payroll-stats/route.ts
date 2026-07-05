@@ -4,12 +4,11 @@ import {
   canReviewShifts,
   handleAdminError,
   requireAdminContext,
-  resolveBranchFilter,
+  resolveManagementBranchFilter,
+  branchListWhere,
+  BRANCH_OPERATOR_ROLE,
+  BRANCH_ADMIN_ROLE,
 } from "@/lib/admin-access";
-import { prisma } from "@/lib/db";
-import { staffDisplayName } from "@/lib/staff-user";
-import { buildPayrollStats } from "@/lib/payroll/payroll-stats";
-import { BRANCH_OPERATOR_ROLE, BRANCH_ADMIN_ROLE } from "@/lib/admin-access";
 
 export async function GET(req: NextRequest) {
   try {
@@ -28,7 +27,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const branchId = resolveBranchFilter(ctx, searchParams.get("branchId"));
+    const branchId = resolveManagementBranchFilter(ctx, searchParams.get("branchId"));
     const memberIdsParam = searchParams.get("memberIds");
     const memberIds = memberIdsParam
       ? memberIdsParam.split(",").map((s) => s.trim()).filter(Boolean)
@@ -57,14 +56,11 @@ export async function GET(req: NextRequest) {
       orderBy: { user: { name: "asc" } },
     });
 
-    const branches =
-      ctx.isSuperAdmin && !branchId
-        ? await prisma.branch.findMany({
-            where: { organizationId: ctx.organizationId },
-            select: { id: true, name: true },
-            orderBy: { name: "asc" },
-          })
-        : [];
+    const branches = await prisma.branch.findMany({
+      where: branchListWhere(ctx),
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    });
 
     return NextResponse.json({
       ...stats,

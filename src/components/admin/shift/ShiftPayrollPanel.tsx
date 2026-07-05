@@ -99,12 +99,19 @@ export function ShiftPayrollPanel() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (superBranch?.branchPickerMode && superBranch.branchId && !branchId) {
-      setBranchId(superBranch.branchId);
+    if (superBranch?.branchPickerMode && superBranch.branchId) {
+      setBranchId((prev) => prev || superBranch.branchId);
     }
-  }, [superBranch?.branchPickerMode, superBranch?.branchId, branchId]);
+  }, [superBranch?.branchPickerMode, superBranch?.branchId]);
 
   const memberIdsKey = [...selectedMembers].sort().join(",");
+
+  const branchOptions = useMemo(() => {
+    if (superBranch?.branches.length) return superBranch.branches;
+    return branches;
+  }, [superBranch?.branches, branches]);
+
+  const showBranchPicker = branchOptions.length > 0 && Boolean(superBranch?.branchPickerMode);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -306,7 +313,7 @@ export function ShiftPayrollPanel() {
             onChange={setTo}
             className={inputClass}
           />
-          {branches.length > 0 && (
+          {showBranchPicker && (
             <label className="block sm:col-span-2">
               <span className="mb-1 block text-xs text-slate-500">Филиал</span>
               <select
@@ -320,7 +327,7 @@ export function ShiftPayrollPanel() {
                 }}
               >
                 <option value="">Все филиалы</option>
-                {branches.map((b) => (
+                {branchOptions.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.name}
                   </option>

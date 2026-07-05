@@ -210,10 +210,16 @@ export function ShiftAdminPage({
           list = list.filter((b) => allowed.has(b.id));
         }
         setBranchOptions(list);
-        setOperatingBranchId((prev) => prev || list[0]?.id || "");
+        setOperatingBranchId((prev) => prev || superBranch?.branchId || list[0]?.id || "");
       })
       .catch(() => undefined);
-  }, [isSuperAdmin, isBranchManager, branchId, managedBranchIds.join(",")]);
+  }, [isSuperAdmin, isBranchManager, branchId, managedBranchIds.join(","), superBranch?.branchId]);
+
+  useEffect(() => {
+    if (superBranch?.branchId && !branchId) {
+      setOperatingBranchId(superBranch.branchId);
+    }
+  }, [superBranch?.branchId, branchId]);
 
   const loadTasks = useCallback(async () => {
     const dateForTasks = data?.shift?.date;
@@ -573,13 +579,17 @@ export function ShiftAdminPage({
       {tab === "today" && (
         <div className="space-y-4">
           {!tasksOnly && <ShiftTomorrowBanner />}
-          {isSuperAdmin && !branchId && branchOptions.length > 0 && !data && (
+          {(isSuperAdmin || isBranchManager) && !branchId && branchOptions.length > 0 && (
             <label className="block">
-              <span className="mb-1 block text-xs text-slate-500">Филиал смены</span>
+              <span className="mb-1 block text-xs text-slate-500">Филиал</span>
               <select
                 className={inputClass}
-                value={operatingBranchId}
-                onChange={(e) => setOperatingBranchId(e.target.value)}
+                value={superBranch?.branchId || operatingBranchId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setOperatingBranchId(id);
+                  superBranch?.setBranchId(id);
+                }}
               >
                 {branchOptions.map((b) => (
                   <option key={b.id} value={b.id}>

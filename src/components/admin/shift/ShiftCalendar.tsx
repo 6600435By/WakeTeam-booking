@@ -18,7 +18,6 @@ import { useSuperAdminBranchOptional } from "@/components/admin/SuperAdminBranch
 
 type ScheduleFilter = "branch" | "mine";
 type AdminRole = "super_admin" | "branch_manager" | "branch_admin" | "branch_operator";
-const SUPER_ADMIN_ROLE = "super_admin";
 
 type CalendarShift = {
   id: string;
@@ -238,6 +237,7 @@ export function ShiftCalendar({
   } | null>(null);
   const calendarBranchId =
     branchId ?? superBranch?.branchId ?? "";
+  const showBranchPicker = Boolean(superBranch?.branchPickerMode && !branchId);
   const [operators, setOperators] = useState<Operator[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [reverses, setReverses] = useState<Reverse[]>([]);
@@ -624,10 +624,7 @@ export function ShiftCalendar({
       ) : (
       <>
       <div className="flex flex-wrap items-center gap-2">
-        {role === SUPER_ADMIN_ROLE && !calendarBranchId && (
-          <p className="text-sm text-amber-800">Выберите филиал в панели выше</p>
-        )}
-        <div className="flex flex-1 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1">
+        <div className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1">
           <button
             type="button"
             className="rounded px-2 py-1 text-slate-600 hover:bg-slate-100"
@@ -646,6 +643,23 @@ export function ShiftCalendar({
             ›
           </button>
         </div>
+        {showBranchPicker && superBranch && (
+          <label className="flex shrink-0 items-center gap-1.5">
+            <span className="text-xs font-medium text-slate-600">Филиал</span>
+            <select
+              className="max-w-[11rem] rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 sm:max-w-[14rem]"
+              value={superBranch.branchId}
+              disabled={superBranch.loading}
+              onChange={(e) => superBranch.setBranchId(e.target.value)}
+            >
+              {superBranch.branches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <button
           type="button"
           className={btnSecondary}

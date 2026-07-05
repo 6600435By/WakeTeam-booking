@@ -10,6 +10,7 @@ import {
   requireAdminContext,
   resolveManagementBranchFilter,
   canApproveShift,
+  branchListWhere,
 } from "@/lib/admin-access";
 import { prisma } from "@/lib/db";
 import { staffDisplayName } from "@/lib/staff-user";
@@ -138,13 +139,11 @@ export async function GET(req: NextRequest) {
         branchId: m.branchId,
         branchName: m.branch?.name ?? null,
       })),
-      branches: branchId
-        ? []
-        : await prisma.branch.findMany({
-            where: { organizationId: ctx.organizationId },
-            select: { id: true, name: true },
-            orderBy: { name: "asc" },
-          }),
+      branches: await prisma.branch.findMany({
+        where: branchListWhere(ctx),
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      }),
     });
   } catch (e) {
     const handled = handleAdminError(e);

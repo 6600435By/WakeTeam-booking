@@ -77,14 +77,12 @@ export function ShiftReviewPage({
   const memberIdsKey = [...selectedMembers].sort().join(",");
 
   useEffect(() => {
-    if (usesBranchPicker && superBranch?.branchId && superBranch.branchId !== reviewBranchId) {
-      setReviewBranchId(superBranch.branchId);
-      setSelectedMembers(new Set());
+    if (usesBranchPicker && superBranch?.branchId) {
+      setReviewBranchId((prev) => prev || superBranch.branchId);
     }
-  }, [usesBranchPicker, superBranch?.branchId, reviewBranchId]);
+  }, [usesBranchPicker, superBranch?.branchId]);
 
   useEffect(() => {
-    if (!fixedBranchId && usesBranchPicker) return;
     const bid = fixedBranchId ?? reviewBranchId;
     if (!bid) {
       setEmployees([]);
@@ -102,7 +100,7 @@ export function ShiftReviewPage({
         );
       })
       .catch(() => setEmployees([]));
-  }, [fixedBranchId, usesBranchPicker, reviewBranchId]);
+  }, [fixedBranchId, reviewBranchId]);
 
   function applyReviewBranch(id: string) {
     setReviewBranchId(id);

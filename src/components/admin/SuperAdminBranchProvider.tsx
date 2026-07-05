@@ -131,7 +131,7 @@ function shouldShowGlobalBranchBar(
 
   if (pathname.startsWith("/admin/shift-review")) return false;
 
-  if (pathname.startsWith("/admin/shift")) return true;
+  if (pathname.startsWith("/admin/shift")) return false;
 
   if (pathname.startsWith("/admin/journal")) {
     return branchPickerMode === "super";
