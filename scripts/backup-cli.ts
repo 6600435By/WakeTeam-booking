@@ -64,8 +64,9 @@ function parseArgs(argv: string[]) {
 async function runPgDump(outPath: string): Promise<void> {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL not set");
+  const bin = process.env.PG_DUMP ?? "pg_dump";
   execFileSync(
-    "pg_dump",
+    bin,
     [url, "-Fc", "--no-owner", "--no-acl", "-f", outPath],
     { stdio: "inherit" },
   );
@@ -74,8 +75,9 @@ async function runPgDump(outPath: string): Promise<void> {
 async function runPgRestore(dumpPath: string): Promise<void> {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL not set");
+  const bin = process.env.PG_RESTORE ?? "pg_restore";
   execFileSync(
-    "pg_restore",
+    bin,
     ["--clean", "--if-exists", "--no-owner", "--no-acl", "-d", url, dumpPath],
     { stdio: "inherit" },
   );
