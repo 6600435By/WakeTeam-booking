@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { DatePickerField } from "@/components/admin/DatePickerField";
 import { rateKindLabel, type PayRateKind } from "@/lib/payroll/resolve-rates";
 
 type RateRow = {
@@ -131,11 +132,10 @@ export function PayRatesPanel({ userId, open }: Props) {
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
         />
-        <input
-          type="date"
-          className={inputClass}
+        <DatePickerField
           value={effectiveFrom}
-          onChange={(e) => setEffectiveFrom(e.target.value)}
+          onChange={setEffectiveFrom}
+          className={inputClass}
         />
         <button
           type="button"

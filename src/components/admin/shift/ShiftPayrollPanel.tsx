@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatDurationMinutes, formatMoney } from "@/lib/payroll/shift-summary";
+import { periodLast15Days } from "@/lib/date-ranges";
 import { useSuperAdminBranchOptional } from "@/components/admin/SuperAdminBranchProvider";
+import { DatePickerField } from "@/components/admin/DatePickerField";
 import type { MemberPayrollBlock, PayrollReport } from "@/lib/payroll/payroll-report";
 
 type Employee = {
@@ -54,8 +56,9 @@ type EditForm = {
 
 export function ShiftPayrollPanel() {
   const superBranch = useSuperAdminBranchOptional();
-  const [from, setFrom] = useState("2026-06-15");
-  const [to, setTo] = useState("2026-06-29");
+  const defaultPeriod = periodLast15Days();
+  const [from, setFrom] = useState(defaultPeriod.from);
+  const [to, setTo] = useState(defaultPeriod.to);
   const [branchId, setBranchId] = useState("");
   const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set());
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -289,24 +292,20 @@ export function ShiftPayrollPanel() {
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-900">Период расчёта</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <label className="block">
-            <span className="mb-1 block text-xs text-slate-500">С</span>
-            <input
-              type="date"
-              className={inputClass}
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs text-slate-500">По</span>
-            <input
-              type="date"
-              className={inputClass}
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-            />
-          </label>
+          <DatePickerField
+            label="С"
+            value={from}
+            max={to}
+            onChange={setFrom}
+            className={inputClass}
+          />
+          <DatePickerField
+            label="По"
+            value={to}
+            min={from}
+            onChange={setTo}
+            className={inputClass}
+          />
           {branches.length > 0 && (
             <label className="block sm:col-span-2">
               <span className="mb-1 block text-xs text-slate-500">Филиал</span>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { DatePickerField } from "@/components/admin/DatePickerField";
 import {
   SHIFT_CHANGE_REQUEST_TYPES,
   shiftChangeRequestStatusClass,
@@ -244,11 +245,10 @@ export function ShiftChangeRequestsPanel({
         <div className="fixed inset-0 z-[70] flex items-end bg-black/40 p-4 admin-desktop:items-center admin-desktop:justify-center">
           <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-white p-4 space-y-3">
             <h3 className="font-semibold">Заявка на изменение графика</h3>
-            <input
-              type="date"
-              className={inputClass}
+            <DatePickerField
               value={form.date}
-              onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+              onChange={(date) => setForm((f) => ({ ...f, date }))}
+              className={inputClass}
             />
             <select
               className={inputClass}

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ShiftReportCard, type ShiftData } from "./ShiftReportCard";
+import { DatePickerField } from "@/components/admin/DatePickerField";
 import { SPOT_CATEGORIES } from "@/lib/payroll/spot-categories";
 import { formatDurationMinutes } from "@/lib/payroll/shift-summary";
 
@@ -126,8 +127,8 @@ export function MyShiftsPanel({ onGoToday }: Props) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <input type="date" className={inputClass} value={from} onChange={(e) => setFrom(e.target.value)} />
-        <input type="date" className={inputClass} value={to} onChange={(e) => setTo(e.target.value)} />
+        <DatePickerField value={from} onChange={setFrom} className={inputClass} />
+        <DatePickerField value={to} min={from} onChange={setTo} className={inputClass} />
         <button type="button" className={btnPrimary} onClick={() => void load()}>
           Показать
         </button>

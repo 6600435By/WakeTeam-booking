@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { formatInTimeZone } from "date-fns-tz";
 import { ru } from "date-fns/locale";
 import { CalendarDays } from "lucide-react";
+import { DatePickerCalendar } from "@/components/DatePickerCalendar";
 import { cn } from "@/lib/utils";
 import { parseTimeOnDate, TZ } from "@/lib/time";
 import { WidgetDateNavButton } from "@/components/widget/widget-primitives";
@@ -42,7 +43,7 @@ export function WidgetCarouselDatePicker({
   date: string;
   onChange: (d: string) => void;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
   const today = todayStr();
   const carouselDates = useMemo(
     () => buildCarouselDates(date, today),
@@ -57,46 +58,53 @@ export function WidgetCarouselDatePicker({
   const monthCapitalized =
     monthLabel.charAt(0).toLocaleUpperCase("ru") + monthLabel.slice(1);
 
-  const openCalendar = () => {
-    const input = inputRef.current;
-    if (!input) return;
-    if (typeof input.showPicker === "function") {
-      try {
-        input.showPicker();
-        return;
-      } catch {
-        /* fall through to click */
-      }
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
     }
-    input.click();
-  };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
 
   return (
-    <div className="mt-2">
+    <div className="relative mt-2">
       <p className="text-center text-sm font-medium tracking-tight text-slate-800">
         {monthCapitalized}
       </p>
 
       <button
         type="button"
-        onClick={openCalendar}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
         className="mx-auto mt-0.5 flex items-center gap-1.5 text-xs font-medium text-[var(--widget-primary)] transition-opacity hover:opacity-80"
       >
         <CalendarDays className="size-3.5 shrink-0" strokeWidth={2.25} />
         Выбрать дату в календаре
       </button>
-      <input
-        ref={inputRef}
-        type="date"
-        value={date}
-        min={today}
-        onChange={(e) => {
-          if (e.target.value) onChange(e.target.value);
-        }}
-        className="sr-only"
-        tabIndex={-1}
-        aria-hidden
-      />
+
+      {open && (
+        <>
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label="Закрыть календарь"
+            className="fixed inset-0 z-40 cursor-default bg-black/10"
+            onClick={() => setOpen(false)}
+          />
+          <div className="absolute left-1/2 top-full z-50 mt-2 -translate-x-1/2">
+            <DatePickerCalendar
+              value={date}
+              min={today}
+              variant="widget"
+              onChange={(next) => {
+                onChange(next);
+                setOpen(false);
+              }}
+            />
+          </div>
+        </>
+      )}
 
       <div className="mt-1.5 flex items-center gap-0.5">
         <WidgetDateNavButton

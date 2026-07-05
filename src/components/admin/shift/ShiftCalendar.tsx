@@ -2,6 +2,7 @@
 
 import { adminFetch } from "@/lib/admin-fetch";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { DatePickerField } from "@/components/admin/DatePickerField";
 import { SPOT_CATEGORIES } from "@/lib/payroll/spot-categories";
 import {
   SPOT_TASK_STATUSES,
@@ -997,17 +998,15 @@ export function ShiftCalendar({
             <h3 className="font-semibold">
               {shiftForm.id ? "Редактировать смену" : "Назначить на смену"}
             </h3>
-            <input
-              type="date"
-              className={inputClass}
+            <DatePickerField
               value={shiftForm.date}
-              onChange={async (e) => {
-                const date = e.target.value;
+              onChange={async (date) => {
                 const defaults = await loadShiftDefaults(date);
                 setShiftForm((f) =>
                   f ? { ...f, date, ...defaults } : f,
                 );
               }}
+              className={inputClass}
             />
             <select
               className={inputClass}
@@ -1148,13 +1147,12 @@ export function ShiftCalendar({
             <h3 className="font-semibold">
               {taskForm.id ? "Редактировать задание" : "Задание оператору"}
             </h3>
-            <input
-              type="date"
-              className={inputClass}
+            <DatePickerField
               value={taskForm.date}
-              onChange={(e) =>
-                setTaskForm((f) => f && { ...f, date: e.target.value })
+              onChange={(date) =>
+                setTaskForm((f) => f && { ...f, date })
               }
+              className={inputClass}
             />
             <select
               className={inputClass}
@@ -1312,13 +1310,12 @@ export function ShiftCalendar({
               даже если сотрудники ещё не назначены. Отметку выполнения ставит
               сотрудник при закрытии смены.
             </p>
-            <input
-              type="date"
-              className={inputClass}
+            <DatePickerField
               value={baselineForm.date}
-              onChange={(e) =>
-                setBaselineForm((f) => f && { ...f, date: e.target.value })
+              onChange={(date) =>
+                setBaselineForm((f) => f && { ...f, date })
               }
+              className={inputClass}
             />
             <textarea
               className={inputClass}

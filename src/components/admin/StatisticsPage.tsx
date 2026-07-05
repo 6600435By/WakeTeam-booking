@@ -2,6 +2,7 @@
 
 import { adminFetch } from "@/lib/admin-fetch";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { DatePickerField } from "@/components/admin/DatePickerField";
 import { StatisticsChart } from "./StatisticsChart";
 import { StatusBadge } from "./StatusBadge";
 import {
@@ -309,45 +310,37 @@ export function StatisticsPage() {
                 </button>
               </div>
             </div>
-            <label className="block text-xs text-slate-500">
-              Дата записи, от
-              <input
-                type="date"
-                value={draft.dateFrom}
-                max={draft.dateTo}
-                onChange={(e) => setDraft((d) => ({ ...d, dateFrom: e.target.value }))}
-                className={`mt-1 ${inputClass}`}
-              />
-            </label>
-            <label className="block text-xs text-slate-500">
-              Дата записи, до
-              <input
-                type="date"
-                value={draft.dateTo}
-                min={draft.dateFrom}
-                onChange={(e) => setDraft((d) => ({ ...d, dateTo: e.target.value }))}
-                className={`mt-1 ${inputClass}`}
-              />
-            </label>
-            <label className="block text-xs text-slate-500">
-              Дата создания, от
-              <input
-                type="date"
-                value={draft.createdFrom}
-                onChange={(e) => setDraft((d) => ({ ...d, createdFrom: e.target.value }))}
-                className={`mt-1 ${inputClass}`}
-              />
-            </label>
-            <label className="block text-xs text-slate-500">
-              Дата создания, до
-              <input
-                type="date"
-                value={draft.createdTo}
-                min={draft.createdFrom || undefined}
-                onChange={(e) => setDraft((d) => ({ ...d, createdTo: e.target.value }))}
-                className={`mt-1 ${inputClass}`}
-              />
-            </label>
+            <DatePickerField
+              label="Дата записи, от"
+              value={draft.dateFrom}
+              max={draft.dateTo}
+              onChange={(dateFrom) => setDraft((d) => ({ ...d, dateFrom }))}
+              className={inputClass}
+              labelClassName="block text-xs text-slate-500"
+            />
+            <DatePickerField
+              label="Дата записи, до"
+              value={draft.dateTo}
+              min={draft.dateFrom}
+              onChange={(dateTo) => setDraft((d) => ({ ...d, dateTo }))}
+              className={inputClass}
+              labelClassName="block text-xs text-slate-500"
+            />
+            <DatePickerField
+              label="Дата создания, от"
+              value={draft.createdFrom}
+              onChange={(createdFrom) => setDraft((d) => ({ ...d, createdFrom }))}
+              className={inputClass}
+              labelClassName="block text-xs text-slate-500"
+            />
+            <DatePickerField
+              label="Дата создания, до"
+              value={draft.createdTo}
+              min={draft.createdFrom || undefined}
+              onChange={(createdTo) => setDraft((d) => ({ ...d, createdTo }))}
+              className={inputClass}
+              labelClassName="block text-xs text-slate-500"
+            />
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

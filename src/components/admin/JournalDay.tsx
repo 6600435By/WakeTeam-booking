@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppointmentModal } from "./AppointmentModal";
 import { ClientPhoneSearch, type ClientLookupAppointment } from "./ClientPhoneSearch";
+import { DatePickerField } from "./DatePickerField";
 import { JournalGrid } from "./JournalGrid";
 import {
   JournalGridStepPicker,
@@ -647,15 +648,13 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
               </button>
             </div>
 
-            <label className="mt-2 block">
-              <span className="sr-only">Дата</span>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="h-11 w-full touch-manipulation rounded-lg border border-slate-300 bg-white px-3 text-base"
-              />
-            </label>
+            <DatePickerField
+              label="Дата"
+              labelClassName="sr-only"
+              value={date}
+              onChange={setDate}
+              className="h-11 w-full touch-manipulation rounded-lg border border-slate-300 bg-white px-3 text-base"
+            />
 
             {!isSuperAdmin && !isBranchManager && (
               <div className="mt-2 flex h-11 items-center rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700">
@@ -758,10 +757,9 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
               </button>
             </div>
 
-            <input
-              type="date"
+            <DatePickerField
               value={date}
-              onChange={(e) => setDate(e.target.value)}
+              onChange={setDate}
               className="h-8 rounded-md border border-slate-300 px-2 text-xs"
             />
 
@@ -1063,21 +1061,19 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
             </div>
             <label className="flex flex-col gap-1 text-xs text-slate-500">
               С
-              <input
-                type="date"
+              <DatePickerField
                 value={listFrom}
                 max={listTo}
-                onChange={(e) => setListFrom(e.target.value)}
+                onChange={setListFrom}
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
               />
             </label>
             <label className="flex flex-col gap-1 text-xs text-slate-500">
               По
-              <input
-                type="date"
+              <DatePickerField
                 value={listTo}
                 min={listFrom}
-                onChange={(e) => setListTo(e.target.value)}
+                onChange={setListTo}
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
               />
             </label>

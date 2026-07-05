@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { DatePickerField } from "@/components/admin/DatePickerField";
 import { WeekdayPicker } from "@/components/admin/ServicePriceRulesEditor";
 import {
   countBulkShiftSlots,
@@ -221,28 +222,24 @@ export function ShiftBulkFillModal({
 
         <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <span className="mb-1 block text-xs text-slate-500">Период с</span>
-              <input
-                type="date"
-                className={inputClass}
-                min={bounds.from}
-                max={bounds.to}
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs text-slate-500">Период по</span>
-              <input
-                type="date"
-                className={inputClass}
-                min={bounds.from}
-                max={bounds.to}
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-              />
-            </label>
+            <DatePickerField
+              label="Период с"
+              value={dateFrom}
+              min={bounds.from}
+              max={bounds.to}
+              onChange={setDateFrom}
+              className={inputClass}
+              labelClassName="mb-1 block text-xs text-slate-500"
+            />
+            <DatePickerField
+              label="Период по"
+              value={dateTo}
+              min={bounds.from}
+              max={bounds.to}
+              onChange={setDateTo}
+              className={inputClass}
+              labelClassName="mb-1 block text-xs text-slate-500"
+            />
           </div>
 
           <div className="space-y-3">

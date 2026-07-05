@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { DatePickerField } from "@/components/admin/DatePickerField";
 import { APPOINTMENT_STATUS_OPTIONS, CANCEL_REASON_OPTIONS, type CancelReason, validateOperatorForCompletedStatus } from "@/lib/appointment-status";
 import {
   fromDatetimeLocalValue,
@@ -914,20 +915,13 @@ export function AppointmentModal({
           </div>
           <div className="space-y-2">
             <div>
-              <label className={labelClass} htmlFor="wt-booking-date">
-                Дата
-              </label>
-              <input
+              <DatePickerField
                 id="wt-booking-date"
-                name="wt-booking-date"
-                type="date"
+                label="Дата"
                 value={date}
-                onChange={(e) => setDate(e.target.value)}
+                onChange={setDate}
                 className={inputClass}
-                autoComplete="off"
-                readOnly
-                onFocus={unlockReadOnlyInput}
-                required
+                labelClassName={labelClass}
               />
             </div>
             <div>

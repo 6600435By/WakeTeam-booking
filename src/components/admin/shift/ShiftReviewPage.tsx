@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { formatMinutesLabel } from "@/lib/calendar-grid";
+import { periodLast15Days } from "@/lib/date-ranges";
 import { useSuperAdminBranchOptional } from "@/components/admin/SuperAdminBranchProvider";
+import { DatePickerField } from "@/components/admin/DatePickerField";
 import { ShiftReportCard, type ShiftData } from "./ShiftReportCard";
 import { ShiftPayrollPanel } from "./ShiftPayrollPanel";
 
@@ -40,9 +42,10 @@ export function ShiftReviewPage({
   branchId?: string | null;
 }) {
   const superBranch = useSuperAdminBranchOptional();
+  const defaultPeriod = periodLast15Days();
   const [tab, setTab] = useState<ReviewTab>("payroll");
-  const [reviewFrom, setReviewFrom] = useState("2026-06-01");
-  const [reviewTo, setReviewTo] = useState("2026-06-30");
+  const [reviewFrom, setReviewFrom] = useState(defaultPeriod.from);
+  const [reviewTo, setReviewTo] = useState(defaultPeriod.to);
   const [reviewBranchId, setReviewBranchId] = useState(
     () => fixedBranchId ?? superBranch?.branchId ?? "",
   );
@@ -57,8 +60,8 @@ export function ShiftReviewPage({
   const [panelOverride, setPanelOverride] = useState("");
   const [idleOverride, setIdleOverride] = useState("");
   const [correctComment, setCorrectComment] = useState("");
-  const [baselineFrom, setBaselineFrom] = useState("2026-06-01");
-  const [baselineTo, setBaselineTo] = useState("2026-06-30");
+  const [baselineFrom, setBaselineFrom] = useState(defaultPeriod.from);
+  const [baselineTo, setBaselineTo] = useState(defaultPeriod.to);
   const [baselineRows, setBaselineRows] = useState<
     {
       date: string;
@@ -287,17 +290,17 @@ export function ShiftReviewPage({
               спота
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <input
-                type="date"
-                className={inputClass}
+              <DatePickerField
                 value={baselineFrom}
-                onChange={(e) => setBaselineFrom(e.target.value)}
-              />
-              <input
-                type="date"
+                max={baselineTo}
+                onChange={setBaselineFrom}
                 className={inputClass}
+              />
+              <DatePickerField
                 value={baselineTo}
-                onChange={(e) => setBaselineTo(e.target.value)}
+                min={baselineFrom}
+                onChange={setBaselineTo}
+                className={inputClass}
               />
               <button
                 type="button"
@@ -388,24 +391,20 @@ export function ShiftReviewPage({
               которые сотрудник не закрыл
             </p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <label className="block">
-                <span className="mb-1 block text-xs text-slate-500">Период с</span>
-                <input
-                  type="date"
-                  className={inputClass}
-                  value={reviewFrom}
-                  onChange={(e) => setReviewFrom(e.target.value)}
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs text-slate-500">Период по</span>
-                <input
-                  type="date"
-                  className={inputClass}
-                  value={reviewTo}
-                  onChange={(e) => setReviewTo(e.target.value)}
-                />
-              </label>
+              <DatePickerField
+                label="Период с"
+                value={reviewFrom}
+                max={reviewTo}
+                onChange={setReviewFrom}
+                className={inputClass}
+              />
+              <DatePickerField
+                label="Период по"
+                value={reviewTo}
+                min={reviewFrom}
+                onChange={setReviewTo}
+                className={inputClass}
+              />
               {usesBranchPicker && (superBranch?.branches.length ?? 0) > 0 && (
                 <label className="block sm:col-span-2">
                   <span className="mb-1 block text-xs text-slate-500">Филиал</span>
