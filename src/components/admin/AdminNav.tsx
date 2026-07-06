@@ -95,7 +95,9 @@ function isLinkActive(pathname: string, href: string) {
   if (href === "/admin/widget") return pathname.startsWith("/admin/widget");
   if (href === "/admin/users") return pathname.startsWith("/admin/users");
   if (href === "/admin/shift-review") return pathname.startsWith("/admin/shift-review");
-  if (href === "/admin/shift") return pathname.startsWith("/admin/shift");
+  if (href === "/admin/shift") {
+    return pathname === "/admin/shift" || pathname.startsWith("/admin/shift/");
+  }
   if (href === "/admin/backups") return pathname.startsWith("/admin/backups");
   return pathname.startsWith(href);
 }
@@ -162,31 +164,38 @@ export function AdminNav({ admin }: Props) {
   return (
     <div className="admin-mobile-nav mb-3 shrink-0 border-b border-slate-200 pb-2">
       <div className="flex items-center gap-2">
-        <nav
-          className="admin-mobile-tabbar min-w-0 flex-1 overflow-x-auto [-webkit-overflow-scrolling:touch]"
-          aria-label="Навигация"
-        >
-          <div className="flex w-max min-w-full items-center gap-x-1">
-            {links.map((l) => {
-              const active = isLinkActive(pathname, l.href);
-              return (
-                <Link
-                  key={l.href}
-                  href={l.href}
-                  className={`shrink-0 touch-manipulation whitespace-nowrap rounded-full px-2.5 py-1.5 text-xs ${
-                    active
-                      ? "bg-lime-100 font-semibold text-lime-800"
-                      : "text-slate-600 active:bg-slate-100"
-                  }`}
-                >
-                  {l.short}
-                </Link>
-              );
-            })}
-          </div>
-        </nav>
+        <div className="relative min-w-0 flex-1">
+          <nav
+            className="admin-mobile-tabbar overflow-x-auto [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            aria-label="Навигация"
+          >
+            <div className="flex w-max min-w-full items-center gap-x-1 pr-6">
+              {links.map((l) => {
+                const active = isLinkActive(pathname, l.href);
+                return (
+                  <Link
+                    key={l.href}
+                    href={l.href}
+                    className={`shrink-0 touch-manipulation whitespace-nowrap rounded-full px-2.5 py-1.5 text-xs ${
+                      active
+                        ? "bg-lime-100 font-semibold text-lime-800"
+                        : "text-slate-600 active:bg-slate-100"
+                    }`}
+                  >
+                    {l.short}
+                  </Link>
+                );
+              })}
+            </div>
+          </nav>
+          <div
+            className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-white to-transparent"
+            aria-hidden
+          />
+        </div>
         <LogoutButton compact />
       </div>
+      <p className="mt-1 text-center text-[10px] text-slate-400">← листайте меню →</p>
     </div>
   );
 }

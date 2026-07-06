@@ -6,6 +6,7 @@ export type WidgetBranch = {
   address?: string | null;
   description?: string | null;
   photoUrl?: string | null;
+  holidayDates?: string[];
 };
 
 export type WidgetPriceRule = {

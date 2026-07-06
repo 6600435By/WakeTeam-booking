@@ -17,6 +17,7 @@ import { hashPassword } from "@/lib/auth";
 import { logUserCreate } from "@/lib/audit/user-audit";
 import { prisma } from "@/lib/db";
 import { normalizeStaffLogin } from "@/lib/staff-user";
+import { formatUserZodError } from "@/lib/admin/user-form-errors";
 
 const profileFields = {
   name: z.string().min(1),
@@ -324,7 +325,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, userId: user.id });
   } catch (e) {
     if (e instanceof z.ZodError) {
-      return NextResponse.json({ error: e.flatten() }, { status: 400 });
+      return NextResponse.json({ error: formatUserZodError(e) }, { status: 400 });
     }
     const handled = handleAdminError(e);
     if (handled) {

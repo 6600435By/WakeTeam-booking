@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db";
 import { staffDisplayName } from "@/lib/staff-user";
 import { formatDateKey } from "@/lib/time";
+import { formatMinutesLabel } from "@/lib/calendar-grid";
+import { listChecklistItemsForBranch } from "./shift-checklist";
 
 export function previousDateKey(date: string): string {
   const [y, m, d] = date.split("-").map(Number);
@@ -266,4 +268,153 @@ export async function buildBaselineReport(
   }
 
   return rows;
+}
+
+export type ShiftAssignmentsReportRow = {
+  shiftId: string;
+  date: string;
+  branchName: string;
+  memberName: string;
+  shiftStatus: string;
+  baselineTasks: { id: string; description: string; completed: boolean }[];
+  spotTasks: {
+    id: string;
+    description: string;
+    status: string;
+    plannedLabel: string | null;
+  }[];
+  checklist: { id: string; label: string; completed: boolean }[];
+  handoffNotes: { targetDate: string; comment: string }[];
+};
+
+function spotTaskPlannedLabel(task: {
+  plannedMinutes: number | null;
+  plannedTimeFrom: string | null;
+  plannedTimeTo: string | null;
+}): string | null {
+  if (task.plannedMinutes) return formatMinutesLabel(task.plannedMinutes);
+  if (task.plannedTimeFrom && task.plannedTimeTo) {
+    return `${task.plannedTimeFrom}–${task.plannedTimeTo}`;
+  }
+  return null;
+}
+
+export async function buildShiftAssignmentsReport(
+  organizationId: string,
+  from: string,
+  to: string,
+  branchId?: string | null,
+): Promise<ShiftAssignmentsReportRow[]> {
+  const branches = await prisma.branch.findMany({
+    where: {
+      organizationId,
+      isActive: true,
+      ...(branchId ? { id: branchId } : {}),
+    },
+    select: { id: true, name: true },
+  });
+  const branchMap = new Map(branches.map((b) => [b.id, b.name]));
+
+  const shifts = await prisma.workShift.findMany({
+    where: {
+      organizationId,
+      date: { gte: from, lte: to },
+      ...(branchId ? { branchId } : {}),
+    },
+    include: {
+      member: {
+        include: {
+          user: {
+            select: { name: true, lastName: true, login: true, email: true },
+          },
+          branch: { select: { name: true } },
+        },
+      },
+      baselineCompletions: { select: { taskId: true } },
+      checklistCompletions: { select: { itemId: true } },
+      handoffNotes: { orderBy: { createdAt: "asc" } },
+    },
+    orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+  });
+
+  if (shifts.length === 0) return [];
+
+  const branchIds = [...new Set(shifts.map((s) => s.branchId))];
+  const [baselineTasks, spotTasks, checklistByBranch] = await Promise.all([
+    prisma.shiftBaselineTask.findMany({
+      where: {
+        organizationId,
+        date: { gte: from, lte: to },
+        ...(branchId ? { branchId } : {}),
+      },
+      orderBy: [{ date: "asc" }, { sortOrder: "asc" }],
+    }),
+    prisma.spotTask.findMany({
+      where: {
+        organizationId,
+        date: { gte: from, lte: to },
+        branchWide: false,
+        ...(branchId ? { branchId } : {}),
+      },
+    }),
+    Promise.all(
+      branchIds.map(async (bid) => {
+        const items = await listChecklistItemsForBranch(bid);
+        return [bid, items] as const;
+      }),
+    ).then((pairs) => new Map(pairs)),
+  ]);
+
+  const baselineByDateBranch = new Map<string, typeof baselineTasks>();
+  for (const task of baselineTasks) {
+    const key = `${task.date}:${task.branchId}`;
+    const list = baselineByDateBranch.get(key) ?? [];
+    list.push(task);
+    baselineByDateBranch.set(key, list);
+  }
+
+  return shifts.map((shift) => {
+    const completedBaseline = new Set(shift.baselineCompletions.map((c) => c.taskId));
+    const completedChecklist = new Set(shift.checklistCompletions.map((c) => c.itemId));
+    const dayBaseline =
+      baselineByDateBranch.get(`${shift.date}:${shift.branchId}`) ?? [];
+    const memberSpotTasks = spotTasks.filter(
+      (t) =>
+        t.assigneeMemberId === shift.memberId &&
+        t.date === shift.date &&
+        t.branchId === shift.branchId,
+    );
+    const checklistItems = checklistByBranch.get(shift.branchId) ?? [];
+
+    return {
+      shiftId: shift.id,
+      date: shift.date,
+      branchName:
+        shift.member.branch?.name ??
+        branchMap.get(shift.branchId) ??
+        shift.branchId,
+      memberName: staffDisplayName(shift.member.user),
+      shiftStatus: shift.status,
+      baselineTasks: dayBaseline.map((t) => ({
+        id: t.id,
+        description: t.description,
+        completed: completedBaseline.has(t.id),
+      })),
+      spotTasks: memberSpotTasks.map((t) => ({
+        id: t.id,
+        description: t.description,
+        status: t.status,
+        plannedLabel: spotTaskPlannedLabel(t),
+      })),
+      checklist: checklistItems.map((item) => ({
+        id: item.id,
+        label: item.label,
+        completed: completedChecklist.has(item.id),
+      })),
+      handoffNotes: shift.handoffNotes.map((n) => ({
+        targetDate: n.targetDate,
+        comment: n.comment,
+      })),
+    };
+  });
 }

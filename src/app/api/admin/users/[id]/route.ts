@@ -10,6 +10,7 @@ import {
   requireAdminContext,
   SUPER_ADMIN_ROLE,
 } from "@/lib/admin-access";
+import { formatUserZodError } from "@/lib/admin/user-form-errors";
 import { hashPassword } from "@/lib/auth";
 import { logUserDelete, logUserUpdate } from "@/lib/audit/user-audit";
 import { prisma } from "@/lib/db";
@@ -240,7 +241,7 @@ export async function PATCH(
     return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof z.ZodError) {
-      return NextResponse.json({ error: e.flatten() }, { status: 400 });
+      return NextResponse.json({ error: formatUserZodError(e) }, { status: 400 });
     }
     if (e instanceof Error && e.message === "NOT_FOUND") {
       return NextResponse.json({ error: "Not found" }, { status: 404 });

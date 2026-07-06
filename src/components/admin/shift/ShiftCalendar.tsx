@@ -313,14 +313,6 @@ export function ShiftCalendar({
     return buildGridCells(month, days);
   }, [data, month, scheduleFilter, memberId]);
 
-  const displayDays = useMemo(() => {
-    if (!data) return [];
-    if (scheduleFilter === "mine") {
-      return data.days.map((d) => filterDayData(d, memberId, "mine"));
-    }
-    return data.days;
-  }, [data, scheduleFilter, memberId]);
-
   const selectedDay = useMemo(() => {
     if (!selectedDate || !data) return null;
     const raw = data.days.find((d) => d.date === selectedDate);
@@ -518,7 +510,7 @@ export function ShiftCalendar({
   }
 
   async function deleteBaseline(id: string) {
-    if (!window.confirm("Удалить базовое задание?")) return;
+    if (!window.confirm("Удалить задание на смену?")) return;
     const r = await adminFetch(`/api/admin/shift-baseline-tasks/${id}`, {
       method: "DELETE",
     });
@@ -753,19 +745,19 @@ export function ShiftCalendar({
 
       {!loading && data && (
         <>
-          <div className="hidden admin-desktop:block overflow-x-auto">
-            <div className="min-w-[640px]">
-              <div className="mb-1 grid grid-cols-7 gap-1">
+          <div className="-mx-1 overflow-x-auto px-1">
+            <div className="min-w-[18rem] admin-desktop:min-w-[640px]">
+              <div className="mb-1 grid grid-cols-7 gap-0.5 admin-desktop:gap-1">
                 {WEEKDAYS.map((w) => (
                   <div
                     key={w}
-                    className="text-center text-xs font-medium text-slate-500"
+                    className="text-center text-[10px] font-medium text-slate-500 admin-desktop:text-xs"
                   >
                     {w}
                   </div>
                 ))}
               </div>
-              <div className="grid grid-cols-7 gap-1">
+              <div className="grid grid-cols-7 gap-0.5 admin-desktop:gap-1">
                 {cells.map((cell, i) =>
                   cell ? (
                     <DayCell
@@ -782,44 +774,11 @@ export function ShiftCalendar({
                       onAddTask={() => openBaselineForm(cell.date)}
                     />
                   ) : (
-                    <div key={`pad-${i}`} className="min-h-[100px]" />
+                    <div key={`pad-${i}`} className="min-h-[4.5rem] admin-desktop:min-h-[100px]" />
                   ),
                 )}
               </div>
             </div>
-          </div>
-
-          <div className="admin-desktop:hidden space-y-2">
-            {displayDays
-              .filter((d) => d.shifts.length > 0 || d.tasks.length > 0)
-              .map((d) => (
-                <button
-                  key={d.date}
-                  type="button"
-                  className={`w-full rounded-lg border bg-white p-3 text-left ${
-                    dayHasMine(d, memberId) && scheduleFilter === "branch"
-                      ? "border-lime-300 ring-1 ring-lime-200"
-                      : "border-slate-200"
-                  }`}
-                  onClick={() => setSelectedDate(d.date)}
-                >
-                  <p className="text-sm font-medium">
-                    {new Date(d.date + "T12:00:00").toLocaleDateString("ru-RU", {
-                      weekday: "short",
-                      day: "numeric",
-                      month: "short",
-                    })}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    Смен: {d.shifts.length} · Заданий: {d.tasks.length}
-                  </p>
-                </button>
-              ))}
-            {displayDays.every(
-              (d) => d.shifts.length === 0 && d.tasks.length === 0,
-            ) && (
-              <p className="text-sm text-slate-500">В этом месяце пока нет записей</p>
-            )}
           </div>
         </>
       )}
@@ -964,7 +923,7 @@ export function ShiftCalendar({
             <section>
               <div className="mb-2 flex items-center justify-between">
                 <h4 className="text-xs font-semibold uppercase tracking-wide text-violet-600">
-                  Базовые задания
+                  Задания на смену
                 </h4>
                 {canEdit && (
                   <button
@@ -976,11 +935,7 @@ export function ShiftCalendar({
                   </button>
                 )}
               </div>
-              {selectedDay.baselineTasks.length === 0 ? (
-                <p className="text-sm text-slate-500">
-                  Нет базовых заданий — можно добавить заранее, без смены
-                </p>
-              ) : (
+              {selectedDay.baselineTasks.length === 0 ? null : (
                 <ul className="space-y-2">
                   {selectedDay.baselineTasks.map((t) => (
                     <li key={t.id}>
@@ -990,9 +945,7 @@ export function ShiftCalendar({
                         onClick={() => openBaselineForm(selectedDate, t)}
                       >
                         <p className="font-medium">{t.description}</p>
-                        <p className="mt-1 text-xs text-violet-700">
-                          Для всей смены · без тарифа
-                        </p>
+                        <p className="mt-1 text-xs text-violet-700">На всю смену</p>
                       </button>
                     </li>
                   ))}
@@ -1374,12 +1327,11 @@ export function ShiftCalendar({
         <div className="fixed inset-0 z-[60] flex items-end bg-black/40 p-4 admin-desktop:items-center admin-desktop:justify-center">
           <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-white p-4 space-y-3">
             <h3 className="font-semibold">
-              {baselineForm.id ? "Базовое задание" : "Базовое задание на всех"}
+              {baselineForm.id ? "Задание на смену" : "Задание на смену для всех"}
             </h3>
             <p className="text-xs text-slate-500">
-              Чеклист для смены без привязки к тарифу. Можно создать заранее,
-              даже если сотрудники ещё не назначены. Отметку выполнения ставит
-              сотрудник при закрытии смены.
+              Можно создать заранее, даже если сотрудники ещё не назначены. Отметку
+              выполнения ставит сотрудник при закрытии смены.
             </p>
             <DatePickerField
               value={baselineForm.date}
@@ -1479,10 +1431,10 @@ function DayCell({
 
   return (
     <div
-      className={`min-h-[100px] rounded-lg border p-1.5 text-left ${
+      className={`min-h-[4.5rem] rounded-lg border p-1 text-left admin-desktop:min-h-[100px] admin-desktop:p-1.5 ${
         isToday ? "border-lime-400 bg-lime-50/50" : "border-slate-200 bg-white"
       } ${highlightMine && isMineDay ? "ring-2 ring-lime-300" : ""} ${
-        hasItems ? "cursor-pointer hover:border-slate-300" : ""
+        hasItems || canEdit ? "cursor-pointer hover:border-slate-300" : ""
       }`}
       onClick={onSelect}
       onKeyDown={(e) => e.key === "Enter" && onSelect()}

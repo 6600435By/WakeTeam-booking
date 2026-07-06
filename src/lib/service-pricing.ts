@@ -63,10 +63,11 @@ export function resolveServicePrice(
   },
   startAt: Date,
   durationMinutes: number,
+  options?: { pricingWeekday?: number },
 ): number {
   const dateStr = formatDateKey(startAt);
   const timeStr = formatInTimeZone(startAt, TZ, "HH:mm");
-  const wd = weekdayMinsk(dateStr);
+  const wd = options?.pricingWeekday ?? weekdayMinsk(dateStr);
   const tariffDuration = service.durationMinutes;
 
   if (service.priceRules?.length) {
@@ -121,9 +122,10 @@ export function resolveAppointmentPrice(
   startAt: Date,
   durationMinutes: number,
   membershipPricePerMinute?: number | null,
+  options?: { pricingWeekday?: number },
 ): number {
   if (membershipPricePerMinute != null && membershipPricePerMinute > 0) {
     return Math.round(membershipPricePerMinute * durationMinutes * 100) / 100;
   }
-  return resolveServicePrice(service, startAt, durationMinutes);
+  return resolveServicePrice(service, startAt, durationMinutes, options);
 }

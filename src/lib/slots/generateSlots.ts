@@ -21,6 +21,10 @@ import { ACTIVE_APPOINTMENT_STATUSES } from "@/lib/appointment-status";
 import { normalizeAdminDuration } from "@/lib/admin-duration";
 import { upsertClientByPhone } from "@/lib/clients/upsert";
 import { effectiveScheduleRule } from "@/lib/staff-schedule-effective";
+import {
+  resolveBranchDayContext,
+  type BranchDayContext,
+} from "@/lib/branch-hours";
 import { parseWeekdays, serviceAllowedOnDate, subtractBreaks } from "@/lib/slots/slot-helpers";
 
 export type SlotDto = {
@@ -95,6 +99,23 @@ function dayScheduleRule(
   return effectiveScheduleRule(staff.schedules, overrides.get(staff.id) ?? null, weekday);
 }
 
+function applyBranchHoursToRule<T extends { timeFrom: string; timeTo: string }>(
+  rule: T | undefined,
+  branchCtx: BranchDayContext,
+): T | undefined {
+  if (!rule || !branchCtx.isWorking) return undefined;
+  if (!branchCtx.timeFrom || !branchCtx.timeTo) return rule;
+  const timeFrom = maxTime(rule.timeFrom, branchCtx.timeFrom);
+  const timeTo = minTime(rule.timeTo, branchCtx.timeTo);
+  if (timeFrom >= timeTo) return undefined;
+  return { ...rule, timeFrom, timeTo };
+}
+
+async function pricingWeekdayForBranch(branchId: string, date: string) {
+  const ctx = await resolveBranchDayContext(branchId, date);
+  return ctx.pricingWeekday;
+}
+
 export async function getDaySlots(params: {
   serviceId: string;
   staffId: string;
@@ -116,6 +137,11 @@ export async function getDaySlots(params: {
     return { slots: [], allowedDurations: [] };
   }
   if (!serviceAllowedOnDate(service, params.date)) {
+    return { slots: [], allowedDurations: parseDurations(service.allowedDurations) };
+  }
+
+  const branchCtx = await resolveBranchDayContext(service.branchId, params.date);
+  if (!branchCtx.isWorking) {
     return { slots: [], allowedDurations: parseDurations(service.allowedDurations) };
   }
 
@@ -147,7 +173,7 @@ export async function getDaySlots(params: {
 
   const wd = weekdayMinsk(params.date);
   const overrides = await loadScheduleOverrides([staff.id], params.date);
-  const rule = dayScheduleRule(staff, wd, overrides);
+  const rule = applyBranchHoursToRule(dayScheduleRule(staff, wd, overrides), branchCtx);
   if (!rule) return { slots: [], allowedDurations };
 
   let windowFrom = rule.timeFrom;
@@ -255,6 +281,11 @@ export async function getSupDaySlots(params: {
     return { slots: [], allowedDurations: supAllowedDurations(service) };
   }
 
+  const branchCtx = await resolveBranchDayContext(service.branchId, params.date);
+  if (!branchCtx.isWorking) {
+    return { slots: [], allowedDurations: supAllowedDurations(service) };
+  }
+
   const allowedDurations = supAllowedDurations(service);
   const slotStep = service.durationMinutes;
   const duration =
@@ -293,7 +324,7 @@ export async function getSupDaySlots(params: {
   const slotStarts = new Set<number>();
 
   for (const board of boards) {
-    const rule = dayScheduleRule(board, wd, overrides);
+    const rule = applyBranchHoursToRule(dayScheduleRule(board, wd, overrides), branchCtx);
     if (!rule) continue;
 
     let windowFrom = rule.timeFrom;
@@ -327,7 +358,7 @@ export async function getSupDaySlots(params: {
       const end = addMinutes(start, duration);
       let availableBoards = 0;
       for (const board of boards) {
-        const rule = dayScheduleRule(board, wd, overrides);
+        const rule = applyBranchHoursToRule(dayScheduleRule(board, wd, overrides), branchCtx);
         if (!rule) continue;
         let windowFrom = rule.timeFrom;
         let windowTo = rule.timeTo;
@@ -551,7 +582,9 @@ export async function createBooking(
     email: input.email,
   });
 
-  const price = resolveServicePrice(serviceWithRulesDto(service), startAt, duration);
+  const price = resolveServicePrice(serviceWithRulesDto(service), startAt, duration, {
+    pricingWeekday: await pricingWeekdayForBranch(service.branchId, dateStr),
+  });
   const publicNumber = await nextPublicNumber();
 
   try {
@@ -666,7 +699,12 @@ async function createSupBooking(
   if (freeBoards.length < quantity) throw new Error("SLOT_UNAVAILABLE");
 
   const selected = freeBoards.slice(0, quantity);
-  const unitPrice = resolveServicePrice(serviceWithRulesDto(service), startAt, duration);
+  const unitPrice = resolveServicePrice(serviceWithRulesDto(service), startAt, duration, {
+    pricingWeekday: await pricingWeekdayForBranch(
+      service.branchId,
+      formatDateKey(startAt),
+    ),
+  });
   const totalPrice = Math.round(unitPrice * quantity * 100) / 100;
   const publicNumber = await nextPublicNumber();
   const bookingGroupId = randomUUID();
@@ -794,7 +832,12 @@ async function createBatchBooking(
       );
       if (freeBoards.length < quantity) throw new Error("SLOT_UNAVAILABLE");
 
-      const unitPrice = resolveServicePrice(serviceDto, startAt, cellMinutes);
+      const unitPrice = resolveServicePrice(serviceDto, startAt, cellMinutes, {
+        pricingWeekday: await pricingWeekdayForBranch(
+          service.branchId,
+          formatDateKey(startAt),
+        ),
+      });
       const slotTotal = Math.round(unitPrice * quantity * 100) / 100;
       totalPrice += slotTotal;
 
@@ -817,7 +860,12 @@ async function createBatchBooking(
         if (!ok) throw new Error("SLOT_UNAVAILABLE");
       }
 
-      const price = resolveServicePrice(serviceDto, startAt, cellMinutes);
+      const price = resolveServicePrice(serviceDto, startAt, cellMinutes, {
+        pricingWeekday: await pricingWeekdayForBranch(
+          service.branchId,
+          formatDateKey(startAt),
+        ),
+      });
       totalPrice += price;
       rows.push({
         staffId: input.staffId!,
@@ -993,7 +1041,12 @@ export async function updateAppointment(
 
   const price =
     data.price ??
-    resolveServicePrice(serviceWithRulesDto(service), startAt, duration);
+    resolveServicePrice(serviceWithRulesDto(service), startAt, duration, {
+      pricingWeekday: await pricingWeekdayForBranch(
+        service.branchId,
+        formatDateKey(startAt),
+      ),
+    });
 
   try {
     return await db.appointment.update({

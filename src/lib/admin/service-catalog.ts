@@ -89,5 +89,12 @@ export function defaultWakeLikePriceRules(basePrice = 15) {
       price: 30,
       sortOrder: 3,
     },
+    {
+      weekdays: "8",
+      timeFrom: "09:00",
+      timeTo: "21:00",
+      price: 30,
+      sortOrder: 4,
+    },
   ];
 }

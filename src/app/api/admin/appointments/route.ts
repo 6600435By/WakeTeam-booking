@@ -39,6 +39,7 @@ const createSchema = z.object({
   membershipId: z.string().nullable().optional(),
   paymentMethod: z.enum(["cash", "card", "corporate"]).nullable().optional(),
   price: z.number().nonnegative().optional(),
+  priceManual: z.boolean().optional(),
   rentalItemId: z.string().nullable().optional(),
   rentalQuantity: z.number().int().nonnegative().optional(),
   operatorMemberId: z.string().nullable().optional(),
@@ -108,7 +109,7 @@ export async function POST(req: NextRequest) {
     }
     assertJournalCreateAccess(ctx, staff.branchId);
 
-    const { membershipId, paymentMethod, status: desiredStatus, rentalItemId, rentalQuantity, operatorMemberId, ...bookingBody } = body;
+    const { membershipId, paymentMethod, status: desiredStatus, rentalItemId, rentalQuantity, operatorMemberId, priceManual, ...bookingBody } = body;
 
     const service = await prisma.service.findUnique({
       where: { id: body.serviceId },
@@ -142,7 +143,7 @@ export async function POST(req: NextRequest) {
         membershipId,
         desiredStatus,
         paymentMethod,
-        price: body.price,
+        price: priceManual ? body.price : undefined,
         rentalItemId,
         rentalQuantity,
       });

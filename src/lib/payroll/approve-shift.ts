@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { SHIFT_INCLUDE, snapshotRatesOnClose } from "./work-shift-service";
+import { SHIFT_INCLUDE, snapshotRatesOnClose, resolveEffectiveShiftEnd } from "./work-shift-service";
 
 export async function closeShiftForReview(shiftId: string) {
   const shift = await prisma.workShift.findUnique({
@@ -8,18 +8,20 @@ export async function closeShiftForReview(shiftId: string) {
   });
   if (!shift || shift.status !== "open") return shift;
 
+  const effectiveEnd = resolveEffectiveShiftEnd(shift, new Date()) ?? new Date();
+
   const activeSpot = shift.spotEntries.find((e) => e.isActive);
   if (activeSpot) {
     await prisma.spotWorkEntry.update({
       where: { id: activeSpot.id },
-      data: { isActive: false, endedAt: new Date() },
+      data: { isActive: false, endedAt: effectiveEnd },
     });
   }
   const openAssign = shift.reverseAssignments.find((a) => !a.endedAt);
   if (openAssign) {
     await prisma.reverseAssignment.update({
       where: { id: openAssign.id },
-      data: { endedAt: new Date() },
+      data: { endedAt: effectiveEnd },
     });
   }
   const ratesSnapshot = await snapshotRatesOnClose(shift.memberId, shift.date);
@@ -27,7 +29,7 @@ export async function closeShiftForReview(shiftId: string) {
     where: { id: shiftId },
     data: {
       status: "closed",
-      actualEnd: shift.actualEnd ?? new Date(),
+      actualEnd: shift.actualEnd ?? effectiveEnd,
       ratesSnapshot,
     },
   });

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { catalogServices, serviceResourceLabel } from "@/lib/admin/service-catalog";
 import { sanitizePhotoUrlForClient } from "@/lib/photo-url";
 import { minPriceFromRules, parsePricesByDuration } from "@/lib/service-pricing";
+import { listBranchHolidays } from "@/lib/branch-hours";
 import {
   DEFAULT_WIDGET_SETTINGS,
   parseWidgetSettings,
@@ -108,15 +109,19 @@ export async function getWidgetConfig(slug: string) {
   const settings = parseWidgetSettings(org.widgetSettings);
 
   const branchesWithServices = await Promise.all(
-    org.branches.map(async (b) => ({
-      id: b.id,
-      name: b.name,
-      address: b.address,
-      phone: b.phone,
-      description: b.description,
-      photoUrl: sanitizePhotoUrlForClient(b.photoUrl),
-      services: await getPublicServices(b.id),
-    })),
+    org.branches.map(async (b) => {
+      const holidays = await listBranchHolidays(b.id);
+      return {
+        id: b.id,
+        name: b.name,
+        address: b.address,
+        phone: b.phone,
+        description: b.description,
+        photoUrl: sanitizePhotoUrlForClient(b.photoUrl),
+        holidayDates: holidays.map((h) => h.date),
+        services: await getPublicServices(b.id),
+      };
+    }),
   );
 
   return {

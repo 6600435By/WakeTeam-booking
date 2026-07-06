@@ -36,6 +36,7 @@ const patchSchema = z.object({
   phone: z.string().optional(),
   paymentMethod: z.enum(["cash", "card", "corporate"]).nullable().optional(),
   price: z.number().nonnegative().optional(),
+  priceManual: z.boolean().optional(),
   rentalItemId: z.string().nullable().optional(),
   rentalQuantity: z.number().int().nonnegative().optional(),
   operatorMemberId: z.string().nullable().optional(),
@@ -104,7 +105,7 @@ export async function PATCH(
     if (body.serviceId) await assertServiceAccess(ctx, body.serviceId);
 
     const oldDateKey = formatDateKey(existing.startAt);
-    const { membershipId, rentalItemId, rentalQuantity, price, operatorMemberId, ...rest } = body;
+    const { membershipId, rentalItemId, rentalQuantity, price, priceManual, operatorMemberId, ...rest } = body;
 
     const nextServiceId = body.serviceId ?? existing.serviceId;
     const nextService = await prisma.service.findUnique({
@@ -148,7 +149,7 @@ export async function PATCH(
         status: body.status,
         rentalItemId,
         rentalQuantity,
-        price,
+        price: priceManual ? price : undefined,
         updateFields,
       });
     } catch (err) {

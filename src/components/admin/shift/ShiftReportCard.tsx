@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { formatDateKeyRu } from "@/lib/time";
 import { formatMoney } from "@/lib/payroll/shift-summary";
 import { spotCategoryLabel } from "@/lib/payroll/spot-categories";
 
@@ -96,7 +96,7 @@ export function ShiftReportCard({ data }: { data: ShiftData }) {
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="text-base font-semibold text-slate-900">
-            Смена {shift.date}
+            Смена {formatDateKeyRu(shift.date)}
             {timeRange ? ` · ${timeRange}` : ""}
           </h3>
           <p className="text-xs text-slate-500">{statusLabel[shift.status] ?? shift.status}</p>

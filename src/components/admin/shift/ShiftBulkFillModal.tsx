@@ -362,11 +362,10 @@ export function ShiftBulkFillModal({
           <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 space-y-3">
             <div>
               <h4 className="text-sm font-semibold text-slate-800">
-                Базовые задания на смену
+                Задания на смену
               </h4>
               <p className="mt-0.5 text-xs text-slate-500">
-                Чеклист без тарифа — только описание. Можно задать заранее, без
-                назначенных смен
+                Можно задать заранее, без назначенных смен
               </p>
             </div>
 

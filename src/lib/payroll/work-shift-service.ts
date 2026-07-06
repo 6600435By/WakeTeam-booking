@@ -65,6 +65,26 @@ export async function resolveShiftRates(
   return resolveRatesForDate(rates, shift.date);
 }
 
+/** Effective end of shift for payroll: not after spot work window; may be earlier if closed early. */
+export function resolveEffectiveShiftEnd(
+  shift: Pick<WorkShift, "date" | "status" | "actualStart" | "actualEnd" | "plannedEnd">,
+  now = new Date(),
+): Date | null {
+  if (!shift.actualStart) return null;
+
+  let end = shift.status === "open" ? now : (shift.actualEnd ?? now);
+  if (shift.plannedEnd) {
+    const plannedEndDt = parseTimeOnDate(shift.date, shift.plannedEnd);
+    if (end.getTime() > plannedEndDt.getTime()) {
+      end = plannedEndDt;
+    }
+  }
+  if (end.getTime() < shift.actualStart.getTime()) {
+    return shift.actualStart;
+  }
+  return end;
+}
+
 export async function computeShiftSummary(
   shift: NonNullable<ShiftWithRelations>,
   now = new Date(),
@@ -81,7 +101,7 @@ export async function computeShiftSummary(
     role === BRANCH_MANAGER_ROLE;
 
   const shiftStart = shift.actualStart;
-  const shiftEnd = shift.status === "open" ? now : shift.actualEnd ?? now;
+  const shiftEnd = resolveEffectiveShiftEnd(shift, now);
   const shiftMinutes =
     shiftStart && shiftEnd
       ? Math.round(Math.max(0, (shiftEnd.getTime() - shiftStart.getTime()) / 60_000))
@@ -150,8 +170,8 @@ export async function computeShiftSummary(
     panelMinutes = shift.panelMinutesOverride;
   }
 
-  const spotMinutes = calcSpotMinutes(shift.spotEntries, now, spotMode);
-  const unconfirmedSpotMinutes = calcUnconfirmedSpotMinutes(shift.spotEntries, now);
+  const spotMinutes = calcSpotMinutes(shift.spotEntries, shiftEnd ?? now, spotMode);
+  const unconfirmedSpotMinutes = calcUnconfirmedSpotMinutes(shift.spotEntries, shiftEnd ?? now);
   let idleMinutes = Math.max(0, shiftMinutes - panelMinutes - spotMinutes);
   if (shift.idleMinutesOverride != null) {
     idleMinutes = shift.idleMinutesOverride;

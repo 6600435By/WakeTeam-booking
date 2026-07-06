@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  parseUserApiError,
+  validateUserForm,
+} from "@/lib/admin/user-form-errors";
 import { PayRatesPanel } from "./PayRatesPanel";
 
 type Branch = { id: string; name: string };
@@ -31,6 +35,17 @@ const ALL_ROLES = [
 
 const inputClass =
   "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900";
+
+function fieldInputClass(hasError: boolean) {
+  return hasError
+    ? `${inputClass} border-red-400 ring-1 ring-red-200`
+    : inputClass;
+}
+
+function FieldHint({ message }: { message?: string }) {
+  if (!message) return null;
+  return <p className="mt-1 text-xs text-red-600">{message}</p>;
+}
 
 type FormState = {
   lastName: string;
@@ -67,6 +82,7 @@ export function UsersAdminPage() {
   const [canSetPayRates, setCanSetPayRates] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState("");
   const [form, setForm] = useState<FormState>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -101,9 +117,24 @@ export function UsersAdminPage() {
     return true;
   });
 
+  function clearFieldError(field: string) {
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  }
+
+  function applyValidationErrors(fieldMessages: Record<string, string>, message: string) {
+    setFieldErrors(fieldMessages);
+    setError(message);
+  }
+
   function startEdit(user: AdminUser) {
     setEditingId(user.id);
     loginTouchedRef.current = true;
+    setFieldErrors({});
     setForm({
       lastName: user.lastName ?? "",
       login: user.login,
@@ -122,11 +153,14 @@ export function UsersAdminPage() {
   function cancelEdit() {
     setEditingId(null);
     loginTouchedRef.current = false;
+    setFieldErrors({});
     setForm(emptyForm);
     setMsg("");
   }
 
   function updateLastName(value: string) {
+    clearFieldError("lastName");
+    clearFieldError("login");
     setForm((f) => ({
       ...f,
       lastName: value,
@@ -138,7 +172,16 @@ export function UsersAdminPage() {
     setSaving(true);
     setMsg("");
     setError("");
+    setFieldErrors({});
     const isCreate = !editingId;
+
+    const validation = validateUserForm(form, isCreate);
+    if (validation) {
+      applyValidationErrors(validation.fieldMessages, validation.message);
+      setSaving(false);
+      return;
+    }
+
     const payload: Record<string, unknown> = {
       lastName: form.lastName.trim(),
       login: form.login.trim(),
@@ -155,16 +198,6 @@ export function UsersAdminPage() {
     };
     if (form.password.trim()) {
       payload.password = form.password;
-    } else if (isCreate) {
-      setError("Укажите пароль");
-      setSaving(false);
-      return;
-    }
-
-    if (!payload.lastName || !payload.login || !payload.name) {
-      setError("Заполните фамилию, логин и имя");
-      setSaving(false);
-      return;
     }
 
     const res = await fetch(
@@ -178,7 +211,8 @@ export function UsersAdminPage() {
     const data = await res.json();
     setSaving(false);
     if (!res.ok) {
-      setError(typeof data.error === "string" ? data.error : "Ошибка сохранения");
+      const parsed = parseUserApiError(data);
+      applyValidationErrors(parsed.fieldMessages, parsed.message);
       return;
     }
     setMsg(isCreate ? "Сотрудник создан" : "Сохранено");
@@ -282,32 +316,39 @@ export function UsersAdminPage() {
               <label className="block sm:col-span-2">
                 <span className="mb-1 block text-xs text-slate-500">Фамилия</span>
                 <input
-                  className={inputClass}
+                  className={fieldInputClass(!!fieldErrors.lastName)}
                   value={form.lastName}
                   onChange={(e) => updateLastName(e.target.value)}
                 />
+                <FieldHint message={fieldErrors.lastName} />
               </label>
               <label className="block sm:col-span-2">
                 <span className="mb-1 block text-xs text-slate-500">
                   Логин для входа
                 </span>
                 <input
-                  className={inputClass}
+                  className={fieldInputClass(!!fieldErrors.login)}
                   value={form.login}
                   onChange={(e) => {
                     loginTouchedRef.current = true;
+                    clearFieldError("login");
                     setForm((f) => ({ ...f, login: e.target.value }));
                   }}
                   placeholder="Подставляется из фамилии, можно изменить"
                 />
+                <FieldHint message={fieldErrors.login} />
               </label>
               <label className="block">
                 <span className="mb-1 block text-xs text-slate-500">Имя</span>
                 <input
-                  className={inputClass}
+                  className={fieldInputClass(!!fieldErrors.name)}
                   value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  onChange={(e) => {
+                    clearFieldError("name");
+                    setForm((f) => ({ ...f, name: e.target.value }));
+                  }}
                 />
+                <FieldHint message={fieldErrors.name} />
               </label>
               <label className="block">
                 <span className="mb-1 block text-xs text-slate-500">Тел.</span>
@@ -346,18 +387,26 @@ export function UsersAdminPage() {
                   {editingId ? "Новый пароль (оставьте пустым, чтобы не менять)" : "Пароль"}
                 </span>
                 <input
-                  className={inputClass}
+                  className={fieldInputClass(!!fieldErrors.password)}
                   type="password"
                   value={form.password}
-                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                  onChange={(e) => {
+                    clearFieldError("password");
+                    setForm((f) => ({ ...f, password: e.target.value }));
+                  }}
                 />
+                <FieldHint message={fieldErrors.password} />
               </label>
               <label className="block">
                 <span className="mb-1 block text-xs text-slate-500">Роль</span>
                 <select
                   className={inputClass}
                   value={form.role}
-                  onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+                  onChange={(e) => {
+                    clearFieldError("branchId");
+                    clearFieldError("branchIds");
+                    setForm((f) => ({ ...f, role: e.target.value }));
+                  }}
                 >
                   {availableRoles.map((r) => (
                     <option key={r.value} value={r.value}>
@@ -371,13 +420,20 @@ export function UsersAdminPage() {
                   <span className="mb-1 block text-xs text-slate-500">
                     Закреплённые филиалы
                   </span>
-                  <div className="flex flex-wrap gap-2 rounded-lg border border-slate-300 p-2">
+                  <div
+                    className={
+                      fieldErrors.branchIds
+                        ? "flex flex-wrap gap-2 rounded-lg border border-red-400 p-2 ring-1 ring-red-200"
+                        : "flex flex-wrap gap-2 rounded-lg border border-slate-300 p-2"
+                    }
+                  >
                     {branches.map((b) => (
                       <label key={b.id} className="flex items-center gap-1.5 text-sm">
                         <input
                           type="checkbox"
                           checked={form.branchIds.includes(b.id)}
                           onChange={(e) => {
+                            clearFieldError("branchIds");
                             setForm((f) => ({
                               ...f,
                               branchIds: e.target.checked
@@ -390,17 +446,19 @@ export function UsersAdminPage() {
                       </label>
                     ))}
                   </div>
+                  <FieldHint message={fieldErrors.branchIds} />
                 </label>
               )}
               {form.role !== "super_admin" && form.role !== "branch_manager" && (
                 <label className="block">
                   <span className="mb-1 block text-xs text-slate-500">Филиал</span>
                   <select
-                    className={inputClass}
+                    className={fieldInputClass(!!fieldErrors.branchId)}
                     value={form.branchId}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, branchId: e.target.value }))
-                    }
+                    onChange={(e) => {
+                      clearFieldError("branchId");
+                      setForm((f) => ({ ...f, branchId: e.target.value }));
+                    }}
                   >
                     <option value="">Выберите филиал</option>
                     {branches.map((b) => (
@@ -409,6 +467,7 @@ export function UsersAdminPage() {
                       </option>
                     ))}
                   </select>
+                  <FieldHint message={fieldErrors.branchId} />
                 </label>
               )}
             </div>

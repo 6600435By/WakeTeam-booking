@@ -8,6 +8,10 @@ import {
 } from "@/lib/admin-access";
 import { prisma } from "@/lib/db";
 import { weekdayMinsk } from "@/lib/time";
+import {
+  getBranchWeekdaySchedules,
+  saveBranchWeekdaySchedules,
+} from "@/lib/branch-hours";
 import { logScheduleBranch, logScheduleResource } from "@/lib/audit/shift-audit";
 
 const resourceSchema = z.object({
@@ -46,39 +50,22 @@ export async function PATCH(req: NextRequest) {
         where: { id: branchId },
         select: { name: true },
       });
-      const reverses = await prisma.staff.findMany({
-        where: { branchId, kind: "revers", isActive: true },
-        select: { id: true },
-      });
-      const firstReverse = reverses[0];
-      let prevFrom: string | null = null;
-      let prevTo: string | null = null;
-      if (firstReverse) {
-        const prev = await prisma.staffSchedule.findUnique({
-          where: { staffId_weekday: { staffId: firstReverse.id, weekday } },
-        });
-        if (prev?.isWorking) {
-          prevFrom = prev.timeFrom;
-          prevTo = prev.timeTo;
-        }
-      }
-      for (const staff of reverses) {
-        await prisma.staffSchedule.upsert({
-          where: { staffId_weekday: { staffId: staff.id, weekday } },
-          create: {
-            staffId: staff.id,
-            weekday,
-            isWorking: true,
-            timeFrom: parsed.timeFrom,
-            timeTo: parsed.timeTo,
-          },
-          update: {
-            isWorking: true,
-            timeFrom: parsed.timeFrom,
-            timeTo: parsed.timeTo,
-          },
-        });
-      }
+      const schedules = await getBranchWeekdaySchedules(branchId);
+      const prevRow = schedules.find((s) => s.weekday === weekday);
+      const prevFrom = prevRow?.isWorking ? prevRow.timeFrom : null;
+      const prevTo = prevRow?.isWorking ? prevRow.timeTo : null;
+
+      const nextSchedules = schedules.map((row) =>
+        row.weekday === weekday
+          ? {
+              ...row,
+              isWorking: true,
+              timeFrom: parsed.timeFrom,
+              timeTo: parsed.timeTo,
+            }
+          : row,
+      );
+      await saveBranchWeekdaySchedules(branchId, nextSchedules, { syncStaff: true });
       logScheduleBranch(ctx, {
         branchId,
         branchName: branch?.name ?? "филиал",

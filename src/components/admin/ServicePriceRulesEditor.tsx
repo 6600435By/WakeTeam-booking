@@ -8,7 +8,7 @@ export type { PriceRuleRow };
 const inputClass =
   "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900";
 
-const WEEKDAY_LABELS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+const WEEKDAY_LABELS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс", "Празд."];
 
 function parseWeekdays(s: string): Set<number> {
   return new Set(
@@ -27,17 +27,20 @@ export function WeekdayPicker({
   value,
   onChange,
   compact = false,
+  includeHoliday = true,
 }: {
   value: string;
   onChange: (weekdays: string) => void;
   compact?: boolean;
+  includeHoliday?: boolean;
 }) {
   const selected = useMemo(() => parseWeekdays(value), [value]);
-
+  const days = includeHoliday
+    ? WEEKDAY_LABELS.map((label, i) => ({ day: i + 1, label }))
+    : WEEKDAY_LABELS.slice(0, 7).map((label, i) => ({ day: i + 1, label }));
   return (
     <div className={`flex flex-wrap ${compact ? "gap-1" : "gap-2"}`}>
-      {WEEKDAY_LABELS.map((label, i) => {
-        const day = i + 1;
+      {days.map(({ day, label }) => {
         const active = selected.has(day);
         return (
           <button
@@ -162,7 +165,8 @@ export function ServicePriceRulesEditor({
     <div className={wrapperClass}>
       <h3 className="text-sm font-semibold text-slate-900">Тарифы по времени</h3>
       <p className="mt-0.5 text-xs text-slate-500">
-        Стоимость зависит от времени начала записи — как при создании записи в журнале
+        Стоимость зависит от времени начала записи — как при создании записи в журнале.
+        Для праздничных дней используйте метку «Празд.».
       </p>
 
       {priceRules.length === 0 ? (

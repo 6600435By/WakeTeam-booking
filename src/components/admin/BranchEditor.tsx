@@ -35,6 +35,7 @@ import {
   buildStaffSchedulesFromService,
 } from "@/lib/admin/service-staff-schedule";
 import { ShiftChecklistEditor } from "./shift/ShiftChecklistEditor";
+import { BranchHoursEditor } from "./BranchHoursEditor";
 
 type ScheduleRow = {
   weekday: number;
@@ -681,6 +682,8 @@ export function BranchEditor({ branchId }: Props) {
         </button>
         {branchMsg && <p className="mt-2 text-sm text-slate-600">{branchMsg}</p>}
       </section>
+
+      <BranchHoursEditor branchId={branchId} />
 
       <RentalItemsEditor
         branchId={branchId}

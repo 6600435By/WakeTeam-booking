@@ -19,6 +19,7 @@ import {
 import { normalizeAdminDuration } from "@/lib/admin-duration";
 import { isSearchablePhone } from "@/lib/phone";
 import { resolveAppointmentPrice, type ServicePriceRuleDto } from "@/lib/service-pricing";
+import { pricingWeekdayForDate } from "@/lib/branch-hours-constants";
 import { serviceSupportsRental } from "@/lib/rental-pricing";
 import { PAYMENT_METHOD_OPTIONS, type PaymentMethod } from "@/lib/payment-method";
 import {
@@ -165,6 +166,7 @@ export function AppointmentModal({
   const priceTouchedRef = useRef(false);
   const skipAutoPriceRef = useRef(true);
   const [rentalItems, setRentalItems] = useState<RentalItem[]>([]);
+  const [holidayDates, setHolidayDates] = useState<string[]>([]);
   const [rentalItemId, setRentalItemId] = useState("");
   const [rentalQuantity, setRentalQuantity] = useState(1);
   const [rentalHint, setRentalHint] = useState("");
@@ -295,6 +297,7 @@ export function AppointmentModal({
       new Date(iso),
       duration,
       membershipRate,
+      { pricingWeekday: pricingWeekdayForDate(date, holidayDates) },
     );
 
     if (!serviceSupportsRental(service.kind) || !rentalItemId) {
@@ -343,7 +346,21 @@ export function AppointmentModal({
     rentalQuantity,
     phone,
     appointmentId,
+    holidayDates,
   ]);
+
+  useEffect(() => {
+    if (!branchId || !open) {
+      setHolidayDates([]);
+      return;
+    }
+    adminFetch(`/api/admin/branches/${branchId}/hours`)
+      .then((r) => r.json())
+      .then((d) => {
+        setHolidayDates((d.holidays ?? []).map((h: { date: string }) => h.date));
+      })
+      .catch(() => setHolidayDates([]));
+  }, [branchId, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -773,6 +790,7 @@ export function AppointmentModal({
           rentalItemId: showRental && rentalItemId ? rentalItemId : null,
           rentalQuantity: showRental && rentalItemId ? rentalQuantity : 0,
           price: priceValue,
+          priceManual: priceTouchedRef.current,
           operatorMemberId: isSupService ? null : operatorMemberId || null,
         }),
       });

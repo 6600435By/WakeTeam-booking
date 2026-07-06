@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { formatMinutesLabel } from "@/lib/calendar-grid";
+import { formatDateKeyRu } from "@/lib/time";
 import { periodLast15Days } from "@/lib/date-ranges";
+import type { ShiftAssignmentsReportRow } from "@/lib/payroll/shift-baseline-tasks";
+import {
+  spotTaskStatusLabel,
+  workShiftStatusLabel,
+} from "@/lib/payroll/spot-task-status";
 import { useSuperAdminBranchOptional } from "@/components/admin/SuperAdminBranchProvider";
 import { DatePickerField } from "@/components/admin/DatePickerField";
 import { ShiftReportCard, type ShiftData } from "./ShiftReportCard";
@@ -62,16 +68,7 @@ export function ShiftReviewPage({
   const [correctComment, setCorrectComment] = useState("");
   const [baselineFrom, setBaselineFrom] = useState(defaultPeriod.from);
   const [baselineTo, setBaselineTo] = useState(defaultPeriod.to);
-  const [baselineRows, setBaselineRows] = useState<
-    {
-      date: string;
-      branchName: string;
-      tasks: { id: string; description: string }[];
-      completions: { taskId: string; memberName: string }[];
-      handoffNotes: { memberName: string; comment: string }[];
-      completionRate: number | null;
-    }[]
-  >([]);
+  const [baselineRows, setBaselineRows] = useState<ShiftAssignmentsReportRow[]>([]);
   const [baselineLoading, setBaselineLoading] = useState(false);
 
   const memberIdsKey = [...selectedMembers].sort().join(",");
@@ -155,6 +152,8 @@ export function ShiftReviewPage({
     setBaselineLoading(true);
     setError("");
     const q = new URLSearchParams({ from: baselineFrom, to: baselineTo });
+    const bid = fixedBranchId ?? reviewBranchId;
+    if (bid) q.set("branchId", bid);
     const r = await fetch(`/api/admin/shift-baseline-report?${q}`);
     const d = await r.json();
     setBaselineLoading(false);
@@ -168,7 +167,7 @@ export function ShiftReviewPage({
 
   useEffect(() => {
     if (tab === "baseline") void loadBaselineReport();
-  }, [tab, baselineFrom, baselineTo]);
+  }, [tab, baselineFrom, baselineTo, fixedBranchId, reviewBranchId]);
 
   async function approve(closeIfOpen = false) {
     if (!selected) return;
@@ -188,8 +187,15 @@ export function ShiftReviewPage({
 
   async function deleteShift(id: string) {
     if (!window.confirm("Удалить смену?")) return;
+    setError("");
     const r = await fetch(`/api/admin/work-shifts/${id}`, { method: "DELETE" });
-    if (r.ok) await load();
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      setError(typeof d.error === "string" ? d.error : "Не удалось удалить смену");
+      return;
+    }
+    setSelected(null);
+    await load();
   }
 
   async function applyCorrection() {
@@ -276,7 +282,7 @@ export function ShiftReviewPage({
               : "text-slate-600"
           }`}
         >
-          Базовые задания
+          Задания
         </button>
       </div>
 
@@ -284,96 +290,142 @@ export function ShiftReviewPage({
         <div className="space-y-3">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <p className="text-sm text-slate-600">
-              Выполнение чеклиста смены и комментарии следующей смены о состоянии
-              спота
+              Задания на смену, индивидуальные задания, чеклист и комментарии по
+              каждой смене
             </p>
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <DatePickerField
+                label="Период с"
                 value={baselineFrom}
                 max={baselineTo}
                 onChange={setBaselineFrom}
                 className={inputClass}
               />
               <DatePickerField
+                label="Период по"
                 value={baselineTo}
                 min={baselineFrom}
                 onChange={setBaselineTo}
                 className={inputClass}
               />
-              <button
-                type="button"
-                className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white"
-                onClick={() => void loadBaselineReport()}
-              >
-                Обновить
-              </button>
+              {usesBranchPicker && (superBranch?.branches.length ?? 0) > 0 && (
+                <label className="block sm:col-span-2">
+                  <span className="mb-1 block text-xs text-slate-500">Филиал</span>
+                  <select
+                    className={inputClass}
+                    value={reviewBranchId}
+                    onChange={(e) => applyReviewBranch(e.target.value)}
+                  >
+                    <option value="">Все филиалы</option>
+                    {superBranch!.branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
+            <button
+              type="button"
+              className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white"
+              onClick={() => void loadBaselineReport()}
+            >
+              Обновить
+            </button>
           </div>
           {error && (
             <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
           )}
           {baselineLoading && <p className="text-sm text-slate-500">Загрузка…</p>}
           {!baselineLoading && baselineRows.length === 0 && (
-            <p className="text-sm text-slate-500">Нет данных за период</p>
+            <p className="text-sm text-slate-500">Нет смен за период</p>
           )}
           {baselineRows.map((row) => (
             <div
-              key={`${row.date}-${row.branchName}`}
+              key={row.shiftId}
               className="rounded-xl border border-slate-200 bg-white p-4 text-sm"
             >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-semibold">
-                  {row.date} · {row.branchName}
-                </p>
-                {row.completionRate != null && (
-                  <span className="rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-800">
-                    Выполнено {row.completionRate}%
-                  </span>
-                )}
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="font-semibold">{row.memberName}</p>
+                  <p className="text-xs text-slate-500">
+                    {formatDateKeyRu(row.date)} · {row.branchName}
+                  </p>
+                </div>
+                <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-slate-100 text-slate-600">
+                  {workShiftStatusLabel(row.shiftStatus)}
+                </span>
               </div>
-              {row.tasks.length > 0 && (
+
+              {row.baselineTasks.length > 0 && (
                 <div className="mt-3">
-                  <p className="text-xs font-medium text-slate-500">Задания</p>
-                  <ul className="mt-1 list-disc pl-4 text-slate-700">
-                    {row.tasks.map((t) => (
-                      <li key={t.id}>{t.description}</li>
+                  <p className="text-xs font-medium text-violet-700">Задания на смену</p>
+                  <ul className="mt-1 space-y-1 text-slate-700">
+                    {row.baselineTasks.map((t) => (
+                      <li key={t.id}>
+                        {t.completed ? "✓ " : "○ "}
+                        {t.description}
+                      </li>
                     ))}
                   </ul>
                 </div>
               )}
-              {row.completions.length > 0 && (
+
+              {row.spotTasks.length > 0 && (
                 <div className="mt-3">
-                  <p className="text-xs font-medium text-slate-500">Отметки</p>
+                  <p className="text-xs font-medium text-slate-500">Задания оператору</p>
                   <ul className="mt-1 space-y-1 text-slate-700">
-                    {row.completions.map((c, i) => {
-                      const task = row.tasks.find((t) => t.id === c.taskId);
-                      return (
-                        <li key={`${c.taskId}-${i}`}>
-                          {task?.description ?? "Задание"} — {c.memberName}
-                        </li>
-                      );
-                    })}
+                    {row.spotTasks.map((t) => (
+                      <li key={t.id}>
+                        {t.description}
+                        {t.plannedLabel ? ` · ${t.plannedLabel}` : ""} ·{" "}
+                        {spotTaskStatusLabel(t.status)}
+                      </li>
+                    ))}
                   </ul>
                 </div>
               )}
+
+              {row.checklist.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs font-medium text-slate-500">Чеклист филиала</p>
+                  <ul className="mt-1 space-y-1 text-slate-700">
+                    {row.checklist.map((item) => (
+                      <li key={item.id}>
+                        {item.completed ? "✓ " : "○ "}
+                        {item.label}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {row.handoffNotes.length > 0 && (
                 <div className="mt-3">
-                  <p className="text-xs font-medium text-slate-500">
-                    Комментарии следующей смены
-                  </p>
+                  <p className="text-xs font-medium text-slate-500">Комментарии смены</p>
                   <ul className="mt-1 space-y-2">
                     {row.handoffNotes.map((n, i) => (
                       <li
                         key={i}
                         className="rounded-lg border border-amber-100 bg-amber-50/50 px-3 py-2"
                       >
-                        <p className="text-xs text-amber-900">{n.memberName}</p>
+                        <p className="text-xs text-amber-900">
+                          для смены {formatDateKeyRu(n.targetDate)}
+                        </p>
                         <p className="mt-0.5 text-slate-800">{n.comment}</p>
                       </li>
                     ))}
                   </ul>
                 </div>
               )}
+
+              {row.baselineTasks.length === 0 &&
+                row.spotTasks.length === 0 &&
+                row.checklist.length === 0 &&
+                row.handoffNotes.length === 0 && (
+                  <p className="mt-3 text-xs text-slate-400">Нет заданий и комментариев</p>
+                )}
             </div>
           ))}
         </div>
@@ -509,7 +561,7 @@ export function ShiftReviewPage({
                     </span>
                   </div>
                   <p className="text-xs text-slate-500">
-                    {s.shift.date} · {s.shift.branchName} · {s.summary.totalAmount.toFixed(2)} BYN
+                    {formatDateKeyRu(s.shift.date)} · {s.shift.branchName} · {s.summary.totalAmount.toFixed(2)} BYN
                   </p>
                 </button>
               ))}

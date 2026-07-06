@@ -13,6 +13,7 @@ import {
   enrichShiftResponse,
   SHIFT_INCLUDE,
   snapshotRatesOnClose,
+  resolveEffectiveShiftEnd,
 } from "@/lib/payroll/work-shift-service";
 import { saveBaselineCompletions } from "@/lib/payroll/shift-baseline-tasks";
 import { saveChecklistCompletions } from "@/lib/payroll/shift-checklist";
@@ -53,12 +54,13 @@ export async function PATCH(
       if (shift.status !== "open") {
         return NextResponse.json({ error: "Смена уже закрыта" }, { status: 400 });
       }
+      const effectiveEnd = resolveEffectiveShiftEnd(shift, new Date()) ?? new Date();
       const activeSpot = shift.spotEntries.find((e) => e.isActive);
       if (activeSpot) {
         if (canReviewShifts(ctx)) {
           await prisma.spotWorkEntry.update({
             where: { id: activeSpot.id },
-            data: { isActive: false, endedAt: new Date() },
+            data: { isActive: false, endedAt: effectiveEnd },
           });
         } else {
           return NextResponse.json(
@@ -71,7 +73,7 @@ export async function PATCH(
       if (openAssign) {
         await prisma.reverseAssignment.update({
           where: { id: openAssign.id },
-          data: { endedAt: new Date() },
+          data: { endedAt: effectiveEnd },
         });
       }
       const ratesSnapshot = await snapshotRatesOnClose(shift.memberId, shift.date);
@@ -101,7 +103,7 @@ export async function PATCH(
         where: { id },
         data: {
           status: "closed",
-          actualEnd: new Date(),
+          actualEnd: effectiveEnd,
           ratesSnapshot,
         },
         include: SHIFT_INCLUDE,
@@ -321,16 +323,40 @@ export async function DELETE(
       return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
     }
     const { id } = await params;
-    const shift = await prisma.workShift.findUnique({ where: { id } });
+    const shift = await prisma.workShift.findUnique({
+      where: { id },
+      include: SHIFT_INCLUDE,
+    });
     if (!shift || shift.organizationId !== ctx.organizationId) {
       return NextResponse.json({ error: "Не найдено" }, { status: 404 });
     }
+
     if (shift.status === "open") {
-      return NextResponse.json(
-        { error: "Нельзя удалить открытую смену — сначала закройте её" },
-        { status: 400 },
-      );
+      const effectiveEnd = resolveEffectiveShiftEnd(shift, new Date()) ?? new Date();
+      const activeSpot = shift.spotEntries.find((e) => e.isActive);
+      if (activeSpot) {
+        await prisma.spotWorkEntry.update({
+          where: { id: activeSpot.id },
+          data: { isActive: false, endedAt: effectiveEnd },
+        });
+      }
+      for (const assign of shift.reverseAssignments.filter((a) => !a.endedAt)) {
+        await prisma.reverseAssignment.update({
+          where: { id: assign.id },
+          data: { endedAt: effectiveEnd },
+        });
+      }
+      const ratesSnapshot = await snapshotRatesOnClose(shift.memberId, shift.date);
+      await prisma.workShift.update({
+        where: { id },
+        data: {
+          status: "closed",
+          actualEnd: effectiveEnd,
+          ratesSnapshot,
+        },
+      });
     }
+
     await prisma.workShift.delete({ where: { id } });
     return NextResponse.json({ ok: true });
   } catch (e) {

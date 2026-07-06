@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolveServicePrice } from "@/lib/service-pricing";
+import { pricingWeekdayForDate } from "@/lib/branch-hours-constants";
 import {
   isCompletePhone,
   normalizePhone,
@@ -175,6 +176,9 @@ export function BookingWidget({
 
   const displayPrice = useMemo(() => {
     if (!service) return null;
+    const holidaySet = new Set(branch?.holidayDates ?? []);
+    const pricingWeekday = (startAt: string) =>
+      pricingWeekdayForDate(formatDateKey(new Date(startAt)), [...holidaySet]);
     if (isStaffPickActivity(activityKind)) {
       if (selectedWakeStarts.length === 0) return null;
       return selectedWakeStarts.reduce((sum, startAt) => {
@@ -188,6 +192,7 @@ export function BookingWidget({
             },
             new Date(startAt),
             staffCellMinutes,
+            { pricingWeekday: pricingWeekday(startAt) },
           )
         );
       }, 0);
@@ -202,6 +207,7 @@ export function BookingWidget({
         },
         new Date(startAt),
         supDurationMinutes,
+        { pricingWeekday: pricingWeekday(startAt) },
       );
       return sum + unit * supQuantity;
     }, 0);
@@ -213,6 +219,7 @@ export function BookingWidget({
     supQuantity,
     staffCellMinutes,
     supDurationMinutes,
+    branch?.holidayDates,
   ]);
 
   const selectedSupSlots = useMemo(

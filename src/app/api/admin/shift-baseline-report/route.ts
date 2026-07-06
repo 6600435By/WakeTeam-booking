@@ -1,16 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  assertSuperAdmin,
+  canReviewShifts,
   handleAdminError,
   requireAdminContext,
-  resolveBranchFilter,
+  resolveManagementBranchFilter,
 } from "@/lib/admin-access";
-import { buildBaselineReport } from "@/lib/payroll/shift-baseline-tasks";
+import { buildShiftAssignmentsReport } from "@/lib/payroll/shift-baseline-tasks";
 
 export async function GET(req: NextRequest) {
   try {
     const ctx = await requireAdminContext();
-    assertSuperAdmin(ctx);
+    if (!canReviewShifts(ctx)) {
+      return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
+    }
 
     const { searchParams } = new URL(req.url);
     const from = searchParams.get("from");
@@ -22,8 +24,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const branchId = resolveBranchFilter(ctx, searchParams.get("branchId"));
-    const rows = await buildBaselineReport(
+    const branchId = resolveManagementBranchFilter(ctx, searchParams.get("branchId"));
+    const rows = await buildShiftAssignmentsReport(
       ctx.organizationId,
       from,
       to,

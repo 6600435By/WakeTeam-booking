@@ -100,6 +100,37 @@ model Branch {
   rentalItems    BranchRentalItem[]
   members        OrganizationMember[]
   memberScopes   MemberBranchScope[]
+  weekdaySchedules BranchWeekdaySchedule[]
+  holidays       BranchHoliday[]
+}
+
+/// weekday: 1 = Monday … 7 = Sunday — часы работы филиала по умолчанию для всех ресурсов
+model BranchWeekdaySchedule {
+  id        String  @id @default(cuid())
+  branchId  String
+  branch    Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  weekday   Int
+  isWorking Boolean @default(true)
+  timeFrom  String
+  timeTo    String
+
+  @@unique([branchId, weekday])
+}
+
+/// Праздничный день филиала (YYYY-MM-DD, Europe/Minsk)
+model BranchHoliday {
+  id        String  @id @default(cuid())
+  branchId  String
+  branch    Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  date      String
+  label     String?
+  isWorking Boolean @default(true)
+  timeFrom  String?
+  timeTo    String?
+  createdAt DateTime @default(now())
+
+  @@unique([branchId, date])
+  @@index([branchId, date])
 }
 
 model BranchRentalItem {

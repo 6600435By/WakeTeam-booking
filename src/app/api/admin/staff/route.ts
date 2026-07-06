@@ -9,6 +9,7 @@ import {
 import { prisma } from "@/lib/db";
 import { isLegacyTariffServiceName, serviceResourceLabel } from "@/lib/admin/service-catalog";
 import { catalogStaff } from "@/lib/admin/staff-catalog";
+import { getBranchWeekdaySchedules } from "@/lib/branch-hours";
 
 const createSchema = z.object({
   branchId: z.string(),
@@ -25,6 +26,14 @@ const DEFAULT_SCHEDULE = Array.from({ length: 7 }, (_, i) => ({
   timeFrom: "10:00",
   timeTo: "21:00",
 }));
+
+async function defaultScheduleForBranch(branchId: string) {
+  try {
+    return await getBranchWeekdaySchedules(branchId);
+  } catch {
+    return DEFAULT_SCHEDULE;
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -95,7 +104,7 @@ export async function POST(req: NextRequest) {
       _max: { sortOrder: true },
     });
 
-    let scheduleRows = DEFAULT_SCHEDULE;
+    let scheduleRows = await defaultScheduleForBranch(body.branchId);
     const templateStaffId = body.copyScheduleFromStaffId;
     if (templateStaffId) {
       const templateSchedules = await prisma.staffSchedule.findMany({

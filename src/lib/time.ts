@@ -13,6 +13,13 @@ export function formatDateKey(date: Date): string {
   return formatInTimeZone(date, TZ, "yyyy-MM-dd");
 }
 
+/** YYYY-MM-DD → DD.MM.YYYY */
+export function formatDateKeyRu(dateKey: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!m) return dateKey;
+  return `${m[3]}.${m[2]}.${m[1]}`;
+}
+
 export function formatDateMinsk(
   iso: string | Date | null | undefined,
   empty = "—",
