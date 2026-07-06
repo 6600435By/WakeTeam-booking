@@ -4,6 +4,7 @@ import {
   handleAdminError,
   requireAdminContext,
   assertShiftSelfOrAdmin,
+  canEditApprovedShift,
 } from "@/lib/admin-access";
 import { prisma } from "@/lib/db";
 import { formatDateKey, parseTimeOnDate, overlaps } from "@/lib/time";
@@ -213,7 +214,7 @@ export async function PATCH(
     const shift = await loadShift(shiftId, ctx.organizationId);
     if (!shift) return NextResponse.json({ error: "Не найдено" }, { status: 404 });
     assertShiftSelfOrAdmin(ctx, shift.memberId, shift.branchId);
-    if (shift.status === "approved" && !ctx.isSuperAdmin) {
+    if (shift.status === "approved" && !canEditApprovedShift(ctx, shift.member.role, shift.branchId)) {
       return NextResponse.json({ error: "Смена утверждена" }, { status: 400 });
     }
 
@@ -276,6 +277,9 @@ export async function DELETE(
     const shift = await loadShift(shiftId, ctx.organizationId);
     if (!shift) return NextResponse.json({ error: "Не найдено" }, { status: 404 });
     assertShiftSelfOrAdmin(ctx, shift.memberId, shift.branchId);
+    if (shift.status === "approved" && !canEditApprovedShift(ctx, shift.member.role, shift.branchId)) {
+      return NextResponse.json({ error: "Смена утверждена" }, { status: 400 });
+    }
 
     const entry = shift.spotEntries.find((e) => e.id === entryId);
     if (!entry) return NextResponse.json({ error: "Не найдено" }, { status: 404 });

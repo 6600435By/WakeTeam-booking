@@ -6,6 +6,7 @@ import {
   resolveManagementBranchFilter,
   canReviewShifts,
   canApproveShift,
+  canViewBranchShiftSummary,
   BRANCH_OPERATOR_ROLE,
   BRANCH_ADMIN_ROLE,
   BRANCH_MANAGER_ROLE,
@@ -19,11 +20,30 @@ import {
   enrichShiftResponse,
   SHIFT_INCLUDE,
   computeShiftSummary,
+  type ShiftWithRelations,
 } from "@/lib/payroll/work-shift-service";
 import {
   previousDateKey,
   saveHandoffNote,
 } from "@/lib/payroll/shift-baseline-tasks";
+
+function enrichOptionsForViewer(
+  ctx: Awaited<ReturnType<typeof requireAdminContext>>,
+) {
+  return { includeBranchDaySummary: canViewBranchShiftSummary(ctx) };
+}
+
+async function enrichMany(
+  shifts: ShiftWithRelations[],
+  ctx: Awaited<ReturnType<typeof requireAdminContext>>,
+) {
+  const opts = enrichOptionsForViewer(ctx);
+  return Promise.all(
+    shifts.map((s) =>
+      enrichShiftResponse(s as NonNullable<ShiftWithRelations>, new Date(), opts),
+    ),
+  );
+}
 
 const createSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -110,13 +130,13 @@ export async function GET(req: NextRequest) {
         orderBy: [{ date: "desc" }, { actualStart: "desc" }],
       });
 
-      const enriched = await Promise.all(
+      const enriched = await enrichMany(
         shifts
           .filter((s) =>
             ctx.isSuperAdmin ||
             canApproveShift(ctx, s.member.role, s.branchId),
-          )
-          .map((s) => enrichShiftResponse(s)),
+          ),
+        ctx,
       );
       return NextResponse.json({ shifts: enriched });
     }
@@ -130,7 +150,7 @@ export async function GET(req: NextRequest) {
         include: SHIFT_INCLUDE,
         orderBy: { date: "desc" },
       });
-      const enriched = await Promise.all(shifts.map((s) => enrichShiftResponse(s)));
+      const enriched = await enrichMany(shifts, ctx);
       return NextResponse.json({ shifts: enriched });
     }
 
@@ -176,7 +196,7 @@ export async function GET(req: NextRequest) {
       orderBy: { actualStart: "desc" },
     });
 
-    const enriched = await Promise.all(shifts.map((s) => enrichShiftResponse(s)));
+    const enriched = await enrichMany(shifts, ctx);
 
     const todayShift = enriched.find((e) => e.shift.memberId === ctx.memberId) ?? null;
 

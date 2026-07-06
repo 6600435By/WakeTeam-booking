@@ -1,5 +1,6 @@
 import type { ShiftSummary } from "./shift-summary";
 import type { PeriodShiftRow } from "./period-report";
+import { buildEfficiencyMetrics } from "./efficiency";
 
 export type PayrollShiftRow = PeriodShiftRow & {
   memberId: string;
@@ -27,6 +28,8 @@ export type MemberPayrollBlock = {
     idleMinutes: number;
     amount: number;
     shiftCount: number;
+    efficiencyPercent: number | null;
+    idleSharePercent: number | null;
   };
 };
 
@@ -41,6 +44,8 @@ export type PayrollReport = {
     idleMinutes: number;
     amount: number;
     shiftCount: number;
+    efficiencyPercent: number | null;
+    idleSharePercent: number | null;
   };
 };
 
@@ -59,7 +64,7 @@ export function buildPayrollReport(
   const members: MemberPayrollBlock[] = [...byMember.entries()].map(
     ([memberId, shifts]) => {
       const first = shifts[0]!;
-      const totals = shifts.reduce(
+      const rawTotals = shifts.reduce(
         (acc, s) => ({
           shiftMinutes: acc.shiftMinutes + s.shiftMinutes,
           panelMinutes: acc.panelMinutes + s.panelMinutes,
@@ -77,6 +82,15 @@ export function buildPayrollReport(
           shiftCount: 0,
         },
       );
+      const totals = {
+        ...rawTotals,
+        ...buildEfficiencyMetrics(
+          rawTotals.shiftMinutes,
+          rawTotals.panelMinutes,
+          rawTotals.spotMinutes,
+          rawTotals.idleMinutes,
+        ),
+      };
       return {
         memberId,
         memberName: first.memberName,
@@ -91,7 +105,7 @@ export function buildPayrollReport(
 
   members.sort((a, b) => a.memberName.localeCompare(b.memberName, "ru"));
 
-  const grandTotal = members.reduce(
+  const rawGrand = members.reduce(
     (acc, m) => ({
       shiftMinutes: acc.shiftMinutes + m.totals.shiftMinutes,
       panelMinutes: acc.panelMinutes + m.totals.panelMinutes,
@@ -109,6 +123,15 @@ export function buildPayrollReport(
       shiftCount: 0,
     },
   );
+  const grandTotal = {
+    ...rawGrand,
+    ...buildEfficiencyMetrics(
+      rawGrand.shiftMinutes,
+      rawGrand.panelMinutes,
+      rawGrand.spotMinutes,
+      rawGrand.idleMinutes,
+    ),
+  };
 
   return { from, to, members, grandTotal };
 }

@@ -43,9 +43,15 @@ function reviewStatusLabel(status: string): string {
 export function ShiftReviewPage({
   usesBranchPicker = true,
   branchId: fixedBranchId = null,
+  isSuperAdmin = false,
+  isBranchAdmin = false,
+  isBranchManager = false,
 }: {
   usesBranchPicker?: boolean;
   branchId?: string | null;
+  isSuperAdmin?: boolean;
+  isBranchAdmin?: boolean;
+  isBranchManager?: boolean;
 }) {
   const superBranch = useSuperAdminBranchOptional();
   const defaultPeriod = periodLast15Days();
@@ -66,6 +72,8 @@ export function ShiftReviewPage({
   const [panelOverride, setPanelOverride] = useState("");
   const [idleOverride, setIdleOverride] = useState("");
   const [correctComment, setCorrectComment] = useState("");
+  const [adminNote, setAdminNote] = useState("");
+  const [managerNote, setManagerNote] = useState("");
   const [baselineFrom, setBaselineFrom] = useState(defaultPeriod.from);
   const [baselineTo, setBaselineTo] = useState(defaultPeriod.to);
   const [baselineRows, setBaselineRows] = useState<ShiftAssignmentsReportRow[]>([]);
@@ -226,7 +234,11 @@ export function ShiftReviewPage({
     }
   }
 
-  function taskPlanLabel(t: SpotTaskRow): string {
+  function taskPlanLabel(t: {
+    plannedMinutes: number | null;
+    plannedTimeFrom?: string | null;
+    plannedTimeTo?: string | null;
+  }): string {
     if (t.plannedMinutes) return formatMinutesLabel(t.plannedMinutes);
     if (t.plannedTimeFrom && t.plannedTimeTo) {
       return `${t.plannedTimeFrom}–${t.plannedTimeTo}`;
@@ -234,7 +246,7 @@ export function ShiftReviewPage({
     return "—";
   }
 
-  function taskFactMinutes(t: SpotTaskRow): string {
+  function taskFactMinutes(t: { spotEntryId?: string | null }): string {
     if (!t.spotEntryId || !selected) return "—";
     const entry = selected.spotEntries.find((e) => e.id === t.spotEntryId);
     if (!entry?.endedAt) return "—";
@@ -244,6 +256,25 @@ export function ShiftReviewPage({
     return formatMinutesLabel(min);
   }
 
+  async function saveReviewNote(field: "reviewNoteForManager" | "reviewNoteForSuperAdmin", text: string) {
+    if (!selected || !text.trim()) return;
+    setError("");
+    const r = await fetch(`/api/admin/work-shifts/${selected.shift.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [field]: text.trim() }),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      setError(typeof d.error === "string" ? d.error : "Ошибка сохранения");
+      return;
+    }
+    if (field === "reviewNoteForManager") setAdminNote("");
+    else setManagerNote("");
+    await load();
+  }
+
+  const reportView = isSuperAdmin || isBranchManager ? "manager" : "admin";
   const selectedIsOpen = selected?.shift.status === "open";
 
   return (
@@ -579,7 +610,11 @@ export function ShiftReviewPage({
                     Сотрудник не закрыл смену. Супер-админ может закрыть её и утвердить.
                   </p>
                 )}
-                <ShiftReportCard data={selected} />
+                <ShiftReportCard
+                  data={selected}
+                  view={reportView}
+                  highlightedMemberId={selected.shift.memberId}
+                />
 
                 {selected.reverseAssignments.length > 0 && (
                   <div className="rounded-lg border border-slate-100 p-3 text-xs text-slate-600">
@@ -607,6 +642,50 @@ export function ShiftReviewPage({
                         {t.description}: план {taskPlanLabel(t)}, факт {taskFactMinutes(t)} · {t.status}
                       </p>
                     ))}
+                  </div>
+                )}
+
+                {(isBranchAdmin || isSuperAdmin) && (
+                  <div className="rounded-lg border border-slate-200 p-3 space-y-2">
+                    <p className="text-xs font-medium text-slate-600">
+                      Замечание для управляющего
+                    </p>
+                    <textarea
+                      className={inputClass}
+                      rows={2}
+                      placeholder="Что нужно пересмотреть"
+                      value={adminNote}
+                      onChange={(e) => setAdminNote(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs"
+                      onClick={() => void saveReviewNote("reviewNoteForManager", adminNote)}
+                    >
+                      Сохранить замечание
+                    </button>
+                  </div>
+                )}
+
+                {(isBranchManager || isSuperAdmin) && (
+                  <div className="rounded-lg border border-slate-200 p-3 space-y-2">
+                    <p className="text-xs font-medium text-slate-600">
+                      Комментарий для супер-админа
+                    </p>
+                    <textarea
+                      className={inputClass}
+                      rows={2}
+                      placeholder="Если нужна проверка или правка"
+                      value={managerNote}
+                      onChange={(e) => setManagerNote(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs"
+                      onClick={() => void saveReviewNote("reviewNoteForSuperAdmin", managerNote)}
+                    >
+                      Отправить
+                    </button>
                   </div>
                 )}
 

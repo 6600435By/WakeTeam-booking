@@ -21,6 +21,18 @@ import {
   serializeRatesSnapshot,
   type RatesMap,
 } from "./resolve-rates";
+import { buildEfficiencyMetrics } from "./efficiency";
+import {
+  computeBranchShiftDaySummary,
+  shiftSalesWindow,
+  type BranchShiftDaySummary,
+} from "./branch-shift-day-summary";
+import type { BranchShiftSales } from "./shift-branch-sales";
+import { computeBranchShiftSales } from "./shift-branch-sales";
+
+export type EnrichShiftOptions = {
+  includeBranchDaySummary?: boolean;
+};
 
 export const SHIFT_INCLUDE = {
   reverseAssignments: { include: { staff: { select: { id: true, name: true } } } },
@@ -201,8 +213,18 @@ export async function snapshotRatesOnClose(memberId: string, date: string) {
   return serializeRatesSnapshot(resolveRatesForDate(rates, date));
 }
 
-export async function enrichShiftResponse(shift: NonNullable<ShiftWithRelations>, now = new Date()) {
+export async function enrichShiftResponse(
+  shift: NonNullable<ShiftWithRelations>,
+  now = new Date(),
+  options?: EnrichShiftOptions,
+) {
   const summary = await computeShiftSummary(shift, now);
+  const efficiency = buildEfficiencyMetrics(
+    summary.shiftMinutes,
+    summary.panelMinutes,
+    summary.spotMinutes,
+    summary.idleMinutes,
+  );
   const planned = await getBranchPlannedWindow(shift.branchId, shift.date);
   const spotTasks = await prisma.spotTask.findMany({
     where: {
@@ -223,6 +245,27 @@ export async function enrichShiftResponse(shift: NonNullable<ShiftWithRelations>
   const completedIds = new Set(completions.map((c) => c.taskId));
 
   const checklistItems = await getChecklistForShift(shift.id, shift.branchId);
+
+  const reviewNotes = extractReviewNotes(shift.adjustments);
+
+  let branchSales: BranchShiftSales | null = null;
+  let branchDaySummary: BranchShiftDaySummary | null = null;
+  const window = shiftSalesWindow(shift, now);
+  if (window) {
+    branchSales = await computeBranchShiftSales(
+      shift.branchId,
+      window.start,
+      window.end,
+    );
+    if (options?.includeBranchDaySummary) {
+      branchDaySummary = await computeBranchShiftDaySummary(
+        shift.branchId,
+        shift.date,
+        window,
+        now,
+      );
+    }
+  }
 
   return {
     shift: {
@@ -282,6 +325,25 @@ export async function enrichShiftResponse(shift: NonNullable<ShiftWithRelations>
       comment: a.comment,
       createdAt: a.createdAt.toISOString(),
     })),
-    summary,
+    reviewNotes,
+    branchSales,
+    branchDaySummary,
+    summary: { ...summary, ...efficiency },
   };
+}
+
+function extractReviewNotes(
+  adjustments: { field: string; comment: string; createdAt: Date }[],
+) {
+  let noteForManager: string | null = null;
+  let noteForSuperAdmin: string | null = null;
+  for (const adj of adjustments) {
+    if (adj.field === "review_note_manager" && !noteForManager) {
+      noteForManager = adj.comment;
+    }
+    if (adj.field === "review_note_super_admin" && !noteForSuperAdmin) {
+      noteForSuperAdmin = adj.comment;
+    }
+  }
+  return { noteForManager, noteForSuperAdmin };
 }

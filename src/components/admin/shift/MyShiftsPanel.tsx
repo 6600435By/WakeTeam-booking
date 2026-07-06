@@ -179,7 +179,11 @@ export function MyShiftsPanel({ onGoToday }: Props) {
 
           {selected && (
             <div className="space-y-3">
-              <ShiftReportCard data={selected} />
+              <ShiftReportCard
+                data={selected}
+                view={selected.shift.workAsAdmin ? "admin" : "operator"}
+                highlightedMemberId={selected.shift.memberId}
+              />
               {selected.summary.inServiceCount ? (
                 <p className="text-xs text-amber-700">
                   В работе: {selected.summary.inServiceCount} катан.
@@ -190,18 +194,6 @@ export function MyShiftsPanel({ onGoToday }: Props) {
               ) : null}
               {selected.shift.status === "closed" && (
                 <>
-                  {(selected.checklistItems?.length ?? 0) > 0 && (
-                    <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm">
-                      <p className="mb-1 text-xs font-medium text-slate-600">Чеклист</p>
-                      <ul className="space-y-1">
-                        {selected.checklistItems!.map((item) => (
-                          <li key={item.id} className="text-slate-700">
-                            {item.completed ? "✓" : "○"} {item.label}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
                   <button type="button" className={btnSecondary} onClick={() => setWorkOpen(true)}>
                     + Добавить работу
                   </button>
@@ -212,7 +204,7 @@ export function MyShiftsPanel({ onGoToday }: Props) {
                     <textarea
                       className={inputClass}
                       rows={2}
-                      placeholder="Комментарий (если что-то добавили)"
+                      placeholder="Комментарий к смене (если есть расхождения)"
                       value={submitComment}
                       onChange={(e) => setSubmitComment(e.target.value)}
                     />

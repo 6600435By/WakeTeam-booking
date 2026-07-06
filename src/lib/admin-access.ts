@@ -311,6 +311,40 @@ export function canApproveShift(
   return shiftMemberRole === BRANCH_OPERATOR_ROLE;
 }
 
+/** Редактирование утверждённой смены: супер-админ и управляющий в зоне ответственности. */
+export function canEditApprovedShift(
+  ctx: AdminContext,
+  shiftMemberRole: string,
+  shiftBranchId: string,
+): boolean {
+  if (ctx.isSuperAdmin) return true;
+  if (!ctx.isBranchManager) return false;
+  if (!isInManagementScope(ctx, shiftBranchId)) return false;
+  const role = parseAdminRole(shiftMemberRole);
+  if (role === SUPER_ADMIN_ROLE || role === BRANCH_MANAGER_ROLE) return false;
+  return role === BRANCH_OPERATOR_ROLE || role === BRANCH_ADMIN_ROLE;
+}
+
+/** Удаление смены — только в рамках прав на утверждение. */
+export function canDeleteShift(
+  ctx: AdminContext,
+  shiftMemberRole: string,
+  shiftBranchId: string,
+): boolean {
+  if (!canReviewShifts(ctx)) return false;
+  return canApproveShift(ctx, shiftMemberRole, shiftBranchId);
+}
+
+/** Просмотр сводки филиала в отчёте смены. */
+export function canViewBranchShiftSummary(ctx: AdminContext): boolean {
+  return (
+    ctx.isSuperAdmin ||
+    ctx.isBranchAdmin ||
+    ctx.isBranchManager ||
+    ctx.workAsAdminElevated
+  );
+}
+
 export function requiresSuperAdminApproval(shiftMemberRole: string): boolean {
   const role = parseAdminRole(shiftMemberRole);
   return (

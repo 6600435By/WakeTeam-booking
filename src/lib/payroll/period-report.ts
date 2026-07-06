@@ -1,5 +1,6 @@
 import type { ShiftSummary } from "./shift-summary";
 import { formatMoney } from "./shift-summary";
+import { buildEfficiencyMetrics } from "./efficiency";
 
 export type PeriodShiftRow = {
   shiftId: string;
@@ -10,6 +11,8 @@ export type PeriodShiftRow = {
   spotMinutes: number;
   idleMinutes: number;
   shiftMinutes: number;
+  efficiencyPercent: number | null;
+  idleSharePercent: number | null;
 };
 
 export type PeriodReport = {
@@ -22,6 +25,8 @@ export type PeriodReport = {
     spotMinutes: number;
     idleMinutes: number;
     amount: number;
+    efficiencyPercent: number | null;
+    idleSharePercent: number | null;
   };
 };
 
@@ -40,7 +45,18 @@ export function aggregatePeriodReport(
     }),
     { shiftMinutes: 0, panelMinutes: 0, spotMinutes: 0, idleMinutes: 0, amount: 0 },
   );
-  return { from, to, shifts: rows, totals };
+  const efficiency = buildEfficiencyMetrics(
+    totals.shiftMinutes,
+    totals.panelMinutes,
+    totals.spotMinutes,
+    totals.idleMinutes,
+  );
+  return {
+    from,
+    to,
+    shifts: rows,
+    totals: { ...totals, ...efficiency },
+  };
 }
 
 export function summaryToPeriodRow(
@@ -49,6 +65,12 @@ export function summaryToPeriodRow(
   status: string,
   summary: ShiftSummary,
 ): PeriodShiftRow {
+  const efficiency = buildEfficiencyMetrics(
+    summary.shiftMinutes,
+    summary.panelMinutes,
+    summary.spotMinutes,
+    summary.idleMinutes,
+  );
   return {
     shiftId,
     date,
@@ -58,6 +80,7 @@ export function summaryToPeriodRow(
     spotMinutes: summary.spotMinutes,
     idleMinutes: summary.idleMinutes,
     shiftMinutes: summary.shiftMinutes,
+    ...efficiency,
   };
 }
 

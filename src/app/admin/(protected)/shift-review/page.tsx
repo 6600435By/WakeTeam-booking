@@ -11,6 +11,9 @@ export default async function ShiftReviewRoute() {
     <ShiftReviewPage
       usesBranchPicker={ctx.isSuperAdmin || ctx.isBranchManager}
       branchId={ctx.branchId}
+      isSuperAdmin={ctx.isSuperAdmin}
+      isBranchAdmin={ctx.isBranchAdmin}
+      isBranchManager={ctx.isBranchManager}
     />
   );
 }

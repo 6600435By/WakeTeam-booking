@@ -450,6 +450,13 @@ export function ShiftPayrollPanel() {
             </div>
             <div className="text-right text-xs text-slate-500">
               <p>Смен: {report.grandTotal.shiftCount}</p>
+              {report.grandTotal.efficiencyPercent != null && (
+                <p>
+                  Эффективность: {report.grandTotal.efficiencyPercent}%
+                  {report.grandTotal.idleSharePercent != null &&
+                    ` · простой ${report.grandTotal.idleSharePercent}%`}
+                </p>
+              )}
               {report.grandTotal.panelMinutes > 0 && (
                 <p>Пульт: {formatDurationMinutes(report.grandTotal.panelMinutes)}</p>
               )}
@@ -598,6 +605,12 @@ export function ShiftPayrollPanel() {
                       Итого: пульт {formatDurationMinutes(block.totals.panelMinutes)}, спот{" "}
                       {formatDurationMinutes(block.totals.spotMinutes)}, простой{" "}
                       {formatDurationMinutes(block.totals.idleMinutes)}
+                      {block.totals.efficiencyPercent != null && (
+                        <span>
+                          {" "}
+                          · эффективность {block.totals.efficiencyPercent}%
+                        </span>
+                      )}
                       {!block.shifts[0]?.isOperator &&
                         ` · ${formatDurationMinutes(block.totals.shiftMinutes)} на смене`}
                     </div>

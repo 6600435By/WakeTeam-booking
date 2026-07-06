@@ -3,9 +3,12 @@ import { z } from "zod";
 import {
   canReviewShifts,
   canApproveShift,
+  canEditApprovedShift,
+  canDeleteShift,
   handleAdminError,
   requireAdminContext,
   assertShiftSelfOrAdmin,
+  canViewBranchShiftSummary,
 } from "@/lib/admin-access";
 import { prisma } from "@/lib/db";
 import { approveShiftInternal } from "@/lib/payroll/approve-shift";
@@ -30,6 +33,8 @@ const patchSchema = z.object({
   baselineCompletedTaskIds: z.array(z.string()).optional(),
   checklistCompletedItemIds: z.array(z.string()).optional(),
   employeeSubmitComment: z.string().optional(),
+  reviewNoteForManager: z.string().optional(),
+  reviewNoteForSuperAdmin: z.string().optional(),
 });
 
 export async function PATCH(
@@ -208,7 +213,7 @@ export async function PATCH(
       if (!canAdjust) {
         return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
       }
-      if (shift.status === "approved" && !ctx.isSuperAdmin) {
+      if (shift.status === "approved" && !canEditApprovedShift(ctx, shift.member.role, shift.branchId)) {
         return NextResponse.json({ error: "Смена утверждена" }, { status: 400 });
       }
       if (!body.comment?.trim()) {
@@ -274,7 +279,67 @@ export async function PATCH(
         data,
         include: SHIFT_INCLUDE,
       });
-      return NextResponse.json(await enrichShiftResponse(updated));
+      return NextResponse.json(
+        await enrichShiftResponse(updated, new Date(), {
+          includeBranchDaySummary: canViewBranchShiftSummary(ctx),
+        }),
+      );
+    }
+
+    if (body.reviewNoteForManager !== undefined) {
+      if (!ctx.isBranchAdmin && !ctx.isSuperAdmin) {
+        return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
+      }
+      if (!body.reviewNoteForManager.trim()) {
+        return NextResponse.json({ error: "Укажите текст замечания" }, { status: 400 });
+      }
+      await prisma.shiftAdjustment.create({
+        data: {
+          shiftId: id,
+          field: "review_note_manager",
+          oldValue: "",
+          newValue: body.reviewNoteForManager.trim(),
+          comment: body.reviewNoteForManager.trim(),
+          createdByMemberId: ctx.memberId,
+        },
+      });
+      const updated = await prisma.workShift.findUnique({
+        where: { id },
+        include: SHIFT_INCLUDE,
+      });
+      return NextResponse.json(
+        await enrichShiftResponse(updated!, new Date(), {
+          includeBranchDaySummary: canViewBranchShiftSummary(ctx),
+        }),
+      );
+    }
+
+    if (body.reviewNoteForSuperAdmin !== undefined) {
+      if (!ctx.isBranchManager && !ctx.isSuperAdmin) {
+        return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
+      }
+      if (!body.reviewNoteForSuperAdmin.trim()) {
+        return NextResponse.json({ error: "Укажите текст замечания" }, { status: 400 });
+      }
+      await prisma.shiftAdjustment.create({
+        data: {
+          shiftId: id,
+          field: "review_note_super_admin",
+          oldValue: "",
+          newValue: body.reviewNoteForSuperAdmin.trim(),
+          comment: body.reviewNoteForSuperAdmin.trim(),
+          createdByMemberId: ctx.memberId,
+        },
+      });
+      const updated = await prisma.workShift.findUnique({
+        where: { id },
+        include: SHIFT_INCLUDE,
+      });
+      return NextResponse.json(
+        await enrichShiftResponse(updated!, new Date(), {
+          includeBranchDaySummary: canViewBranchShiftSummary(ctx),
+        }),
+      );
     }
 
     return NextResponse.json({ error: "Нет изменений" }, { status: 400 });
@@ -303,7 +368,11 @@ export async function GET(
       return NextResponse.json({ error: "Не найдено" }, { status: 404 });
     }
     assertShiftSelfOrAdmin(ctx, shift.memberId, shift.branchId);
-    return NextResponse.json(await enrichShiftResponse(shift));
+    return NextResponse.json(
+      await enrichShiftResponse(shift, new Date(), {
+        includeBranchDaySummary: canViewBranchShiftSummary(ctx),
+      }),
+    );
   } catch (e) {
     const handled = handleAdminError(e);
     if (handled) {
@@ -329,6 +398,9 @@ export async function DELETE(
     });
     if (!shift || shift.organizationId !== ctx.organizationId) {
       return NextResponse.json({ error: "Не найдено" }, { status: 404 });
+    }
+    if (!canDeleteShift(ctx, shift.member.role, shift.branchId)) {
+      return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
     }
 
     if (shift.status === "open") {
