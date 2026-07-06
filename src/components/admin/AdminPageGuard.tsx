@@ -17,6 +17,9 @@ function isAllowed(pathname: string, role: AdminRole) {
   if (pathname.startsWith("/admin/logs")) {
     return role === SUPER_ADMIN_ROLE;
   }
+  if (pathname.startsWith("/admin/help")) {
+    return true;
+  }
   if (role === SUPER_ADMIN_ROLE) return true;
   if (role === BRANCH_MANAGER_ROLE) {
     return !pathname.startsWith("/admin/widget");
@@ -26,7 +29,8 @@ function isAllowed(pathname: string, role: AdminRole) {
   }
   return (
     pathname.startsWith("/admin/journal") ||
-    pathname.startsWith("/admin/shift")
+    pathname.startsWith("/admin/shift") ||
+    pathname.startsWith("/admin/help")
   );
 }
 

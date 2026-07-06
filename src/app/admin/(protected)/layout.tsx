@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { AdminNav } from "@/components/admin/AdminNav";
+import { AdminOnboardingShell } from "@/components/admin/AdminOnboardingShell";
 import { AdminPageGuard } from "@/components/admin/AdminPageGuard";
 import { AdminShell } from "@/components/admin/AdminShell";
 import {
@@ -40,8 +41,10 @@ export default async function AdminProtectedLayout({
         />
         <SuperAdminBranchBar />
         <AdminPageGuard role={ctx.role}>
-          <ShiftOpenBanner />
-          <main className="admin-main block overflow-visible">{children}</main>
+          <AdminOnboardingShell>
+            <ShiftOpenBanner />
+            <main className="admin-main block overflow-visible">{children}</main>
+          </AdminOnboardingShell>
         </AdminPageGuard>
       </div>
       </SuperAdminBranchProvider>

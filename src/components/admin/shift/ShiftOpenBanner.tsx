@@ -37,7 +37,7 @@ export function ShiftOpenBanner() {
   if (!visible || dismissed) return null;
 
   return (
-    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-lime-200 bg-lime-50 px-3 py-2 text-sm text-lime-950">
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-lime-200 bg-lime-50 px-3 py-2 text-sm text-lime-950" data-onboarding="shift-open-banner">
       <span>Смена сегодня не открыта</span>
       <div className="flex gap-2">
         <Link

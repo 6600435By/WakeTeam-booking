@@ -8,6 +8,7 @@ import {
   canViewStaffUsers,
   handleAdminError,
 } from "@/lib/admin-access";
+import { prisma } from "@/lib/db";
 
 export async function GET() {
   try {
@@ -15,6 +16,10 @@ export async function GET() {
     if (!ctx) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const member = await prisma.organizationMember.findUnique({
+      where: { id: ctx.memberId },
+      select: { onboardingCompletedAt: true },
+    });
     return NextResponse.json({
       user: {
         id: ctx.user.id,
@@ -23,6 +28,7 @@ export async function GET() {
         name: ctx.user.name,
         lastName: ctx.user.lastName,
       },
+      memberId: ctx.memberId,
       role: ctx.role,
       branchId: ctx.branchId,
       branchName: ctx.branchName,
@@ -34,6 +40,7 @@ export async function GET() {
       workAsAdminElevated: ctx.workAsAdminElevated,
       managerOnDutyElevated: ctx.managerOnDutyElevated,
       managerOnDutyBranchId: ctx.managerOnDutyBranchId,
+      onboardingCompletedAt: member?.onboardingCompletedAt?.toISOString() ?? null,
       canEditJournal: canEditJournalAppointments(ctx),
       canAssignShiftOnDuty: canAssignShiftOnDuty(ctx),
       canManageUsers: canManageUsers(ctx),

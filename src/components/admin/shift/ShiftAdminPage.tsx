@@ -266,6 +266,13 @@ export function ShiftAdminPage({
   }, [searchParams, canViewReadiness, effectiveBranchId]);
 
   useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    if (tabParam === "calendar" || tabParam === "today" || tabParam === "report") {
+      setTab(tabParam);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     if (tab === "today" && data?.shift?.status === "open") {
       loadTasks();
     }
@@ -602,7 +609,7 @@ export function ShiftAdminPage({
           {loading && <p className="text-sm text-slate-500">Загрузка…</p>}
 
           {!loading && !data && (
-            <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center">
+            <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center" data-onboarding="shift-open">
               <p className="mb-3 text-sm text-slate-600">Смена не открыта</p>
               <button type="button" className={btnPrimary} onClick={() => void prepareOpenShift()}>
                 Начать смену
@@ -931,13 +938,15 @@ export function ShiftAdminPage({
       )}
 
       {tab === "calendar" && (
-        <ShiftCalendar
-          role={role}
-          branchId={branchId}
-          memberId={memberId}
-          canEdit={canEditCalendar}
-          canRequestChanges={canRequestChanges}
-        />
+        <div data-onboarding="shift-calendar">
+          <ShiftCalendar
+            role={role}
+            branchId={branchId}
+            memberId={memberId}
+            canEdit={canEditCalendar}
+            canRequestChanges={canRequestChanges}
+          />
+        </div>
       )}
 
       {tab === "report" && (

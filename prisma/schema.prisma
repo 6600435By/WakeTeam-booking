@@ -51,6 +51,7 @@ model OrganizationMember {
   branchScopes   MemberBranchScope[]
   payrollMonthlyAccruals PayrollMonthlyAccrual[]
   operatorAppointments Appointment[] @relation("AppointmentOperator")
+  onboardingCompletedAt DateTime?
 
   @@unique([organizationId, userId])
 }

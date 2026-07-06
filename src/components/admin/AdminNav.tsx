@@ -52,34 +52,55 @@ const CALENDAR_LINK: NavLink = {
   short: "Календ.",
 };
 
+const HELP_LINK: NavLink = {
+  href: "/admin/help",
+  label: "Справка",
+  short: "?",
+};
+
+function navOnboardingId(href: string): string | undefined {
+  const map: Record<string, string> = {
+    "/admin/journal": "nav-journal",
+    "/admin/statistics": "nav-statistics",
+    "/admin/clients": "nav-clients",
+    "/admin/memberships": "nav-memberships",
+    "/admin/branches": "nav-branches",
+    "/admin/users": "nav-users",
+    "/admin/shift": "nav-shift",
+    "/admin/shift-review": "nav-shift-review",
+    "/admin/backups": "nav-backups",
+    "/admin/logs": "nav-logs",
+    "/admin/help": "nav-help",
+  };
+  return map[href];
+}
+
 function linksForRole(role: AdminRole): NavLink[] {
+  let links: NavLink[];
   if (role === "super_admin") {
-    return [
+    links = [
       ...ALL_LINKS.filter((l) => l.href !== "/admin/widget"),
       CALENDAR_LINK,
       REVIEW_LINK,
       BACKUPS_LINK,
       LOGS_LINK,
     ];
-  }
-  if (role === "branch_manager") {
-    return [
+  } else if (role === "branch_manager") {
+    links = [
       ...ALL_LINKS.filter((l) => l.href !== "/admin/widget"),
       CALENDAR_LINK,
       REVIEW_LINK,
     ];
-  }
-  if (role === "branch_admin") {
-    return [
+  } else if (role === "branch_admin") {
+    links = [
       ...ALL_LINKS.filter((l) => l.href !== "/admin/widget"),
       SHIFT_LINK,
       REVIEW_LINK,
     ];
+  } else {
+    links = [ALL_LINKS.find((l) => l.href === "/admin/journal")!, SHIFT_LINK];
   }
-  return [
-    ALL_LINKS.find((l) => l.href === "/admin/journal")!,
-    SHIFT_LINK,
-  ];
+  return [...links, HELP_LINK];
 }
 
 export type AdminNavInfo = {
@@ -99,6 +120,7 @@ function isLinkActive(pathname: string, href: string) {
     return pathname === "/admin/shift" || pathname.startsWith("/admin/shift/");
   }
   if (href === "/admin/backups") return pathname.startsWith("/admin/backups");
+  if (href === "/admin/help") return pathname.startsWith("/admin/help");
   return pathname.startsWith(href);
 }
 
@@ -120,7 +142,7 @@ export function AdminNav({ admin }: Props) {
 
   if (isDesktop) {
     return (
-      <nav className="mb-3 shrink-0 border-b border-slate-200 pb-2">
+      <nav className="mb-3 shrink-0 border-b border-slate-200 pb-2" data-onboarding="admin-nav">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
             <span className="text-lg font-bold text-slate-900">WakeTeam Admin</span>
@@ -129,10 +151,12 @@ export function AdminNav({ admin }: Props) {
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-2 pl-6">
             {links.map((l) => {
               const active = isLinkActive(pathname, l.href);
+              const onboarding = navOnboardingId(l.href);
               return (
                 <Link
-                  key={l.href}
+                  key={`${l.href}-${l.label}`}
                   href={l.href}
+                  data-onboarding={onboarding}
                   className={
                     active
                       ? "font-medium text-lime-700"
@@ -162,7 +186,7 @@ export function AdminNav({ admin }: Props) {
   }
 
   return (
-    <div className="admin-mobile-nav mb-3 shrink-0 border-b border-slate-200 pb-2">
+    <div className="admin-mobile-nav mb-3 shrink-0 border-b border-slate-200 pb-2" data-onboarding="admin-nav">
       <div className="flex items-center gap-2">
         <div className="relative min-w-0 flex-1">
           <nav
@@ -172,10 +196,12 @@ export function AdminNav({ admin }: Props) {
             <div className="flex w-max min-w-full items-center gap-x-1 pr-6">
               {links.map((l) => {
                 const active = isLinkActive(pathname, l.href);
+                const onboarding = navOnboardingId(l.href);
                 return (
                   <Link
-                    key={l.href}
+                    key={`${l.href}-${l.label}`}
                     href={l.href}
+                    data-onboarding={onboarding}
                     className={`shrink-0 touch-manipulation whitespace-nowrap rounded-full px-2.5 py-1.5 text-xs ${
                       active
                         ? "bg-lime-100 font-semibold text-lime-800"

@@ -157,7 +157,7 @@ export function SuperAdminBranchBar() {
       : "Филиал";
 
   return (
-    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm" data-onboarding="branch-picker">
       <label className="flex min-w-0 flex-1 items-center gap-2 text-sm sm:flex-none">
         <span className="shrink-0 font-medium text-slate-700">{label}</span>
         <select

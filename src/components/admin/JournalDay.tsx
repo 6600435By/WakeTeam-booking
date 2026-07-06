@@ -616,7 +616,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
       {isCompactJournal ? (
         <>
           <div className="journal-mobile-toolbar">
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1" data-onboarding="journal-date">
               <button
                 type="button"
                 onClick={() => setDate((d) => shiftDateStr(d, -1))}
@@ -730,7 +730,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
             <h1 className="mr-1 text-base font-bold text-slate-900">Журнал</h1>
 
-            <div className="inline-flex items-center rounded-md border border-slate-300 bg-white p-0.5">
+            <div className="inline-flex items-center rounded-md border border-slate-300 bg-white p-0.5" data-onboarding="journal-date">
               <button
                 type="button"
                 onClick={() => setDate((d) => shiftDateStr(d, -1))}
@@ -941,6 +941,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
               fillGridViewport &&
                 "admin-desktop:px-0 admin-tablet:px-0",
             )}
+            data-onboarding="journal-grid"
           >
             {loading && (
               <div className="pointer-events-none absolute inset-0 z-40 flex items-start justify-center bg-white/40 pt-4">
@@ -1181,6 +1182,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
         <button
           type="button"
           onClick={() => openNew()}
+          data-onboarding="journal-new"
           className="fixed right-4 z-40 flex h-14 w-14 touch-manipulation items-center justify-center rounded-full bg-lime-600 text-2xl font-light text-white shadow-lg active:scale-95 active:bg-lime-700"
           style={{ bottom: "calc(1rem + env(safe-area-inset-bottom))" }}
           aria-label="Новая запись"
