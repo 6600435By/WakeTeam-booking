@@ -8,6 +8,7 @@ import {
   buildCalendarMonthDays,
   CALENDAR_WEEKDAY_LABELS,
   isDateKeyInRange,
+  resolveCalendarAnchorDateKey,
   shiftMonthDateKey,
 } from "@/lib/calendar-ui";
 import { cn } from "@/lib/utils";
@@ -33,10 +34,11 @@ export function DatePickerCalendar({
   className,
 }: Props) {
   const today = formatDateKey(new Date());
-  const [monthKey, setMonthKey] = useState(viewDate ?? value);
+  const anchorDateKey = resolveCalendarAnchorDateKey(value, viewDate);
+  const [monthKey, setMonthKey] = useState(anchorDateKey);
 
   useEffect(() => {
-    setMonthKey(viewDate ?? value);
+    setMonthKey(resolveCalendarAnchorDateKey(value, viewDate));
   }, [viewDate, value]);
 
   const monthLabel = formatInTimeZone(

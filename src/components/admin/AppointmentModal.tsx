@@ -28,6 +28,10 @@ import {
   type GroupApptRef,
 } from "@/lib/admin/appointment-group-client";
 import { adminFetch } from "@/lib/admin-fetch";
+import {
+  filterMembershipsByServiceKind,
+  membershipMatchesServiceKind,
+} from "@/lib/memberships/service-categories";
 import { cn } from "@/lib/utils";
 import { AdminFreeSlotPicker } from "./AdminFreeSlotPicker";
 import type { WidgetPrefill } from "@/components/widget/BookingWidget";
@@ -560,6 +564,7 @@ export function AppointmentModal({
       setMembershipOptions([]);
       return;
     }
+    const serviceKind = services.find((s) => s.id === serviceId)?.kind ?? "wake";
     const t = setTimeout(() => {
       setMembershipsLoading(true);
       const include =
@@ -585,16 +590,37 @@ export function AppointmentModal({
               pricePerMinute: m.pricePerMinute ?? null,
             }),
           );
-          setMembershipOptions(list);
-          if (!membershipId && suggestData.suggestion?.effectiveRemainingMinutes > 0) {
-            setMembershipId(suggestData.suggestion.id);
+          const filtered = filterMembershipsByServiceKind(list, serviceKind);
+          setMembershipOptions(filtered);
+          const suggestion = suggestData.suggestion as MembershipOption | null;
+          if (
+            !membershipId &&
+            suggestion &&
+            membershipMatchesServiceKind(suggestion.category, serviceKind) &&
+            suggestion.effectiveRemainingMinutes > 0
+          ) {
+            setMembershipId(suggestion.id);
           }
         })
         .finally(() => setMembershipsLoading(false));
     }, 400);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- phone drives lookup
-  }, [open, phone, initial?.membershipId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- phone and service drive lookup
+  }, [open, phone, initial?.membershipId, serviceId, services]);
+
+  useEffect(() => {
+    const serviceKind = services.find((s) => s.id === serviceId)?.kind ?? "wake";
+    setMembershipOptions((prev) => {
+      const filtered = filterMembershipsByServiceKind(prev, serviceKind);
+      return filtered.length === prev.length ? prev : filtered;
+    });
+    if (!membershipId) return;
+    const selected = membershipOptions.find((m) => m.id === membershipId);
+    if (!selected || !membershipMatchesServiceKind(selected.category, serviceKind)) {
+      setMembershipId("");
+      setManualMembershipCode("");
+    }
+  }, [serviceId, services, membershipId, membershipOptions]);
 
   useEffect(() => {
     const selected = membershipOptions.find((m) => m.id === membershipId);
@@ -673,6 +699,14 @@ export function AppointmentModal({
         effectiveRemainingMinutes: data.membership.effectiveRemainingMinutes,
         pricePerMinute: data.membership.pricePerMinute ?? null,
       };
+      const serviceKind = selectedService?.kind ?? "wake";
+      if (!membershipMatchesServiceKind(found.category, serviceKind)) {
+        throw new Error(
+          serviceKind === "sup"
+            ? "Для сапборда подходит только абонемент категории «САП Подарочный»"
+            : "Для вейка подходят только абонементы «Подарочный» и «Абонемент»",
+        );
+      }
       setMembershipOptions((prev) => {
         if (prev.some((m) => m.id === found.id)) return prev;
         return [found, ...prev];

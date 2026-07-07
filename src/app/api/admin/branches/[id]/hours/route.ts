@@ -107,7 +107,11 @@ export async function PATCH(
       return NextResponse.json({ error: e.message }, { status: 400 });
     }
     if (e instanceof z.ZodError) {
-      return NextResponse.json({ error: e.flatten() }, { status: 400 });
+      const first = e.issues[0];
+      return NextResponse.json(
+        { error: first?.message ?? "Некорректные данные" },
+        { status: 400 },
+      );
     }
     const handled = handleAdminError(e);
     if (handled) {

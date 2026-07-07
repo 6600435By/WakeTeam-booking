@@ -42,3 +42,15 @@ export function isDateKeyInRange(
 }
 
 export const CALENDAR_WEEKDAY_LABELS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+
+const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Безопасная опорная дата для календаря, если value ещё не выбран. */
+export function resolveCalendarAnchorDateKey(
+  value?: string | null,
+  viewDate?: string | null,
+): string {
+  const candidate = viewDate ?? value ?? "";
+  if (DATE_KEY_RE.test(candidate)) return candidate;
+  return formatDateKey(new Date());
+}

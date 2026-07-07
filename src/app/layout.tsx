@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { BrowserUnsupportedNotice } from "@/components/BrowserUnsupportedNotice";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -34,6 +35,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} min-h-screen antialiased`}
       >
+        <BrowserUnsupportedNotice />
         {children}
         <Toaster richColors position="top-center" />
       </body>
