@@ -173,25 +173,27 @@ export async function PATCH(
       });
     }
 
-    const fresh = await prisma.appointment.findUnique({
-      where: { id },
-      include: {
-        client: true,
-        service: true,
-        staff: true,
-        membership: true,
-        rentalItem: true,
-        operatorMember: {
-          include: {
-            user: { select: { name: true, lastName: true, login: true, email: true } },
+    void prisma.appointment
+      .findUnique({
+        where: { id },
+        include: {
+          client: true,
+          service: true,
+          staff: true,
+          membership: true,
+          rentalItem: true,
+          operatorMember: {
+            include: {
+              user: { select: { name: true, lastName: true, login: true, email: true } },
+            },
           },
         },
-      },
-    });
-    if (fresh) {
-      logAppointmentUpdate(ctx, existing, fresh);
-    }
-    return NextResponse.json({ ok: true, appointment: fresh });
+      })
+      .then((fresh) => {
+        if (fresh) logAppointmentUpdate(ctx, existing, fresh);
+      });
+
+    return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof Error && e.message === "SLOT_UNAVAILABLE") {
       return NextResponse.json({ error: "Слот занят" }, { status: 409 });

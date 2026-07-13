@@ -1060,19 +1060,21 @@ export async function updateAppointment(
     : normalizeDurationForService(service, rawDuration);
   const endAt = addMinutes(startAt, duration);
 
-  if (opts?.skipSlotCheck && !opts?.allowOverlap) {
-    const slotChanged =
-      data.startAt != null ||
-      data.staffId != null ||
-      data.serviceId != null ||
-      data.durationMinutes != null;
-    if (slotChanged) {
-      await assertStaffIntervalFree({
-        staffId,
-        startAt,
-        endAt,
-        excludeAppointmentId: id,
-      });
+  if (opts?.skipSlotCheck) {
+    if (!opts?.allowOverlap) {
+      const slotChanged =
+        data.startAt != null ||
+        data.staffId != null ||
+        data.serviceId != null ||
+        data.durationMinutes != null;
+      if (slotChanged) {
+        await assertStaffIntervalFree({
+          staffId,
+          startAt,
+          endAt,
+          excludeAppointmentId: id,
+        });
+      }
     }
   } else if (
     data.startAt || data.staffId || data.serviceId || data.durationMinutes
@@ -1129,7 +1131,11 @@ export async function updateAppointment(
       include: { client: true, service: true, staff: true },
     });
   } catch (e) {
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+    if (
+      !opts?.allowOverlap &&
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === "P2002"
+    ) {
       throw new Error("SLOT_UNAVAILABLE");
     }
     throw e;
