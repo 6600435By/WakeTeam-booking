@@ -797,7 +797,6 @@ export function AppointmentModal({
       operatorMemberId: isSupService ? null : operatorMemberId || null,
     };
     onClose();
-    onSaved();
     setLoading(false);
     try {
       if (appointmentId && appointmentGroup && appointmentGroup.length > 1) {
@@ -819,6 +818,7 @@ export function AppointmentModal({
           rentalQuantity: showRental && rentalItemId ? rentalQuantity : 0,
           operatorMemberId: isSupService ? null : operatorMemberId || null,
         });
+        onSaved();
         return;
       }
 
@@ -833,6 +833,7 @@ export function AppointmentModal({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Ошибка");
+      onSaved();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Ошибка";
       toast.error(message);
