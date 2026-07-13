@@ -506,6 +506,7 @@ export type CreateBookingInput = {
   email?: string;
   comment?: string;
   source: "widget" | "admin";
+  price?: number;
 };
 
 async function loadServiceWithRules(serviceId: string) {
@@ -561,7 +562,7 @@ function serviceWithRulesDto(service: {
 
 export async function createBooking(
   input: CreateBookingInput,
-  opts?: { skipSlotCheck?: boolean },
+  opts?: { skipSlotCheck?: boolean; allowOverlap?: boolean },
 ): Promise<{ id: string; publicNumber: number; price: number; count?: number }> {
   const service = await loadServiceWithRules(input.serviceId);
   assertServiceBookableForBooking(service, input);
@@ -595,13 +596,13 @@ export async function createBooking(
   const endAt = addMinutes(startAt, duration);
   const dateStr = formatDateKey(startAt);
 
-  if (opts?.skipSlotCheck) {
+  if (opts?.skipSlotCheck && !opts?.allowOverlap) {
     await assertStaffIntervalFree({
       staffId: input.staffId,
       startAt,
       endAt,
     });
-  } else {
+  } else if (!opts?.skipSlotCheck) {
     const slots = await getAvailableSlots({
       serviceId: input.serviceId,
       staffId: input.staffId,
@@ -624,9 +625,11 @@ export async function createBooking(
     email: input.email,
   });
 
-  const price = resolveServicePrice(serviceWithRulesDto(service), startAt, duration, {
-    pricingWeekday: await pricingWeekdayForBranch(service.branchId, dateStr),
-  });
+  const price =
+    input.price ??
+    resolveServicePrice(serviceWithRulesDto(service), startAt, duration, {
+      pricingWeekday: await pricingWeekdayForBranch(service.branchId, dateStr),
+    });
   const publicNumber = await nextPublicNumber();
 
   try {
@@ -694,56 +697,84 @@ async function isWakeCellFree(params: {
 async function createSupBooking(
   input: CreateBookingInput & { startAt: string },
   service: Awaited<ReturnType<typeof loadServiceWithRules>>,
-  opts?: { skipSlotCheck?: boolean },
+  opts?: { skipSlotCheck?: boolean; allowOverlap?: boolean },
 ) {
   const quantity = input.quantity ?? 1;
   if (quantity < 1) throw new Error("INVALID_QUANTITY");
 
   const allowed = parseDurations(service.allowedDurations);
   const duration =
-    input.durationMinutes && allowed.includes(input.durationMinutes)
-      ? input.durationMinutes
-      : allowed[0] ?? service.durationMinutes;
+    input.source === "admin" && input.durationMinutes != null
+      ? normalizeAdminDuration(input.durationMinutes)
+      : input.durationMinutes && allowed.includes(input.durationMinutes)
+        ? input.durationMinutes
+        : allowed[0] ?? service.durationMinutes;
   const startAt = new Date(input.startAt);
   const endAt = addMinutes(startAt, duration);
+  const forAdmin = input.source === "admin";
+  const boardFilter = {
+    isActive: true,
+    ...(forAdmin ? {} : { isVisible: true }),
+    services: { some: { serviceId: service.id } },
+  };
 
   if (!opts?.skipSlotCheck) {
     const available = await countSupAvailableBoards(service.id, startAt, duration);
     if (available < quantity) throw new Error("SLOT_UNAVAILABLE");
   }
 
-  const boards = await prisma.staff.findMany({
-    where: {
-      isActive: true,
-      isVisible: true,
-      services: { some: { serviceId: service.id } },
-    },
-    orderBy: { sortOrder: "asc" },
-  });
+  let selected: { id: string }[] = [];
 
-  const dayStart = parseTimeOnDate(formatDateKey(startAt), "00:00");
-  const dayEnd = parseTimeOnDate(formatDateKey(startAt), "23:59");
-  const appointments = await prisma.appointment.findMany({
-    where: {
-      staffId: { in: boards.map((b) => b.id) },
-      startAt: { gte: dayStart, lte: dayEnd },
-      status: { in: ACTIVE_APPOINTMENT_STATUSES },
-    },
-    select: { staffId: true, startAt: true, endAt: true },
-  });
+  if (opts?.skipSlotCheck && input.staffId && quantity === 1) {
+    const board = await prisma.staff.findFirst({
+      where: { id: input.staffId, ...boardFilter },
+    });
+    if (!board) throw new Error("STAFF_REQUIRED");
+    selected = [board];
+  } else {
+    const boards = await prisma.staff.findMany({
+      where: boardFilter,
+      orderBy: { sortOrder: "asc" },
+    });
 
-  const freeBoards = boards.filter((b) =>
-    staffFreeForInterval(b.id, startAt, endAt, appointments),
-  );
-  if (freeBoards.length < quantity) throw new Error("SLOT_UNAVAILABLE");
+    const dayStart = parseTimeOnDate(formatDateKey(startAt), "00:00");
+    const dayEnd = parseTimeOnDate(formatDateKey(startAt), "23:59");
+    const appointments = await prisma.appointment.findMany({
+      where: {
+        staffId: { in: boards.map((b) => b.id) },
+        startAt: { gte: dayStart, lte: dayEnd },
+        status: { in: ACTIVE_APPOINTMENT_STATUSES },
+      },
+      select: { staffId: true, startAt: true, endAt: true },
+    });
 
-  const selected = freeBoards.slice(0, quantity);
-  const unitPrice = resolveServicePrice(serviceWithRulesDto(service), startAt, duration, {
-    pricingWeekday: await pricingWeekdayForBranch(
-      service.branchId,
-      formatDateKey(startAt),
-    ),
-  });
+    const freeBoards = boards.filter((b) =>
+      staffFreeForInterval(b.id, startAt, endAt, appointments),
+    );
+
+    if (input.staffId && quantity === 1) {
+      const preferred = boards.find((b) => b.id === input.staffId);
+      if (!preferred) throw new Error("STAFF_REQUIRED");
+      const preferredFree = freeBoards.some((b) => b.id === input.staffId);
+      if (preferredFree || opts?.skipSlotCheck) {
+        selected = [preferred];
+      }
+    }
+
+    if (selected.length === 0) {
+      if (freeBoards.length < quantity) throw new Error("SLOT_UNAVAILABLE");
+      selected = freeBoards.slice(0, quantity);
+    }
+  }
+
+  const unitPrice =
+    input.price ??
+    resolveServicePrice(serviceWithRulesDto(service), startAt, duration, {
+      pricingWeekday: await pricingWeekdayForBranch(
+        service.branchId,
+        formatDateKey(startAt),
+      ),
+    });
   const totalPrice = Math.round(unitPrice * quantity * 100) / 100;
   const publicNumber = await nextPublicNumber();
   const bookingGroupId = randomUUID();

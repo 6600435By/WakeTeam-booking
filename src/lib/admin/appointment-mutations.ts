@@ -24,10 +24,15 @@ async function applyAdminAppointmentSideEffects(
   appointmentId: string,
   input: AdminAppointmentFinalizeInput,
 ): Promise<void> {
-  const hasRental =
-    input.rentalItemId !== undefined || input.rentalQuantity !== undefined;
-  const hasPriceOrPayment =
-    input.price != null || input.paymentMethod !== undefined;
+  const hasRental = Boolean(input.rentalItemId);
+  const hasPayment = input.paymentMethod != null && input.paymentMethod !== "";
+  const hasMembership = Boolean(input.membershipId);
+  const hasStatusChange =
+    Boolean(input.desiredStatus) && input.desiredStatus !== "booked";
+
+  if (!hasRental && !hasPayment && !hasMembership && !hasStatusChange) {
+    return;
+  }
 
   await prisma.$transaction(async (tx) => {
     if (hasRental) {
@@ -40,14 +45,11 @@ async function applyAdminAppointmentSideEffects(
         },
         { priceOverride: input.price ?? undefined },
       );
-    } else if (hasPriceOrPayment) {
+    } else if (hasPayment) {
       await tx.appointment.update({
         where: { id: appointmentId },
         data: {
-          ...(input.price != null ? { price: input.price } : {}),
-          ...(input.paymentMethod !== undefined
-            ? { paymentMethod: input.paymentMethod }
-            : {}),
+          paymentMethod: input.paymentMethod,
         },
       });
     }

@@ -778,7 +778,6 @@ export function AppointmentModal({
     const isoStart = fromDatetimeLocalValue(`${date}T${time}`);
     const duration = commitDurationInput();
     const priceValue = Math.round((parseFloat(priceInput) || price) * 100) / 100;
-    const isEdit = Boolean(appointmentId);
     const savePayload = {
       serviceId,
       staffId,
@@ -797,11 +796,9 @@ export function AppointmentModal({
       priceManual: priceTouchedRef.current,
       operatorMemberId: isSupService ? null : operatorMemberId || null,
     };
-    if (isEdit) {
-      onClose();
-      onSaved();
-      setLoading(false);
-    }
+    onClose();
+    onSaved();
+    setLoading(false);
     try {
       if (appointmentId && appointmentGroup && appointmentGroup.length > 1) {
         await saveAppointmentEdit({
@@ -822,10 +819,6 @@ export function AppointmentModal({
           rentalQuantity: showRental && rentalItemId ? rentalQuantity : 0,
           operatorMemberId: isSupService ? null : operatorMemberId || null,
         });
-        if (!isEdit) {
-          onClose();
-          onSaved();
-        }
         return;
       }
 
@@ -840,21 +833,9 @@ export function AppointmentModal({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Ошибка");
-      if (!isEdit) {
-        onClose();
-        onSaved();
-      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Ошибка";
-      if (isEdit) {
-        toast.error(message);
-      } else {
-        setError(message);
-      }
-    } finally {
-      if (!isEdit) {
-        setLoading(false);
-      }
+      toast.error(message);
     }
   }
 

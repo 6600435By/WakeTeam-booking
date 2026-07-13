@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
     }
     assertJournalCreateAccess(ctx, staff.branchId);
 
-    const { membershipId, paymentMethod, status: desiredStatus, rentalItemId, rentalQuantity, operatorMemberId, priceManual, ...bookingBody } = body;
+    const { membershipId, paymentMethod, status: desiredStatus, rentalItemId, rentalQuantity, operatorMemberId, price, ...bookingBody } = body;
 
     const service = await prisma.service.findUnique({
       where: { id: body.serviceId },
@@ -120,9 +120,10 @@ export async function POST(req: NextRequest) {
       {
         organizationId: ctx.organizationId,
         ...bookingBody,
+        price,
         source: "admin",
       },
-      { skipSlotCheck: true },
+      { skipSlotCheck: true, allowOverlap: true },
     );
 
     const startAt = new Date(bookingBody.startAt);
@@ -143,7 +144,6 @@ export async function POST(req: NextRequest) {
         membershipId,
         desiredStatus,
         paymentMethod,
-        price: priceManual ? body.price : undefined,
         rentalItemId,
         rentalQuantity,
       });
@@ -158,14 +158,26 @@ export async function POST(req: NextRequest) {
       throw err;
     }
 
-    const appt = await prisma.appointment.findUnique({
-      where: { id: result.id },
-      include: { client: true, service: true, staff: true, membership: true, operatorMember: { include: { user: { select: { name: true, lastName: true, login: true, email: true } } } } },
-    });
-    if (appt) {
-      logAppointmentCreate(ctx, appt);
-    }
-    return NextResponse.json({ ok: true, appointment: appt, publicNumber: result.publicNumber });
+    void prisma.appointment
+      .findUnique({
+        where: { id: result.id },
+        include: {
+          client: true,
+          service: true,
+          staff: true,
+          membership: true,
+          operatorMember: {
+            include: {
+              user: { select: { name: true, lastName: true, login: true, email: true } },
+            },
+          },
+        },
+      })
+      .then((appt) => {
+        if (appt) logAppointmentCreate(ctx, appt);
+      });
+
+    return NextResponse.json({ ok: true, id: result.id, publicNumber: result.publicNumber });
   } catch (e) {
     if (e instanceof Error && e.message === "SLOT_UNAVAILABLE") {
       return NextResponse.json({ error: "Слот занят" }, { status: 409 });
