@@ -1000,6 +1000,22 @@ async function resolveServiceForStaffMove(
   return candidates.find((s) => s.kind === "wake")?.id ?? candidates[0].id;
 }
 
+export type UpdateAppointmentExisting = {
+  organizationId: string;
+  branchId: string;
+  clientId: string;
+  staffId: string;
+  serviceId: string;
+  startAt: Date;
+  durationMinutes: number;
+  client: {
+    phone: string;
+    firstName: string | null;
+    lastName: string | null;
+    email: string | null;
+  };
+};
+
 export async function updateAppointment(
   id: string,
   data: {
@@ -1016,25 +1032,41 @@ export async function updateAppointment(
     paymentMethod?: string | null;
     operatorMemberId?: string | null;
   },
-  opts?: { skipSlotCheck?: boolean; allowOverlap?: boolean; db?: DbClient },
+  opts?: {
+    skipSlotCheck?: boolean;
+    allowOverlap?: boolean;
+    db?: DbClient;
+    existing?: UpdateAppointmentExisting;
+  },
 ) {
   const db = opts?.db ?? prisma;
-  const existing = await db.appointment.findUniqueOrThrow({
-    where: { id },
-    include: { client: true, service: true },
-  });
+  const existing =
+    opts?.existing ??
+    (await db.appointment.findUniqueOrThrow({
+      where: { id },
+      include: { client: true, service: true },
+    }));
 
   let clientId = existing.clientId;
   if (data.phone || data.firstName !== undefined || data.lastName !== undefined) {
-    const client = await upsertClientByPhone({
-      organizationId: existing.organizationId,
-      phone: data.phone ?? existing.client.phone,
-      firstName: data.firstName ?? existing.client.firstName ?? "",
-      lastName:
-        data.lastName !== undefined ? data.lastName : existing.client.lastName,
-      email: existing.client.email,
-    });
-    clientId = client.id;
+    const phone = data.phone ?? existing.client.phone;
+    const firstName = data.firstName ?? existing.client.firstName ?? "";
+    const lastName =
+      data.lastName !== undefined ? data.lastName : existing.client.lastName;
+    const clientUnchanged =
+      phone === existing.client.phone &&
+      firstName === (existing.client.firstName ?? "") &&
+      lastName === existing.client.lastName;
+    if (!clientUnchanged) {
+      const client = await upsertClientByPhone({
+        organizationId: existing.organizationId,
+        phone,
+        firstName,
+        lastName: lastName ?? undefined,
+        email: existing.client.email,
+      });
+      clientId = client.id;
+    }
   }
 
   let serviceId = data.serviceId ?? existing.serviceId;
@@ -1050,14 +1082,13 @@ export async function updateAppointment(
     );
   }
 
-  const service = await db.service.findUniqueOrThrow({
-    where: { id: serviceId },
-    include: { priceRules: { orderBy: { sortOrder: "asc" } } },
-  });
   const rawDuration = data.durationMinutes ?? existing.durationMinutes;
   const duration = opts?.skipSlotCheck
     ? normalizeAdminDuration(rawDuration)
-    : normalizeDurationForService(service, rawDuration);
+    : normalizeDurationForService(
+        await db.service.findUniqueOrThrow({ where: { id: serviceId } }),
+        rawDuration,
+      );
   const endAt = addMinutes(startAt, duration);
 
   if (opts?.skipSlotCheck) {
@@ -1099,14 +1130,21 @@ export async function updateAppointment(
     if (!ok && !sameSlot) throw new Error("SLOT_UNAVAILABLE");
   }
 
-  const price =
-    data.price ??
-    resolveServicePrice(serviceWithRulesDto(service), startAt, duration, {
+  let price: number;
+  if (data.price != null) {
+    price = data.price;
+  } else {
+    const service = await db.service.findUniqueOrThrow({
+      where: { id: serviceId },
+      include: { priceRules: { orderBy: { sortOrder: "asc" } } },
+    });
+    price = resolveServicePrice(serviceWithRulesDto(service), startAt, duration, {
       pricingWeekday: await pricingWeekdayForBranch(
         service.branchId,
         formatDateKey(startAt),
       ),
     });
+  }
 
   try {
     return await db.appointment.update({

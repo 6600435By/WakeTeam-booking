@@ -34,6 +34,7 @@ import {
   membershipMatchesServiceKind,
 } from "@/lib/memberships/service-categories";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import { AdminFreeSlotPicker } from "./AdminFreeSlotPicker";
 import type { WidgetPrefill } from "@/components/widget/BookingWidget";
 
@@ -808,6 +809,30 @@ export function AppointmentModal({
     const isoStart = fromDatetimeLocalValue(`${date}T${time}`);
     const duration = commitDurationInput();
     const priceValue = Math.round((parseFloat(priceInput) || price) * 100) / 100;
+    const isEdit = Boolean(appointmentId);
+    const savePayload = {
+      serviceId,
+      staffId,
+      startAt: isoStart,
+      durationMinutes: duration,
+      firstName,
+      lastName,
+      phone,
+      status,
+      comment,
+      membershipId: membershipId || null,
+      paymentMethod: paymentMethod || null,
+      rentalItemId: showRental && rentalItemId ? rentalItemId : null,
+      rentalQuantity: showRental && rentalItemId ? rentalQuantity : 0,
+      price: priceValue,
+      priceManual: priceTouchedRef.current,
+      operatorMemberId: isSupService ? null : operatorMemberId || null,
+    };
+    if (isEdit) {
+      onClose();
+      onSaved();
+      setLoading(false);
+    }
     try {
       if (appointmentId && appointmentGroup && appointmentGroup.length > 1) {
         await saveAppointmentEdit({
@@ -828,8 +853,10 @@ export function AppointmentModal({
           rentalQuantity: showRental && rentalItemId ? rentalQuantity : 0,
           operatorMemberId: isSupService ? null : operatorMemberId || null,
         });
-        onClose();
-        onSaved();
+        if (!isEdit) {
+          onClose();
+          onSaved();
+        }
         return;
       }
 
@@ -840,33 +867,25 @@ export function AppointmentModal({
       const res = await adminFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          serviceId,
-          staffId,
-          startAt: isoStart,
-          durationMinutes: duration,
-          firstName,
-          lastName,
-          phone,
-          status,
-          comment,
-          membershipId: membershipId || null,
-          paymentMethod: paymentMethod || null,
-          rentalItemId: showRental && rentalItemId ? rentalItemId : null,
-          rentalQuantity: showRental && rentalItemId ? rentalQuantity : 0,
-          price: priceValue,
-          priceManual: priceTouchedRef.current,
-          operatorMemberId: isSupService ? null : operatorMemberId || null,
-        }),
+        body: JSON.stringify(savePayload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Ошибка");
-      onClose();
-      onSaved();
+      if (!isEdit) {
+        onClose();
+        onSaved();
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ошибка");
+      const message = err instanceof Error ? err.message : "Ошибка";
+      if (isEdit) {
+        toast.error(message);
+      } else {
+        setError(message);
+      }
     } finally {
-      setLoading(false);
+      if (!isEdit) {
+        setLoading(false);
+      }
     }
   }
 

@@ -4,8 +4,12 @@ import {
   reconcileMembershipOnStatusChange,
   setAppointmentMembership,
 } from "@/lib/memberships/deduct";
-import { applyAppointmentRental } from "@/lib/rental-pricing";
+import {
+  applyAppointmentRental,
+  reconcileDailyRentalCharges,
+} from "@/lib/rental-pricing";
 import { updateAppointment } from "@/lib/slots/generateSlots";
+import { formatDateKey } from "@/lib/time";
 
 export type AdminAppointmentFinalizeInput = {
   membershipId?: string | null;
@@ -82,9 +86,29 @@ export type AdminAppointmentPatchInput = {
   updateFields: Parameters<typeof updateAppointment>[1];
 };
 
+export type PatchExistingAppointment = {
+  status: string;
+  membershipId: string | null;
+  rentalItemId: string | null;
+  rentalQuantity: number;
+  startAt: Date;
+  clientId: string;
+  branchId: string;
+  organizationId: string;
+  staffId: string;
+  serviceId: string;
+  durationMinutes: number;
+  client: {
+    phone: string;
+    firstName: string | null;
+    lastName: string | null;
+    email: string | null;
+  };
+};
+
 export async function patchAdminAppointment(
   appointmentId: string,
-  existing: { status: string },
+  existing: PatchExistingAppointment,
   input: AdminAppointmentPatchInput,
 ): Promise<void> {
   await prisma.$transaction(async (tx) => {
@@ -92,29 +116,44 @@ export async function patchAdminAppointment(
       skipSlotCheck: true,
       allowOverlap: true,
       db: tx,
+      existing,
     });
 
-    const hasRental =
-      input.rentalItemId !== undefined || input.rentalQuantity !== undefined;
+    const nextRentalId =
+      input.rentalItemId !== undefined ? input.rentalItemId : existing.rentalItemId;
+    const nextRentalQty =
+      input.rentalQuantity !== undefined ? input.rentalQuantity : existing.rentalQuantity;
+    const rentalChanged =
+      input.rentalItemId !== undefined &&
+      (nextRentalId !== existing.rentalItemId ||
+        nextRentalQty !== existing.rentalQuantity);
+    const nextStartAt = input.updateFields.startAt
+      ? new Date(input.updateFields.startAt)
+      : existing.startAt;
+    const startAtChanged = nextStartAt.getTime() !== existing.startAt.getTime();
 
-    if (hasRental) {
+    if (rentalChanged) {
       await applyAppointmentRental(
         tx,
         appointmentId,
         {
-          rentalItemId: input.rentalItemId ?? null,
-          rentalQuantity: input.rentalQuantity ?? 0,
+          rentalItemId: nextRentalId,
+          rentalQuantity: nextRentalQty,
         },
         { priceOverride: input.price },
       );
-    } else if (input.price != null) {
-      await tx.appointment.update({
-        where: { id: appointmentId },
-        data: { price: input.price },
+    } else if (startAtChanged && (existing.rentalItemId || nextRentalId)) {
+      await reconcileDailyRentalCharges(tx, {
+        clientId: existing.clientId,
+        branchId: existing.branchId,
+        dateKey: formatDateKey(nextStartAt),
       });
     }
 
-    if (input.membershipId !== undefined) {
+    if (
+      input.membershipId !== undefined &&
+      input.membershipId !== existing.membershipId
+    ) {
       await setAppointmentMembership(appointmentId, input.membershipId, tx);
     }
 

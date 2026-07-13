@@ -10,6 +10,7 @@ import {
   assertJournalEditAccess,
   assertServiceAccess,
   assertStaffAccess,
+  canEditJournalInBranch,
   handleAdminError,
   requireAdminContext,
 } from "@/lib/admin-access";
@@ -99,22 +100,31 @@ export async function PATCH(
       },
     });
     assertJournalEditAccess(ctx, existing.branchId);
-    await assertAppointmentAccess(ctx, id, "write");
+    if (!canEditJournalInBranch(ctx, existing.branchId)) {
+      return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
+    }
     const body = patchSchema.parse(await req.json());
     if (body.staffId) await assertStaffAccess(ctx, body.staffId);
     if (body.serviceId) await assertServiceAccess(ctx, body.serviceId);
 
     const oldDateKey = formatDateKey(existing.startAt);
-    const { membershipId, rentalItemId, rentalQuantity, price, priceManual, operatorMemberId, ...rest } = body;
+    const { membershipId, rentalItemId, rentalQuantity, operatorMemberId, ...rest } = body;
 
     const nextServiceId = body.serviceId ?? existing.serviceId;
-    const nextService = await prisma.service.findUnique({
-      where: { id: nextServiceId },
-      select: { kind: true },
-    });
-    const supService = !serviceRequiresOperator(nextService?.kind);
+    const nextServiceKind = body.serviceId
+      ? (
+          await prisma.service.findUnique({
+            where: { id: nextServiceId },
+            select: { kind: true },
+          })
+        )?.kind
+      : existing.service.kind;
+    const supService = !serviceRequiresOperator(nextServiceKind);
 
-    const updateFields: typeof rest & { operatorMemberId?: string | null } = { ...rest };
+    const updateFields: typeof rest & {
+      operatorMemberId?: string | null;
+      price?: number;
+    } = { ...rest, price: body.price };
     if (supService) {
       updateFields.operatorMemberId = null;
     } else if (operatorMemberId !== undefined) {
@@ -137,21 +147,43 @@ export async function PATCH(
     const operatorError = validateOperatorForCompletedStatus(
       nextStatus,
       finalOperatorMemberId,
-      nextService?.kind,
+      nextServiceKind,
     );
     if (operatorError) {
       return NextResponse.json({ error: operatorError }, { status: 400 });
     }
 
     try {
-      await patchAdminAppointment(id, { status: existing.status }, {
-        membershipId,
-        status: body.status,
-        rentalItemId,
-        rentalQuantity,
-        price: priceManual ? price : undefined,
-        updateFields,
-      });
+      await patchAdminAppointment(
+        id,
+        {
+          status: existing.status,
+          membershipId: existing.membershipId,
+          rentalItemId: existing.rentalItemId,
+          rentalQuantity: existing.rentalQuantity,
+          startAt: existing.startAt,
+          clientId: existing.clientId,
+          branchId: existing.branchId,
+          organizationId: existing.organizationId,
+          staffId: existing.staffId,
+          serviceId: existing.serviceId,
+          durationMinutes: existing.durationMinutes,
+          client: {
+            phone: existing.client.phone,
+            firstName: existing.client.firstName,
+            lastName: existing.client.lastName,
+            email: existing.client.email,
+          },
+        },
+        {
+          membershipId,
+          status: body.status,
+          rentalItemId,
+          rentalQuantity,
+          price: body.price,
+          updateFields,
+        },
+      );
     } catch (err) {
       if (err instanceof Error && err.message === "MEMBERSHIP_INSUFFICIENT_MINUTES") {
         return NextResponse.json(
