@@ -25,7 +25,7 @@ async function applyAdminAppointmentSideEffects(
   input: AdminAppointmentFinalizeInput,
 ): Promise<void> {
   const hasRental = Boolean(input.rentalItemId);
-  const hasPayment = input.paymentMethod != null && input.paymentMethod !== "";
+  const hasPayment = input.paymentMethod != null;
   const hasMembership = Boolean(input.membershipId);
   const hasStatusChange =
     Boolean(input.desiredStatus) && input.desiredStatus !== "booked";
