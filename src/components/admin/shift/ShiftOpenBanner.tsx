@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { formatBranchOpenLabel, type BranchShiftStatus } from "@/lib/payroll/branch-shift-status";
+import { formatBranchOpenLabel, type BranchShiftStatus } from "@/lib/payroll/branch-shift-status.shared";
 import { formatTimeMinsk } from "@/lib/time";
 
 const DISMISS_KEY = "shift-open-banner-dismiss";

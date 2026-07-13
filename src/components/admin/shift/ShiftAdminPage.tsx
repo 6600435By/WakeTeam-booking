@@ -17,7 +17,7 @@ import type { ShiftReadinessPayload } from "@/lib/payroll/shift-readiness";
 import {
   formatBranchOpenLabel,
   type BranchShiftStatus,
-} from "@/lib/payroll/branch-shift-status";
+} from "@/lib/payroll/branch-shift-status.shared";
 import { useSuperAdminBranchOptional } from "@/components/admin/SuperAdminBranchProvider";
 import { formatDateKey, formatTimeMinsk } from "@/lib/time";
 

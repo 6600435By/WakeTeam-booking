@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { formatBranchOpenLabel, type BranchShiftStatus } from "./branch-shift-status";
+import { formatBranchOpenLabel, type BranchShiftStatus } from "./branch-shift-status.shared";
 
 function status(openShifts: BranchShiftStatus["openShifts"]): BranchShiftStatus {
   return {
