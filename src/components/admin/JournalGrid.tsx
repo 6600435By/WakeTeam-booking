@@ -11,6 +11,7 @@ import {
   getOverlapRegions,
   getStaffRule,
   groupConsecutiveClientAppointments,
+  type ConsecutiveAppointmentGroup,
   isoAtMinutes,
   isStaffWorkingAt,
   minutesFromIso,
@@ -353,7 +354,7 @@ export function JournalGrid({
       string,
       {
         colAppts: Appointment[];
-        colBlocks: ReturnType<typeof groupConsecutiveClientAppointments>;
+        colBlocks: ConsecutiveAppointmentGroup<Appointment>[];
         overlapRegions: ReturnType<typeof getOverlapRegions>;
       }
     >();
