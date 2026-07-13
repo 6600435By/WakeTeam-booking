@@ -454,7 +454,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   );
 
   function refreshAll() {
-    void reloadJournal({ silent: true });
+    void reloadJournal({ silent: true, appointmentsOnly: true });
   }
 
   const applyOptimisticMove = useCallback(

@@ -1031,53 +1031,71 @@ export function AppointmentModal({
               />
             </div>
             <div>
-              <button
-                type="button"
-                onClick={() => setFreeSlotsOpen((open) => !open)}
-                className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm font-medium text-slate-800 hover:bg-slate-100"
-                aria-expanded={freeSlotsOpen}
-              >
-                <span>
-                  Свободное время
-                  {time ? (
-                    <span className="ml-1.5 font-normal text-slate-500">{time}</span>
+              {appointmentId ? (
+                <>
+                  <label className={labelClass} htmlFor="wt-booking-time">
+                    Время
+                  </label>
+                  <input
+                    id="wt-booking-time"
+                    name="wt-booking-time"
+                    type="time"
+                    value={time}
+                    onChange={(e) => setTime(e.target.value)}
+                    className={inputClass}
+                    required
+                  />
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setFreeSlotsOpen((open) => !open)}
+                    className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm font-medium text-slate-800 hover:bg-slate-100"
+                    aria-expanded={freeSlotsOpen}
+                  >
+                    <span>
+                      Свободное время
+                      {time ? (
+                        <span className="ml-1.5 font-normal text-slate-500">{time}</span>
+                      ) : null}
+                    </span>
+                    <ChevronDown
+                      className={cn(
+                        "size-4 shrink-0 text-slate-500 transition-transform",
+                        freeSlotsOpen && "rotate-180",
+                      )}
+                      strokeWidth={2.25}
+                    />
+                  </button>
+                  {freeSlotsOpen && serviceId && date ? (
+                    <AdminFreeSlotPicker
+                      className="mt-2"
+                      compact
+                      serviceId={serviceId}
+                      serviceKind={selectedService?.kind ?? "wake"}
+                      date={date}
+                      staffId={staffId || undefined}
+                      staffOptions={staffOptions}
+                      durationMinutes={slotDuration}
+                      selectedStartAt={selectedStartAt}
+                      onPick={handleSlotPick}
+                    />
+                  ) : freeSlotsOpen ? (
+                    <p className="mt-2 text-xs text-slate-500">Выберите услугу и дату</p>
+                  ) : time ? (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Выбрано {time}. Раскройте блок, чтобы изменить слот.
+                    </p>
                   ) : null}
-                </span>
-                <ChevronDown
-                  className={cn(
-                    "size-4 shrink-0 text-slate-500 transition-transform",
-                    freeSlotsOpen && "rotate-180",
-                  )}
-                  strokeWidth={2.25}
-                />
-              </button>
-              {freeSlotsOpen && serviceId && date ? (
-                <AdminFreeSlotPicker
-                  className="mt-2"
-                  compact
-                  serviceId={serviceId}
-                  serviceKind={selectedService?.kind ?? "wake"}
-                  date={date}
-                  staffId={staffId || undefined}
-                  staffOptions={staffOptions}
-                  durationMinutes={slotDuration}
-                  selectedStartAt={selectedStartAt}
-                  excludeAppointmentId={appointmentId}
-                  onPick={handleSlotPick}
-                />
-              ) : freeSlotsOpen ? (
-                <p className="mt-2 text-xs text-slate-500">Выберите услугу и дату</p>
-              ) : time ? (
-                <p className="mt-1 text-xs text-slate-500">
-                  Выбрано {time}. Раскройте блок, чтобы изменить слот.
-                </p>
-              ) : null}
-              <input
-                type="hidden"
-                name="wt-booking-time"
-                value={time}
-                required
-              />
+                  <input
+                    type="hidden"
+                    name="wt-booking-time"
+                    value={time}
+                    required
+                  />
+                </>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">

@@ -90,6 +90,7 @@ export async function patchAdminAppointment(
   await prisma.$transaction(async (tx) => {
     await updateAppointment(appointmentId, input.updateFields, {
       skipSlotCheck: true,
+      allowOverlap: true,
       db: tx,
     });
 

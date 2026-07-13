@@ -162,8 +162,9 @@ export async function PATCH(
       throw err;
     }
 
-    const updated = await prisma.appointment.findUniqueOrThrow({ where: { id } });
-    const newDateKey = formatDateKey(updated.startAt);
+    const newDateKey = formatDateKey(
+      body.startAt ? new Date(body.startAt) : existing.startAt,
+    );
     if (oldDateKey !== newDateKey && existing.rentalItemId) {
       await reconcileDailyRentalCharges(prisma, {
         clientId: existing.clientId,

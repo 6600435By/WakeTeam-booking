@@ -1016,7 +1016,7 @@ export async function updateAppointment(
     paymentMethod?: string | null;
     operatorMemberId?: string | null;
   },
-  opts?: { skipSlotCheck?: boolean; db?: DbClient },
+  opts?: { skipSlotCheck?: boolean; allowOverlap?: boolean; db?: DbClient },
 ) {
   const db = opts?.db ?? prisma;
   const existing = await db.appointment.findUniqueOrThrow({
@@ -1060,7 +1060,7 @@ export async function updateAppointment(
     : normalizeDurationForService(service, rawDuration);
   const endAt = addMinutes(startAt, duration);
 
-  if (opts?.skipSlotCheck) {
+  if (opts?.skipSlotCheck && !opts?.allowOverlap) {
     const slotChanged =
       data.startAt != null ||
       data.staffId != null ||
