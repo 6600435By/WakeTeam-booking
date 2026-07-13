@@ -186,7 +186,10 @@ export function ShiftAdminPage({
     setLoading(true);
     setError("");
     try {
-      const r = await fetch("/api/admin/work-shifts");
+      const q = new URLSearchParams();
+      if (effectiveBranchId) q.set("branchId", effectiveBranchId);
+      const suffix = q.size ? `?${q}` : "";
+      const r = await fetch(`/api/admin/work-shifts${suffix}`);
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Ошибка");
       setData(d.today ?? null);
@@ -196,7 +199,7 @@ export function ShiftAdminPage({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [effectiveBranchId]);
 
   const loadResources = useCallback(async () => {
     if (!effectiveBranchId) return;

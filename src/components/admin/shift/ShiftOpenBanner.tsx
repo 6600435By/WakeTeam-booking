@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSuperAdminBranchOptional } from "@/components/admin/SuperAdminBranchProvider";
 import { formatBranchOpenLabel, type BranchShiftStatus } from "@/lib/payroll/branch-shift-status.shared";
 import { formatTimeMinsk } from "@/lib/time";
 
@@ -14,6 +15,7 @@ type WorkShiftsTodayResponse = {
 };
 
 export function ShiftOpenBanner() {
+  const superBranch = useSuperAdminBranchOptional();
   const [ownShiftOpen, setOwnShiftOpen] = useState(false);
   const [branchToday, setBranchToday] = useState<BranchShiftStatus | null>(null);
   const [dismissed, setDismissed] = useState(false);
@@ -24,16 +26,22 @@ export function ShiftOpenBanner() {
       return;
     }
     try {
-      const r = await fetch("/api/admin/work-shifts");
+      const q = new URLSearchParams();
+      if (superBranch?.branchId) q.set("branchId", superBranch.branchId);
+      const suffix = q.size ? `?${q}` : "";
+      const r = await fetch(`/api/admin/work-shifts${suffix}`);
       const d = (await r.json()) as WorkShiftsTodayResponse;
       if (!r.ok) return;
       const st = d.today?.shift?.status;
       setOwnShiftOpen(st === "open");
       setBranchToday(d.branchToday ?? null);
+      if (d.branchToday?.isOpen) {
+        setDismissed(false);
+      }
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [superBranch?.branchId]);
 
   useEffect(() => {
     void check();

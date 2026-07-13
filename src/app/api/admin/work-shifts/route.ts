@@ -201,8 +201,20 @@ export async function GET(req: NextRequest) {
 
     const todayShift = enriched.find((e) => e.shift.memberId === ctx.memberId) ?? null;
 
-    const resolvedBranchId =
+    let resolvedBranchId =
       branchId ?? todayShift?.shift.branchId ?? ctx.branchId ?? null;
+    if (!resolvedBranchId && ctx.isSuperAdmin) {
+      const openShift = await prisma.workShift.findFirst({
+        where: {
+          organizationId: ctx.organizationId,
+          date,
+          status: "open",
+        },
+        select: { branchId: true },
+        orderBy: { actualStart: "asc" },
+      });
+      resolvedBranchId = openShift?.branchId ?? null;
+    }
     const branchToday = resolvedBranchId
       ? await queryBranchShiftStatus(ctx.organizationId, resolvedBranchId, date)
       : null;
