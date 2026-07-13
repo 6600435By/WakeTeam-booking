@@ -57,8 +57,9 @@ describe("canViewShiftReadiness", () => {
     );
   });
 
-  it("denies plain operator", () => {
-    assert.equal(canViewShiftReadiness(ctx({})), false);
+  it("allows plain operator in own branch", () => {
+    assert.equal(canViewShiftReadiness(ctx({}), "branch-a"), true);
+    assert.equal(canViewShiftReadiness(ctx({}), "branch-b"), false);
   });
 });
 

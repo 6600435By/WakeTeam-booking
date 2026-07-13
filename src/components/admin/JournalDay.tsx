@@ -421,8 +421,9 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   }, [load, skipInitialLoad]);
 
   useEffect(() => {
+    if (!periodListOpen) return;
     void loadList();
-  }, [loadList]);
+  }, [loadList, periodListOpen]);
 
   const reloadJournal = useCallback(
     async (opts?: { silent?: boolean; appointmentsOnly?: boolean }) => {
@@ -985,7 +986,13 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
       >
         <button
           type="button"
-          onClick={() => setPeriodListOpen((v) => !v)}
+          onClick={() => {
+            setPeriodListOpen((v) => {
+              const next = !v;
+              if (next) void loadList();
+              return next;
+            });
+          }}
           className="flex w-full touch-manipulation items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-left shadow-sm active:bg-slate-50"
           aria-expanded={periodListOpen}
         >

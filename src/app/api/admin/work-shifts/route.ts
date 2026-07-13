@@ -15,6 +15,7 @@ import { prisma } from "@/lib/db";
 import { formatDateKey, parseTimeOnDate } from "@/lib/time";
 import { logShiftOpen } from "@/lib/audit/shift-audit";
 import { getBranchPlannedWindow } from "@/lib/payroll/branch-planned-window";
+import { queryBranchShiftStatus } from "@/lib/payroll/branch-shift-status";
 import { aggregatePeriodReport, summaryToPeriodRow } from "@/lib/payroll/period-report";
 import {
   enrichShiftResponse,
@@ -200,7 +201,13 @@ export async function GET(req: NextRequest) {
 
     const todayShift = enriched.find((e) => e.shift.memberId === ctx.memberId) ?? null;
 
-    return NextResponse.json({ shifts: enriched, today: todayShift, date });
+    const resolvedBranchId =
+      branchId ?? todayShift?.shift.branchId ?? ctx.branchId ?? null;
+    const branchToday = resolvedBranchId
+      ? await queryBranchShiftStatus(ctx.organizationId, resolvedBranchId, date)
+      : null;
+
+    return NextResponse.json({ shifts: enriched, today: todayShift, date, branchToday });
   } catch (e) {
     const handled = handleAdminError(e);
     if (handled) {

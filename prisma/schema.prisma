@@ -295,7 +295,7 @@ model Appointment {
   operatorMemberId          String?
   operatorMember            OrganizationMember? @relation("AppointmentOperator", fields: [operatorMemberId], references: [id], onDelete: SetNull)
 
-  @@unique([staffId, startAt])
+  @@index([staffId, startAt])
   @@index([startAt])
   @@index([organizationId, startAt])
 }

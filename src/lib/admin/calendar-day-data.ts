@@ -190,6 +190,17 @@ export async function queryAppointmentsList(
   });
 }
 
+export async function queryJournalBranchesList(ctx: AdminContext) {
+  return prisma.branch.findMany({
+    where:
+      ctx.isSuperAdmin || ctx.isBranchManager
+        ? { organizationId: ctx.organizationId, isActive: true }
+        : branchListWhere(ctx),
+    orderBy: { sortOrder: "asc" },
+    select: { id: true, name: true },
+  });
+}
+
 export function resolveInitialBranchId(
   ctx: AdminContext,
   branches: { id: string }[],

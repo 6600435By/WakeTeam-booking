@@ -78,6 +78,38 @@ function staffFreeForInterval(
   );
 }
 
+async function assertStaffIntervalFree(params: {
+  staffId: string;
+  startAt: Date;
+  endAt: Date;
+  excludeAppointmentId?: string;
+}) {
+  const dateStr = formatDateKey(params.startAt);
+  const dayStart = parseTimeOnDate(dateStr, "00:00");
+  const dayEnd = parseTimeOnDate(dateStr, "23:59");
+  const appointments = await prisma.appointment.findMany({
+    where: {
+      staffId: params.staffId,
+      startAt: { gte: dayStart, lte: dayEnd },
+      status: { in: ACTIVE_APPOINTMENT_STATUSES },
+      ...(params.excludeAppointmentId
+        ? { id: { not: params.excludeAppointmentId } }
+        : {}),
+    },
+    select: { staffId: true, startAt: true, endAt: true },
+  });
+  if (
+    !staffFreeForInterval(
+      params.staffId,
+      params.startAt,
+      params.endAt,
+      appointments,
+    )
+  ) {
+    throw new Error("SLOT_UNAVAILABLE");
+  }
+}
+
 async function loadScheduleOverrides(staffIds: string[], date: string) {
   if (staffIds.length === 0) return new Map<string, Awaited<ReturnType<typeof prisma.staffScheduleOverride.findFirst>>>();
   const rows = await prisma.staffScheduleOverride.findMany({
@@ -217,10 +249,12 @@ export async function getDaySlots(params: {
     }
   }
 
-  const allSlots = filterPastSlotsForToday(
-    params.date,
-    [...slotStarts.values()].sort((a, b) => a.startAt.localeCompare(b.startAt)),
+  const allSlotsRaw = [...slotStarts.values()].sort((a, b) =>
+    a.startAt.localeCompare(b.startAt),
   );
+  const allSlots = params.forAdmin
+    ? allSlotsRaw
+    : filterPastSlotsForToday(params.date, allSlotsRaw);
 
   if (!params.durationMinutes) {
     return { slots: allSlots, allowedDurations };
@@ -381,7 +415,9 @@ export async function getSupDaySlots(params: {
     .filter((s) => s.availableBoards > 0);
 
   return {
-    slots: filterPastSlotsForToday(params.date, slots),
+    slots: params.forAdmin
+      ? slots
+      : filterPastSlotsForToday(params.date, slots),
     allowedDurations,
   };
 }
@@ -559,7 +595,13 @@ export async function createBooking(
   const endAt = addMinutes(startAt, duration);
   const dateStr = formatDateKey(startAt);
 
-  if (!opts?.skipSlotCheck) {
+  if (opts?.skipSlotCheck) {
+    await assertStaffIntervalFree({
+      staffId: input.staffId,
+      startAt,
+      endAt,
+    });
+  } else {
     const slots = await getAvailableSlots({
       serviceId: input.serviceId,
       staffId: input.staffId,
@@ -636,9 +678,6 @@ async function isWakeCellFree(params: {
   }
 
   // Слот мог исчезнуть из сетки из‑за filterPastSlotsForToday — проверяем занятость реверса напрямую.
-  if (dateStr === formatDateKey(new Date()) && params.startAt.getTime() <= Date.now()) {
-    return false;
-  }
   const dayStart = parseTimeOnDate(dateStr, "00:00");
   const dayEnd = parseTimeOnDate(dateStr, "23:59");
   const appointments = await prisma.appointment.findMany({
@@ -851,7 +890,13 @@ async function createBatchBooking(
         });
       });
     } else {
-      if (!opts?.skipSlotCheck) {
+      if (opts?.skipSlotCheck) {
+        await assertStaffIntervalFree({
+          staffId: input.staffId!,
+          startAt,
+          endAt,
+        });
+      } else {
         const ok = await isWakeCellFree({
           serviceId: input.serviceId,
           staffId: input.staffId!,
@@ -1015,9 +1060,22 @@ export async function updateAppointment(
     : normalizeDurationForService(service, rawDuration);
   const endAt = addMinutes(startAt, duration);
 
-  if (
-    !opts?.skipSlotCheck &&
-    (data.startAt || data.staffId || data.serviceId || data.durationMinutes)
+  if (opts?.skipSlotCheck) {
+    const slotChanged =
+      data.startAt != null ||
+      data.staffId != null ||
+      data.serviceId != null ||
+      data.durationMinutes != null;
+    if (slotChanged) {
+      await assertStaffIntervalFree({
+        staffId,
+        startAt,
+        endAt,
+        excludeAppointmentId: id,
+      });
+    }
+  } else if (
+    data.startAt || data.staffId || data.serviceId || data.durationMinutes
   ) {
     const dateStr = formatDateKey(startAt);
     const slots = await getAvailableSlots({

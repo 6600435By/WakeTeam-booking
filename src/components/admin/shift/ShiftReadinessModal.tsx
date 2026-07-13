@@ -172,6 +172,9 @@ export function ShiftReadinessModal({
     setOpenHandoffComment("");
     void load();
     void loadServices();
+    const timer = window.setInterval(() => {
+      void load();
+    }, 30_000);
     void fetch(`/api/admin/shift-resources?branchId=${encodeURIComponent(branchId)}`)
       .then((r) => r.json())
       .then((d) => {
@@ -194,6 +197,7 @@ export function ShiftReadinessModal({
         else setPreviousHandoffText(null);
       })
       .catch(() => setPreviousHandoffText(null));
+    return () => window.clearInterval(timer);
   }, [open, branchId, date, load, loadServices]);
 
   useEffect(() => {
@@ -1212,9 +1216,15 @@ export function ShiftReadinessModal({
 }
 
 export function formatReadinessSummary(data: ShiftReadinessPayload): string {
+  const openCount = data.staffOnShift.filter((s) => s.status === "open").length;
+  const scheduledCount = data.staffOnShift.filter((s) => s.status === "scheduled").length;
   const parts = [
     `${data.resources.filter((r) => r.scheduleToday?.isWorking).length} реверс.`,
-    `${data.staffOnShift.length} на смене`,
+    openCount > 0
+      ? `${openCount} на смене`
+      : scheduledCount > 0
+        ? `${scheduledCount} по графику`
+        : "0 на смене",
   ];
   if (data.warnings.length > 0) {
     parts.push(`${data.warnings.length} предупр.`);

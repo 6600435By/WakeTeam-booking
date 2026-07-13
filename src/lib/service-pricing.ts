@@ -51,7 +51,7 @@ function rulePriceForDuration(
   bookingDuration: number,
 ): number {
   const explicit = rule.pricesByDuration?.[bookingDuration];
-  if (explicit != null) return explicit;
+  if (explicit != null && Number.isFinite(explicit)) return explicit;
   return priceForDuration(rule.price, tariffDuration, bookingDuration);
 }
 

@@ -14,8 +14,12 @@ import {
   formatReadinessSummary,
 } from "./ShiftReadinessModal";
 import type { ShiftReadinessPayload } from "@/lib/payroll/shift-readiness";
+import {
+  formatBranchOpenLabel,
+  type BranchShiftStatus,
+} from "@/lib/payroll/branch-shift-status";
 import { useSuperAdminBranchOptional } from "@/components/admin/SuperAdminBranchProvider";
-import { formatDateKey } from "@/lib/time";
+import { formatDateKey, formatTimeMinsk } from "@/lib/time";
 
 type AdminRole = "super_admin" | "branch_manager" | "branch_admin" | "branch_operator";
 const BRANCH_ADMIN_ROLE = "branch_admin";
@@ -123,6 +127,7 @@ export function ShiftAdminPage({
     isSuperAdmin ||
     isBranchManager ||
     isBranchAdmin ||
+    isOperator ||
     workAsAdminElevated ||
     managerOnDutyElevated;
 
@@ -152,6 +157,7 @@ export function ShiftAdminPage({
 
   const [tab, setTab] = useState<Tab>(tasksOnly ? "calendar" : "today");
   const [data, setData] = useState<ShiftData | null>(null);
+  const [branchToday, setBranchToday] = useState<BranchShiftStatus | null>(null);
   const [tasks, setTasks] = useState<SpotTask[]>([]);
   const [reverses, setReverses] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -184,6 +190,7 @@ export function ShiftAdminPage({
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Ошибка");
       setData(d.today ?? null);
+      setBranchToday(d.branchToday ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка");
     } finally {
@@ -255,6 +262,8 @@ export function ShiftAdminPage({
   useEffect(() => {
     if (tab === "today" && canViewReadiness && effectiveBranchId) {
       void loadReadinessSummary();
+      const timer = window.setInterval(() => void loadReadinessSummary(), 30_000);
+      return () => window.clearInterval(timer);
     }
   }, [tab, canViewReadiness, effectiveBranchId, loadReadinessSummary]);
 
@@ -609,9 +618,29 @@ export function ShiftAdminPage({
           {loading && <p className="text-sm text-slate-500">Загрузка…</p>}
 
           {!loading && !data && (
-            <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center" data-onboarding="shift-open">
-              <p className="mb-3 text-sm text-slate-600">Смена не открыта</p>
-              <button type="button" className={btnPrimary} onClick={() => void prepareOpenShift()}>
+            <div
+              className={`rounded-xl border p-6 text-center ${
+                branchToday?.isOpen
+                  ? "border-green-200 bg-green-50"
+                  : "border-dashed border-slate-300"
+              }`}
+              data-onboarding="shift-open"
+            >
+              {branchToday?.isOpen ? (
+                <>
+                  <p className="text-sm font-medium text-green-800">Филиал работает</p>
+                  <p className="mt-1 text-xs text-green-700">
+                    {formatBranchOpenLabel(branchToday)}
+                    {branchToday.openShifts[0]?.actualStart
+                      ? ` · с ${formatTimeMinsk(branchToday.openShifts[0].actualStart)}`
+                      : ""}
+                  </p>
+                  <p className="mt-2 text-sm text-slate-600">Ваша смена ещё не открыта</p>
+                </>
+              ) : (
+                <p className="mb-3 text-sm text-slate-600">Смена не открыта</p>
+              )}
+              <button type="button" className={`${btnPrimary} mt-3`} onClick={() => void prepareOpenShift()}>
                 Начать смену
               </button>
             </div>
@@ -974,6 +1003,7 @@ export function ShiftAdminPage({
           onShiftOpened={(shiftData) => {
             setData(shiftData);
             setShowHandoff(false);
+            void loadShift();
             void loadReadinessSummary();
           }}
         />

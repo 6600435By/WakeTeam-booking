@@ -18,6 +18,7 @@ import {
 } from "@/lib/time";
 import { normalizeAdminDuration } from "@/lib/admin-duration";
 import { isSearchablePhone } from "@/lib/phone";
+import { hydratePriceRules, priceRuleDtoFromRow } from "@/lib/price-rules";
 import { resolveAppointmentPrice, type ServicePriceRuleDto } from "@/lib/service-pricing";
 import { pricingWeekdayForDate } from "@/lib/branch-hours-constants";
 import { serviceSupportsRental } from "@/lib/rental-pricing";
@@ -168,7 +169,8 @@ export function AppointmentModal({
   const [price, setPrice] = useState(0);
   const [priceInput, setPriceInput] = useState("0");
   const priceTouchedRef = useRef(false);
-  const skipAutoPriceRef = useRef(true);
+  const preserveStoredPriceRef = useRef(false);
+  const pricingSnapshotRef = useRef("");
   const [rentalItems, setRentalItems] = useState<RentalItem[]>([]);
   const [holidayDates, setHolidayDates] = useState<string[]>([]);
   const [rentalItemId, setRentalItemId] = useState("");
@@ -183,6 +185,7 @@ export function AppointmentModal({
   const operatorTouchedRef = useRef(false);
 
   function setQuotedPrice(value: number) {
+    if (!Number.isFinite(value)) return;
     const rounded = Math.round(value * 100) / 100;
     setPrice(rounded);
     setPriceInput(String(rounded));
@@ -203,7 +206,16 @@ export function AppointmentModal({
     setCopyOpen(false);
     priceTouchedRef.current = false;
     operatorTouchedRef.current = Boolean(initial?.operatorMemberId);
-    skipAutoPriceRef.current = Boolean(appointmentId && (totalPrice ?? 0) > 0);
+    preserveStoredPriceRef.current = Boolean(appointmentId && (totalPrice ?? 0) > 0);
+    pricingSnapshotRef.current = [
+      initial?.serviceId ?? "",
+      initial?.startAt ? toDatetimeLocalValue(initial.startAt).split("T")[0] : "",
+      initial?.startAt ? toDatetimeLocalValue(initial.startAt).split("T")[1] : "",
+      String(initial?.durationMinutes ?? 30),
+      initial?.membershipId ?? "",
+      initial?.rentalItemId ?? "",
+      String(initial?.rentalQuantity && initial.rentalQuantity > 0 ? initial.rentalQuantity : 1),
+    ].join("|");
     const initialPrice = totalPrice ?? 0;
     if (initialPrice > 0) {
       setQuotedPrice(initialPrice);
@@ -281,9 +293,18 @@ export function AppointmentModal({
   useEffect(() => {
     if (!open || priceTouchedRef.current) return;
     if (!serviceId || !date || !time) return;
-    if (skipAutoPriceRef.current) {
-      skipAutoPriceRef.current = false;
-      return;
+    const pricingKey = [
+      serviceId,
+      date,
+      time,
+      durationInput,
+      membershipId,
+      rentalItemId,
+      String(rentalQuantity),
+    ].join("|");
+    if (preserveStoredPriceRef.current) {
+      if (pricingKey === pricingSnapshotRef.current) return;
+      preserveStoredPriceRef.current = false;
     }
     const service = services.find((s) => s.id === serviceId);
     if (!service) return;
@@ -385,7 +406,15 @@ export function AppointmentModal({
             durationMinutes: number;
             allowedDurations: string;
             price: number;
-            priceRules: ServicePriceRuleDto[];
+            priceRules: Array<{
+              id: string;
+              weekdays: string;
+              timeFrom: string;
+              timeTo: string;
+              price: number;
+              sortOrder: number;
+              pricesByDuration?: string | null;
+            }>;
             staff: { staff: { id: string; name: string } }[];
           }) => ({
             id: s.id,
@@ -394,7 +423,9 @@ export function AppointmentModal({
             durationMinutes: s.durationMinutes,
             allowedDurations: s.allowedDurations,
             price: s.price,
-            priceRules: s.priceRules ?? [],
+            priceRules: hydratePriceRules(s.priceRules).map((r) =>
+              priceRuleDtoFromRow(r, s.durationMinutes),
+            ),
             staff: s.staff.map((x) => x.staff),
           }),
         );

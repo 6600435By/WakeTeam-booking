@@ -242,6 +242,10 @@ export function canViewShiftReadiness(ctx: AdminContext, branchId?: string) {
     if (!branchId) return true;
     return ctx.branchId === branchId;
   }
+  if (ctx.role === BRANCH_OPERATOR_ROLE && ctx.branchId) {
+    if (!branchId) return true;
+    return ctx.branchId === branchId;
+  }
   if (ctx.workAsAdminElevated) return true;
   if (ctx.managerOnDutyElevated) return true;
   return false;

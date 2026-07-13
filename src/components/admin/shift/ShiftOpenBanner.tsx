@@ -2,11 +2,20 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { formatBranchOpenLabel, type BranchShiftStatus } from "@/lib/payroll/branch-shift-status";
+import { formatTimeMinsk } from "@/lib/time";
 
 const DISMISS_KEY = "shift-open-banner-dismiss";
+const POLL_MS = 30_000;
+
+type WorkShiftsTodayResponse = {
+  today?: { shift?: { status?: string } } | null;
+  branchToday?: BranchShiftStatus | null;
+};
 
 export function ShiftOpenBanner() {
-  const [visible, setVisible] = useState(false);
+  const [ownShiftOpen, setOwnShiftOpen] = useState(false);
+  const [branchToday, setBranchToday] = useState<BranchShiftStatus | null>(null);
   const [dismissed, setDismissed] = useState(false);
 
   const check = useCallback(async () => {
@@ -16,10 +25,11 @@ export function ShiftOpenBanner() {
     }
     try {
       const r = await fetch("/api/admin/work-shifts");
-      const d = await r.json();
+      const d = (await r.json()) as WorkShiftsTodayResponse;
       if (!r.ok) return;
-      const st = d.today?.shift?.status as string | undefined;
-      setVisible(!d.today || st === "scheduled");
+      const st = d.today?.shift?.status;
+      setOwnShiftOpen(st === "open");
+      setBranchToday(d.branchToday ?? null);
     } catch {
       /* ignore */
     }
@@ -31,10 +41,40 @@ export function ShiftOpenBanner() {
       if (document.visibilityState === "visible") void check();
     };
     document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
+    const timer = window.setInterval(() => void check(), POLL_MS);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.clearInterval(timer);
+    };
   }, [check]);
 
-  if (!visible || dismissed) return null;
+  if (ownShiftOpen) return null;
+
+  if (branchToday?.isOpen) {
+    const opener = formatBranchOpenLabel(branchToday);
+    const startedAt = branchToday.openShifts[0]?.actualStart;
+    const timeLabel = startedAt ? formatTimeMinsk(startedAt) : null;
+    return (
+      <div
+        className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-950"
+        data-onboarding="shift-branch-open-banner"
+      >
+        <span>
+          Филиал работает
+          {opener ? ` · ${opener}` : ""}
+          {timeLabel ? ` с ${timeLabel}` : ""}
+        </span>
+        <Link
+          href="/admin/shift"
+          className="rounded-md bg-green-800 px-2.5 py-1 text-xs font-medium text-white touch-manipulation"
+        >
+          Моя смена
+        </Link>
+      </div>
+    );
+  }
+
+  if (dismissed) return null;
 
   return (
     <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-lime-200 bg-lime-50 px-3 py-2 text-sm text-lime-950" data-onboarding="shift-open-banner">

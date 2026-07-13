@@ -333,6 +333,45 @@ export function JournalGrid({
     [bounds, gridStep],
   );
 
+  const appointmentsByStaffId = useMemo(() => {
+    const map = new Map<string, Appointment[]>();
+    for (const appt of appointments) {
+      const list = map.get(appt.staff.id);
+      if (list) list.push(appt);
+      else map.set(appt.staff.id, [appt]);
+    }
+    for (const list of map.values()) {
+      list.sort(
+        (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
+      );
+    }
+    return map;
+  }, [appointments]);
+
+  const columnLayoutByStaffId = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        colAppts: Appointment[];
+        colBlocks: ReturnType<typeof groupConsecutiveClientAppointments>;
+        overlapRegions: ReturnType<typeof getOverlapRegions>;
+      }
+    >();
+    for (const s of visibleStaff) {
+      const colAppts = appointmentsByStaffId.get(s.id) ?? [];
+      const colBlocks = groupConsecutiveClientAppointments(colAppts);
+      map.set(s.id, {
+        colAppts,
+        colBlocks,
+        overlapRegions: getOverlapRegions(
+          date,
+          colBlocks.map((b) => ({ startAt: b.startAt, endAt: b.endAt })),
+        ),
+      });
+    }
+    return map;
+  }, [visibleStaff, appointmentsByStaffId, date]);
+
   const gridHeight = timeLabels.length * slotHeightPx;
   const expandColumns = fillViewport || resourceKind !== "all";
 
@@ -841,7 +880,7 @@ export function JournalGrid({
             {visibleStaff.map((s) => {
               const staffLabel = journalStaffDisplayName(s.name);
               const collapsed = collapsedIds.has(s.id);
-              const colAppts = appointments.filter((a) => a.staff.id === s.id);
+              const colAppts = columnLayoutByStaffId.get(s.id)?.colAppts ?? [];
               return renderStaffHeader(s, staffLabel, collapsed, colAppts);
             })}
           </div>
@@ -897,17 +936,10 @@ export function JournalGrid({
           {visibleStaff.map((s) => {
             const staffLabel = journalStaffDisplayName(s.name);
             const collapsed = collapsedIds.has(s.id);
-            const colAppts = appointments
-              .filter((a) => a.staff.id === s.id)
-              .sort(
-                (a, b) =>
-                  new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
-              );
-            const colBlocks = groupConsecutiveClientAppointments(colAppts);
-            const overlapRegions = getOverlapRegions(
-              date,
-              colBlocks.map((b) => ({ startAt: b.startAt, endAt: b.endAt })),
-            );
+            const layout = columnLayoutByStaffId.get(s.id);
+            const colAppts = layout?.colAppts ?? [];
+            const colBlocks = layout?.colBlocks ?? [];
+            const overlapRegions = layout?.overlapRegions ?? [];
             const isDropColumn = drag?.staffId === s.id;
 
             return (

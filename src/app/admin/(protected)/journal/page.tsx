@@ -3,6 +3,7 @@ import { JournalDay } from "@/components/admin/JournalDay";
 import { getAdminContext } from "@/lib/admin-access";
 import {
   queryCalendarDay,
+  queryJournalBranchesList,
   resolveInitialBranchId,
 } from "@/lib/admin/calendar-day-data";
 import { serializeCalendarDay } from "@/lib/admin/calendar-day-serialize";
@@ -25,12 +26,9 @@ export default async function JournalPage() {
         branchId: ctx.branchId,
       };
     } else {
-      const overview = await queryCalendarDay(ctx, date);
-      const branchId = resolveInitialBranchId(ctx, overview.branches);
-      const data =
-        branchId && ctx.isSuperAdmin
-          ? await queryCalendarDay(ctx, date, branchId)
-          : overview;
+      const branches = await queryJournalBranchesList(ctx);
+      const branchId = resolveInitialBranchId(ctx, branches);
+      const data = await queryCalendarDay(ctx, date, branchId || undefined);
 
       initial = {
         ...serializeCalendarDay(data),
