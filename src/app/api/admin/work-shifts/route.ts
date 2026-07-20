@@ -27,6 +27,7 @@ import {
   previousDateKey,
   saveHandoffNote,
 } from "@/lib/payroll/shift-baseline-tasks";
+import { activatePlannedReversesOnOpen } from "@/lib/payroll/shift-planned-reverses";
 
 function enrichOptionsForViewer(
   ctx: Awaited<ReturnType<typeof requireAdminContext>>,
@@ -272,15 +273,11 @@ export async function POST(req: NextRequest) {
           where: { id: existing.id },
           data: { status: "open", actualStart },
         });
-        if (existing.plannedStaffId) {
-          await prisma.reverseAssignment.create({
-            data: {
-              shiftId: existing.id,
-              staffId: existing.plannedStaffId,
-              startedAt: actualStart,
-            },
-          });
-        }
+        await activatePlannedReversesOnOpen(
+          existing.id,
+          existing.plannedStaffId,
+          actualStart,
+        );
         const updated = await prisma.workShift.findUnique({
           where: { id: existing.id },
           include: SHIFT_INCLUDE,

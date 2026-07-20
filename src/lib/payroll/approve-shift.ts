@@ -17,8 +17,8 @@ export async function closeShiftForReview(shiftId: string) {
       data: { isActive: false, endedAt: effectiveEnd },
     });
   }
-  const openAssign = shift.reverseAssignments.find((a) => !a.endedAt);
-  if (openAssign) {
+  const openAssigns = shift.reverseAssignments.filter((a) => !a.endedAt);
+  for (const openAssign of openAssigns) {
     await prisma.reverseAssignment.update({
       where: { id: openAssign.id },
       data: { endedAt: effectiveEnd },

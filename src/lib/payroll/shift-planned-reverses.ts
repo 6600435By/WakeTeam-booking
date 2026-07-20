@@ -44,3 +44,31 @@ export async function setShiftPlannedReverses(
   });
   return unique;
 }
+
+/** On shift open: create ReverseAssignment for every planned reverse (not only primary). */
+export async function activatePlannedReversesOnOpen(
+  shiftId: string,
+  plannedStaffId: string | null,
+  startedAt: Date,
+  db: Db = prisma,
+): Promise<string[]> {
+  const staffIds = await resolvePlannedReverseIds(shiftId, plannedStaffId, db);
+  if (staffIds.length === 0) return [];
+
+  const existing = await db.reverseAssignment.findMany({
+    where: { shiftId, endedAt: null },
+    select: { staffId: true },
+  });
+  const alreadyOpen = new Set(existing.map((row) => row.staffId));
+  const toCreate = staffIds.filter((staffId) => !alreadyOpen.has(staffId));
+  if (toCreate.length === 0) return staffIds;
+
+  await db.reverseAssignment.createMany({
+    data: toCreate.map((staffId) => ({
+      shiftId,
+      staffId,
+      startedAt,
+    })),
+  });
+  return staffIds;
+}

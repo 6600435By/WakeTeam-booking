@@ -74,8 +74,8 @@ export async function PATCH(
           );
         }
       }
-      const openAssign = shift.reverseAssignments.find((a) => !a.endedAt);
-      if (openAssign) {
+      const openAssigns = shift.reverseAssignments.filter((a) => !a.endedAt);
+      for (const openAssign of openAssigns) {
         await prisma.reverseAssignment.update({
           where: { id: openAssign.id },
           data: { endedAt: effectiveEnd },
@@ -162,8 +162,8 @@ export async function PATCH(
         return NextResponse.json({ error: "Реверс не найден" }, { status: 404 });
       }
       const now = new Date();
-      const openAssign = shift.reverseAssignments.find((a) => !a.endedAt);
-      if (openAssign) {
+      const openAssigns = shift.reverseAssignments.filter((a) => !a.endedAt);
+      for (const openAssign of openAssigns) {
         await prisma.reverseAssignment.update({
           where: { id: openAssign.id },
           data: { endedAt: now },

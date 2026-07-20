@@ -137,17 +137,29 @@ export async function computeShiftSummary(
   let inServicePanelMinutes = 0;
   let inServiceCount = 0;
   let unfinishedAppointmentCount = 0;
-  if (shiftStart && shiftEnd && shift.reverseAssignments.length) {
+  // Panel can come from ReverseAssignment OR pinned operatorMemberId on appointments.
+  if (shiftStart && shiftEnd) {
     const staffIds = [...new Set(shift.reverseAssignments.map((a) => a.staffId))];
     const dayStart = parseTimeOnDate(shift.date, "00:00");
     const dayEnd = parseTimeOnDate(shift.date, "23:59");
+    const appointmentWhere =
+      staffIds.length > 0
+        ? {
+            branchId: shift.branchId,
+            startAt: { gte: dayStart, lte: dayEnd },
+            OR: [
+              { staffId: { in: staffIds } },
+              { operatorMemberId: shift.memberId },
+            ],
+          }
+        : {
+            branchId: shift.branchId,
+            startAt: { gte: dayStart, lte: dayEnd },
+            operatorMemberId: shift.memberId,
+          };
     const [appointments, allDayAssignments] = await Promise.all([
       prisma.appointment.findMany({
-        where: {
-          branchId: shift.branchId,
-          staffId: { in: staffIds },
-          startAt: { gte: dayStart, lte: dayEnd },
-        },
+        where: appointmentWhere,
         select: {
           staffId: true,
           startAt: true,
