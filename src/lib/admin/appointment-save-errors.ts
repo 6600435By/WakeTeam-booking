@@ -107,9 +107,10 @@ export function appointmentSaveErrorResponse(
 
   if (e instanceof z.ZodError) {
     const flat = e.flatten();
+    const fieldErrors = flat.fieldErrors as Record<string, string[] | undefined>;
     const parts: string[] = [];
-    for (const [key, msgs] of Object.entries(flat.fieldErrors ?? {})) {
-      const msg = msgs?.[0];
+    for (const [key, msgs] of Object.entries(fieldErrors)) {
+      const msg = Array.isArray(msgs) ? msgs[0] : undefined;
       if (msg) parts.push(humanizeZodIssue(key, msg));
     }
     for (const msg of flat.formErrors ?? []) {
@@ -143,9 +144,13 @@ export function formatAppointmentSaveError(data: unknown, fallback = "Ошибк
       formErrors?: string[];
       fieldErrors?: Record<string, string[] | undefined>;
     };
+    const fieldErrors = (flat.fieldErrors ?? {}) as Record<
+      string,
+      string[] | undefined
+    >;
     const parts: string[] = [];
-    for (const [key, msgs] of Object.entries(flat.fieldErrors ?? {})) {
-      const msg = msgs?.[0];
+    for (const [key, msgs] of Object.entries(fieldErrors)) {
+      const msg = Array.isArray(msgs) ? msgs[0] : undefined;
       if (msg) parts.push(humanizeZodIssue(key, msg));
     }
     for (const msg of flat.formErrors ?? []) {
