@@ -1,4 +1,5 @@
 import type { User } from "@prisma/client";
+import { cache } from "react";
 import { getSessionUser } from "./auth";
 import { prisma } from "./db";
 import { memberHasWorkAsAdminElevation } from "./payroll/work-as-admin-access";
@@ -60,7 +61,8 @@ async function loadManagedBranchIds(memberId: string): Promise<string[]> {
   return scopes.map((s) => s.branchId);
 }
 
-export async function getAdminContext(): Promise<AdminContext | null> {
+/** Per-request memo so layout + page / nested actions share one DB round-trip. */
+export const getAdminContext = cache(async (): Promise<AdminContext | null> => {
   const user = await getSessionUser();
   if (!user) return null;
 
@@ -108,7 +110,7 @@ export async function getAdminContext(): Promise<AdminContext | null> {
     managerOnDutyElevated: Boolean(managerDuty),
     managerOnDutyBranchId: managerDuty?.branchId ?? null,
   };
-}
+});
 
 export async function requireAdminContext(): Promise<AdminContext> {
   const ctx = await getAdminContext();

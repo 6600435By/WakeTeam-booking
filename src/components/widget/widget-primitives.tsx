@@ -483,6 +483,7 @@ export function WidgetSuccessScreen({
   adminPhone,
   theme,
   embedRef,
+  onNewBooking,
 }: {
   title: string;
   publicNumber: number;
@@ -496,6 +497,7 @@ export function WidgetSuccessScreen({
   adminPhone: string;
   theme: WidgetTheme;
   embedRef?: React.RefObject<HTMLDivElement | null>;
+  onNewBooking?: () => void;
 }) {
   const canAddToCalendar = Boolean(sessionStartIso && sessionEndIso);
   const adminPhoneDisplay = formatAdminPhone(adminPhone);
@@ -581,20 +583,35 @@ export function WidgetSuccessScreen({
               </div>
             ))}
           </dl>
-          {canAddToCalendar && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleAddToCalendar}
-              className={cn(
-                WIDGET_TOUCH_MIN,
-                "w-full gap-2 rounded-xl border-slate-200 text-sm font-medium text-slate-800 hover:bg-slate-50",
-              )}
-            >
-              <CalendarPlus className={WIDGET_ICON_SM} strokeWidth={2.25} />
-              Добавить в календарь
-            </Button>
-          )}
+          <div className="space-y-2 pt-1">
+            {canAddToCalendar && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleAddToCalendar}
+                className={cn(
+                  WIDGET_TOUCH_MIN,
+                  "w-full gap-2 rounded-xl border-slate-200 text-sm font-medium text-slate-800 hover:bg-slate-50",
+                )}
+              >
+                <CalendarPlus className={WIDGET_ICON_SM} strokeWidth={2.25} />
+                Добавить в календарь
+              </Button>
+            )}
+            {onNewBooking && (
+              <Button
+                type="button"
+                onClick={onNewBooking}
+                className={cn(
+                  WIDGET_TOUCH_MIN,
+                  "w-full rounded-xl text-sm font-semibold",
+                )}
+                style={widgetBtnStyle(theme)}
+              >
+                Создать новую запись
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </WidgetShell>

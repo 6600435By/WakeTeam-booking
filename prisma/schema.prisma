@@ -298,6 +298,7 @@ model Appointment {
   @@index([staffId, startAt])
   @@index([startAt])
   @@index([organizationId, startAt])
+  @@index([organizationId, branchId, startAt])
 }
 
 model AppSetting {

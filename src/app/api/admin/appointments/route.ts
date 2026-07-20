@@ -9,6 +9,7 @@ import {
   resolveJournalBranchFilter,
 } from "@/lib/admin-access";
 import { finalizeAdminAppointmentCreate } from "@/lib/admin/appointment-mutations";
+import { appointmentSaveErrorResponse } from "@/lib/admin/appointment-save-errors";
 import { logAppointmentCreate } from "@/lib/audit/appointment-audit";
 import { prisma } from "@/lib/db";
 import { serviceRequiresOperator } from "@/lib/appointment-status";
@@ -149,11 +150,9 @@ export async function POST(req: NextRequest) {
       });
     } catch (err) {
       await prisma.appointment.delete({ where: { id: result.id } });
-      if (err instanceof Error && err.message === "MEMBERSHIP_INSUFFICIENT_MINUTES") {
-        return NextResponse.json(
-          { error: "Недостаточно минут на абонементе" },
-          { status: 409 },
-        );
+      const mapped = appointmentSaveErrorResponse(err);
+      if (mapped) {
+        return NextResponse.json(mapped.body, { status: mapped.status });
       }
       throw err;
     }
@@ -177,19 +176,32 @@ export async function POST(req: NextRequest) {
         if (appt) logAppointmentCreate(ctx, appt);
       });
 
-    return NextResponse.json({ ok: true, id: result.id, publicNumber: result.publicNumber });
+    return NextResponse.json({
+      ok: true,
+      id: result.id,
+      publicNumber: result.publicNumber,
+      appointment: {
+        id: result.id,
+        startAt: bookingBody.startAt,
+        durationMinutes: bookingBody.durationMinutes,
+      },
+    });
   } catch (e) {
-    if (e instanceof Error && e.message === "SLOT_UNAVAILABLE") {
-      return NextResponse.json({ error: "Слот занят" }, { status: 409 });
-    }
-    if (e instanceof z.ZodError) {
-      return NextResponse.json({ error: e.flatten() }, { status: 400 });
+    const mapped = appointmentSaveErrorResponse(e);
+    if (mapped) {
+      return NextResponse.json(mapped.body, { status: mapped.status });
     }
     const handled = handleAdminError(e);
     if (handled) {
       return NextResponse.json({ error: handled.error }, { status: handled.status });
     }
     console.error(e);
-    return NextResponse.json({ error: "Ошибка сервера" }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: "Ошибка сервера",
+        hint: "Проверьте услугу, реверс, время и телефон клиента. Если ошибка повторяется — обновите страницу или перелогиньтесь.",
+      },
+      { status: 500 },
+    );
   }
 }

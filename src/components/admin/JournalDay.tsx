@@ -47,6 +47,7 @@ import {
   loadAppointmentsListAction,
   loadCalendarDayAction,
   loadCalendarDayAppointmentsAction,
+  loadCalendarDayDeltaAction,
   type CalendarDayPayload,
 } from "@/app/admin/(protected)/journal/actions";
 
@@ -149,6 +150,18 @@ function shiftDateStr(dateStr: string, days: number) {
 
 function isHiddenFromJournal(status: string) {
   return (JOURNAL_HIDDEN_STATUSES as readonly string[]).includes(status);
+}
+
+type CompactJournalView = "list" | "grid";
+const COMPACT_JOURNAL_VIEW_KEY = "journal-compact-view";
+
+function loadCompactJournalView(): CompactJournalView {
+  if (typeof window === "undefined") return "list";
+  return localStorage.getItem(COMPACT_JOURNAL_VIEW_KEY) === "grid" ? "grid" : "list";
+}
+
+function saveCompactJournalView(view: CompactJournalView) {
+  localStorage.setItem(COMPACT_JOURNAL_VIEW_KEY, view);
 }
 
 function findAppointmentGroup(
@@ -259,7 +272,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
       setBranchId(superBranch.branchId);
     }
   }, [isSuperAdmin, superBranch?.branchId, branchId]);
-  const [skipInitialLoad, setSkipInitialLoad] = useState(Boolean(initial));
+  const skipInitialLoadRef = useRef(Boolean(initial));
   const [gridStep, setGridStep] = useState<JournalGridStep>(15);
   const [gridScale, setGridScale] = useState<JournalGridScale>(1);
   const [resourceKind, setResourceKind] = useState<JournalResourceFilter>("all");
@@ -267,19 +280,41 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   const periodListOpenRef = useRef(periodListOpen);
   periodListOpenRef.current = periodListOpen;
   const [freeSlotsOpen, setFreeSlotsOpen] = useState(false);
+  const [compactView, setCompactView] = useState<CompactJournalView>("list");
+  const loadSeqRef = useRef(0);
+  const shellBranchRef = useRef(boot.branchId);
+  const hasShellRef = useRef(Boolean(initial && (initial.services?.length ?? 0) > 0));
+  const appointmentsSnapshotRef = useRef<Appointment[] | null>(null);
   const viewport = useAdminViewport();
   const isCompactJournal = isAdminCompact(viewport);
-  const showGrid = !isCompactJournal;
-  const fillGridViewport = showGrid;
+  const showGrid = !isCompactJournal || compactView === "grid";
+  const showCompactList = isCompactJournal && compactView === "list" && !freeSlotsOpen;
+  const fillGridViewport = showGrid && !isCompactJournal;
 
   useEffect(() => {
     setGridStep(loadJournalGridStep());
     setGridScale(loadJournalGridScale());
+    setCompactView(loadCompactJournalView());
   }, []);
+
+  function handleCompactViewChange(view: CompactJournalView) {
+    setCompactView(view);
+    saveCompactJournalView(view);
+    if (view === "grid") setFreeSlotsOpen(false);
+  }
 
   const branchServices = useMemo(
     () => services.filter((s) => !branchId || s.branchId === branchId),
     [services, branchId],
+  );
+
+  const branchServiceIds = useMemo(
+    () =>
+      branchServices
+        .map((s) => s.id)
+        .sort()
+        .join(","),
+    [branchServices],
   );
 
   const resourceOptions = useMemo(
@@ -315,7 +350,9 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
       return;
     }
     setResourceKind(loadJournalResourceFilter(branchId, branchServices));
-  }, [branchId, branchServices]);
+    // Reload filter only when branch or service catalog identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branchId, branchServiceIds]);
 
   useEffect(() => {
     if (resourceKind === "all") return;
@@ -340,68 +377,95 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
     saveJournalGridScale(scale);
   }
 
-  const load = useCallback(async (opts?: { silent?: boolean }) => {
-    const silent = opts?.silent ?? false;
-    if (!silent) setLoading(true);
-    setError("");
+  const applyAdminFlags = useCallback((admin: CalendarDayPayload["admin"] | undefined) => {
+    if (!admin) return;
+    setIsSuperAdmin(admin.isSuperAdmin);
+    setIsBranchManager(admin.isBranchManager ?? false);
+    setCanEditAppointments(
+      admin.canEditAppointmentsInBranch ?? admin.canEditAppointments ?? true,
+    );
+    setCanCreateAppointments(admin.canCreateAppointmentsInBranch ?? true);
+    setJournalReadOnlyOutsideScope(admin.journalReadOnlyOutsideScope ?? false);
+  }, []);
 
-    try {
-      const result = await loadCalendarDayAction(date, branchId || undefined);
-      if (!result.ok) {
-        setError(result.error);
+  const load = useCallback(
+    async (opts?: { silent?: boolean; full?: boolean }) => {
+      if (!branchId) return;
+
+      const silent = opts?.silent ?? false;
+      const branchChanged = shellBranchRef.current !== branchId;
+      const useFull = Boolean(opts?.full || branchChanged || !hasShellRef.current);
+      const reqId = ++loadSeqRef.current;
+
+      if (!silent) {
+        setLoading(true);
+        if (branchChanged || useFull) {
+          setAppointments([]);
+        }
+      }
+      setError("");
+
+      try {
+        if (useFull) {
+          const result = await loadCalendarDayAction(date, branchId);
+          if (reqId !== loadSeqRef.current) return;
+          if (!result.ok) {
+            setError(result.error);
+            if (!silent) {
+              setStaff([]);
+              setAppointments([]);
+              setBranches([]);
+            }
+            return;
+          }
+
+          const d = result.data;
+          setStaff((d.staff ?? []) as StaffRow[]);
+          setAppointments((d.appointments ?? []) as Appointment[]);
+          setBranches(d.branches ?? []);
+          setServices((d.services ?? []) as BranchService[]);
+          applyAdminFlags(d.admin);
+          shellBranchRef.current = branchId;
+          hasShellRef.current = true;
+
+          if (d.admin && !d.admin.isSuperAdmin && !d.admin.isBranchManager && d.admin.branchId) {
+            setBranchId(d.admin.branchId);
+          }
+        } else {
+          const result = await loadCalendarDayDeltaAction(date, branchId);
+          if (reqId !== loadSeqRef.current) return;
+          if (!result.ok) {
+            setError(result.error);
+            if (!silent) setAppointments([]);
+            return;
+          }
+
+          const d = result.data;
+          setStaff((d.staff ?? []) as StaffRow[]);
+          setAppointments((d.appointments ?? []) as Appointment[]);
+          applyAdminFlags(d.admin);
+        }
+      } catch {
+        if (reqId !== loadSeqRef.current) return;
+        setError("Ошибка при загрузке журнала");
         if (!silent) {
           setStaff([]);
           setAppointments([]);
-          setBranches([]);
         }
-        return;
-      }
-
-      const d = result.data;
-      setStaff((d.staff ?? []) as StaffRow[]);
-      setAppointments((d.appointments ?? []) as Appointment[]);
-      setBranches(d.branches ?? []);
-      setServices((d.services ?? []) as BranchService[]);
-
-      if (d.admin) {
-        setIsSuperAdmin(d.admin.isSuperAdmin);
-        setIsBranchManager(d.admin.isBranchManager ?? false);
-        setCanEditAppointments(
-          d.admin.canEditAppointmentsInBranch ?? d.admin.canEditAppointments ?? true,
-        );
-        setCanCreateAppointments(d.admin.canCreateAppointmentsInBranch ?? true);
-        setJournalReadOnlyOutsideScope(d.admin.journalReadOnlyOutsideScope ?? false);
-      }
-
-      setBranchId((current) => {
-        if (d.admin && !d.admin.isSuperAdmin && d.admin.branchId) {
-          return d.admin.branchId;
+      } finally {
+        if (reqId === loadSeqRef.current && !silent) {
+          setLoading(false);
         }
-        if (!current && d.branches?.[0]?.id) {
-          return d.branches[0].id;
-        }
-        return current;
-      });
-    } catch {
-      setError("Ошибка при загрузке журнала");
-      if (!silent) {
-        setStaff([]);
-        setAppointments([]);
       }
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, [date, branchId]);
+    },
+    [date, branchId, applyAdminFlags],
+  );
 
   const loadList = useCallback(async () => {
-    if (listFrom > listTo) return;
+    if (listFrom > listTo || !branchId) return;
     setListLoading(true);
     try {
-      const result = await loadAppointmentsListAction(
-        listFrom,
-        listTo,
-        branchId || undefined,
-      );
+      const result = await loadAppointmentsListAction(listFrom, listTo, branchId);
       if (result.ok) {
         setListRecords((result.appointments ?? []) as Appointment[]);
       }
@@ -413,12 +477,14 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   }, [listFrom, listTo, branchId]);
 
   useEffect(() => {
-    if (skipInitialLoad) {
-      setSkipInitialLoad(false);
+    if (!branchId) return;
+    if (skipInitialLoadRef.current) {
+      skipInitialLoadRef.current = false;
+      shellBranchRef.current = branchId;
       return;
     }
     void load();
-  }, [load, skipInitialLoad]);
+  }, [load, branchId]);
 
   useEffect(() => {
     if (!periodListOpen) return;
@@ -426,18 +492,26 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   }, [loadList, periodListOpen]);
 
   const reloadJournal = useCallback(
-    async (opts?: { silent?: boolean; appointmentsOnly?: boolean }) => {
+    async (opts?: { silent?: boolean; appointmentsOnly?: boolean; full?: boolean }) => {
       if (opts?.appointmentsOnly) {
+        const forDate = date;
+        const forBranch = branchId;
         try {
           const result = await loadCalendarDayAppointmentsAction(
-            date,
-            branchId || undefined,
+            forDate,
+            forBranch || undefined,
           );
+          if (forDate !== date || forBranch !== branchId) return;
           if (result.ok) {
             setAppointments((result.appointments ?? []) as Appointment[]);
+            appointmentsSnapshotRef.current = null;
+          } else if (!opts.silent) {
+            setError(result.error);
           }
         } catch {
-          /* фоновая синхронизация — не блокируем UI */
+          if (!opts.silent && forDate === date && forBranch === branchId) {
+            setError("Не удалось обновить записи");
+          }
         }
         if (periodListOpenRef.current) {
           await loadList();
@@ -445,7 +519,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
         return;
       }
 
-      await load(opts);
+      await load({ silent: opts?.silent, full: opts?.full });
       if (periodListOpenRef.current) {
         await loadList();
       }
@@ -453,9 +527,9 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
     [load, loadList, date, branchId],
   );
 
-  function refreshAll() {
-    void reloadJournal({ silent: true, appointmentsOnly: true });
-  }
+  const refreshAll = useCallback(async () => {
+    await reloadJournal({ silent: true, appointmentsOnly: true });
+  }, [reloadJournal]);
 
   const applyOptimisticMove = useCallback(
     (
@@ -471,8 +545,9 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
       const targetStaff = staff.find((s) => s.id === targetStaffId);
       const ids = new Set(sorted.map((a) => a.id));
 
-      setAppointments((prev) =>
-        prev.map((a) => {
+      setAppointments((prev) => {
+        appointmentsSnapshotRef.current = prev;
+        return prev.map((a) => {
           if (!ids.has(a.id)) return a;
           const newStartMs = new Date(a.startAt).getTime() + deltaMs;
           const newEndMs = newStartMs + a.durationMinutes * 60_000;
@@ -484,8 +559,8 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
               ? { id: targetStaff.id, name: targetStaff.name }
               : a.staff,
           };
-        }),
-      );
+        });
+      });
     },
     [date, staff],
   );
@@ -499,8 +574,9 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
       const appt = group[0];
       const newEndMs =
         new Date(appt.startAt).getTime() + newTotalDuration * 60_000;
-      setAppointments((prev) =>
-        prev.map((a) =>
+      setAppointments((prev) => {
+        appointmentsSnapshotRef.current = prev;
+        return prev.map((a) =>
           a.id === appt.id
             ? {
                 ...a,
@@ -508,11 +584,18 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
                 endAt: new Date(newEndMs).toISOString(),
               }
             : a,
-        ),
-      );
+        );
+      });
     },
     [],
   );
+
+  const rollbackOptimistic = useCallback(() => {
+    if (appointmentsSnapshotRef.current) {
+      setAppointments(appointmentsSnapshotRef.current);
+      appointmentsSnapshotRef.current = null;
+    }
+  }, []);
 
   const wd = weekdayMinsk(date);
 
@@ -690,7 +773,52 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
               />
             </div>
 
-            {canCreateAppointments && (
+            <div
+              className="mt-2 inline-flex w-full rounded-lg border border-slate-300 bg-white p-0.5"
+              role="group"
+              aria-label="Вид журнала"
+            >
+              <button
+                type="button"
+                onClick={() => handleCompactViewChange("list")}
+                className={cn(
+                  "h-10 flex-1 touch-manipulation rounded-md text-sm font-medium",
+                  compactView === "list"
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-600 active:bg-slate-50",
+                )}
+              >
+                Список
+              </button>
+              <button
+                type="button"
+                onClick={() => handleCompactViewChange("grid")}
+                className={cn(
+                  "h-10 flex-1 touch-manipulation rounded-md text-sm font-medium",
+                  compactView === "grid"
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-600 active:bg-slate-50",
+                )}
+              >
+                Сетка
+              </button>
+            </div>
+
+            {compactView === "grid" && (
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <JournalGridStepPicker
+                  value={gridStep}
+                  onChange={handleGridStepChange}
+                  compact
+                />
+                <JournalGridZoomButtons
+                  value={gridScale}
+                  onChange={handleGridScaleChange}
+                />
+              </div>
+            )}
+
+            {canCreateAppointments && compactView === "list" && (
             <button
               type="button"
               disabled={!selectedService}
@@ -718,13 +846,13 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
                 onPick={handleFreeSlotPick}
               />
             </div>
-          ) : (
+          ) : compactView === "list" ? (
             <p className="mt-3 text-sm text-slate-600">
               {sortedAppointments.length > 0
                 ? `${sortedAppointments.length} ${sortedAppointments.length === 1 ? "запись" : sortedAppointments.length < 5 ? "записи" : "записей"}`
                 : "Нет записей"}
             </p>
-          )}
+          ) : null}
         </>
       ) : (
         <div className="journal-page-toolbar relative z-10 box-border w-full max-w-full border-b border-slate-200 bg-slate-50 pb-1.5">
@@ -825,8 +953,13 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
         </div>
       )}
 
-      {isCompactJournal && (
+      {isCompactJournal && compactView === "list" && (
         <p className="mt-1 text-xs text-slate-400">Нажмите на запись для редактирования.</p>
+      )}
+      {isCompactJournal && compactView === "grid" && (
+        <p className="mt-1 text-xs text-slate-400">
+          Сетка как на компьютере — листайте вбок по реверсам, нажмите на слот или запись.
+        </p>
       )}
 
       {!loading && branches.length === 0 && (
@@ -841,15 +974,34 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
 
       {error && (
         <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}. Попробуйте{" "}
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="font-medium underline"
-          >
-            обновить
-          </button>{" "}
-          или перелогиниться.
+          {error}
+          {/сессия|доступ|загруз/i.test(error) ? (
+            <>
+              . Попробуйте{" "}
+              <button
+                type="button"
+                onClick={() => void load({ full: true })}
+                className="font-medium underline"
+              >
+                обновить
+              </button>{" "}
+              или перелогиниться.
+            </>
+          ) : (
+            <>
+              .{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setError("");
+                  void reloadJournal({ silent: false, appointmentsOnly: true });
+                }}
+                className="font-medium underline"
+              >
+                Обновить записи
+              </button>
+            </>
+          )}
         </p>
       )}
 
@@ -875,7 +1027,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
         <p className="mt-8 text-slate-500">Загрузка…</p>
       ) : (
         <>
-          {isCompactJournal && !freeSlotsOpen && (
+          {showCompactList && (
         <div className="relative mt-3 pb-16">
           {loading && (
             <div className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-white/40 pt-4">
@@ -935,10 +1087,11 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
         </div>
           )}
 
-          {showGrid && (
+          {showGrid && !freeSlotsOpen && (
           <div
             className={cn(
               "admin-journal-sticky-panel relative mt-2 w-full max-w-full",
+              isCompactJournal && "overflow-x-auto pb-16",
               fillGridViewport &&
                 "admin-desktop:px-0 admin-tablet:px-0",
             )}
@@ -969,9 +1122,8 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
               onAppointmentClick={canEditAppointments ? openEdit : () => {}}
               onOptimisticMove={applyOptimisticMove}
               onOptimisticResize={applyOptimisticResize}
-              onMoved={() => {
-                void reloadJournal({ silent: true, appointmentsOnly: true });
-              }}
+              onOptimisticRollback={rollbackOptimistic}
+              onMoved={() => reloadJournal({ silent: true, appointmentsOnly: true })}
               onActionError={setError}
             />
           </div>
@@ -1185,7 +1337,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
         )}
       </section>
 
-      {isCompactJournal && canCreateAppointments && (
+      {isCompactJournal && canCreateAppointments && !freeSlotsOpen && (
         <button
           type="button"
           onClick={() => openNew()}

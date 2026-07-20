@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { randomBytes } from "crypto";
 import { cookies } from "next/headers";
+import { cache } from "react";
 import { prisma } from "./db";
 
 const COOKIE = "booking_session";
@@ -104,7 +105,7 @@ export function sessionCookieOptions(secure: boolean) {
   };
 }
 
-export async function getSessionUser() {
+export const getSessionUser = cache(async () => {
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE)?.value;
   if (!token) return null;
@@ -126,7 +127,7 @@ export async function getSessionUser() {
   }
 
   return prisma.user.findUnique({ where: { id: payload.userId } });
-}
+});
 
 export async function destroySession() {
   const cookieStore = await cookies();

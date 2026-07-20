@@ -27,6 +27,7 @@ import {
   saveAppointmentEdit,
   type GroupApptRef,
 } from "@/lib/admin/appointment-group-client";
+import { formatAppointmentSaveError } from "@/lib/admin/appointment-save-errors";
 import { adminFetch } from "@/lib/admin-fetch";
 import {
   filterMembershipsByServiceKind,
@@ -84,7 +85,7 @@ type ClientSuggestion = {
 type Props = {
   open: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: () => void | Promise<void>;
   branches: Branch[];
   appointmentId?: string;
   appointmentGroup?: GroupApptRef[];
@@ -796,8 +797,6 @@ export function AppointmentModal({
       priceManual: priceTouchedRef.current,
       operatorMemberId: isSupService ? null : operatorMemberId || null,
     };
-    onClose();
-    setLoading(false);
     try {
       if (appointmentId && appointmentGroup && appointmentGroup.length > 1) {
         await saveAppointmentEdit({
@@ -818,7 +817,8 @@ export function AppointmentModal({
           rentalQuantity: showRental && rentalItemId ? rentalQuantity : 0,
           operatorMemberId: isSupService ? null : operatorMemberId || null,
         });
-        onSaved();
+        await Promise.resolve(onSaved());
+        onClose();
         return;
       }
 
@@ -831,12 +831,22 @@ export function AppointmentModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(savePayload),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Ошибка");
-      onSaved();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(formatAppointmentSaveError(data, "Не удалось сохранить запись"));
+      }
+      await Promise.resolve(onSaved());
+      onClose();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Ошибка";
-      toast.error(message);
+      const message =
+        err instanceof Error ? err.message : "Не удалось сохранить запись";
+      setError(message);
+      toast.error(message, {
+        description: "Исправьте данные в форме и сохраните снова.",
+        duration: 8000,
+      });
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -1297,7 +1307,12 @@ export function AppointmentModal({
             className={inputClass}
             rows={1}
           />
-          {error && <p className="text-xs text-red-600">{error}</p>}
+          {error && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              <p className="font-medium">Не удалось сохранить</p>
+              <p className="mt-0.5">{error}</p>
+            </div>
+          )}
           <div className={`grid gap-2 ${appointmentId ? "grid-cols-2" : "grid-cols-1"}`}>
             {appointmentId && (
               <button

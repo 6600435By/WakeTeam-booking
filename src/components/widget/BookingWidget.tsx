@@ -264,6 +264,29 @@ export function BookingWidget({
     userPickedDateRef.current = false;
   }, []);
 
+  const startNewBooking = useCallback(() => {
+    setDone(null);
+    setError("");
+    setSelectedWakeStarts([]);
+    setSelectedSupStarts([]);
+    setWakeSlots([]);
+    setSupSlots([]);
+    setAlternateStaff([]);
+    setAvailableOtherBranches([]);
+    setTariffsOpen(false);
+    userPickedDateRef.current = false;
+    setDate(todayStr());
+    if (config && config.branches.length === 1) {
+      setBranchId(config.branches[0].id);
+      setActivityKind(null);
+      setServiceId("");
+      setStaffId("");
+      setStep(1);
+      return;
+    }
+    goToBranchSelect();
+  }, [config, goToBranchSelect]);
+
   const handleDateChange = useCallback((next: string) => {
     userPickedDateRef.current = true;
     setDate(next);
@@ -727,6 +750,7 @@ export function BookingWidget({
         bookedMinutes={done.bookedMinutes}
         adminPhone={settings.texts.callAdminPhone}
         theme={theme}
+        onNewBooking={copyMode ? undefined : startNewBooking}
       />
     );
   }

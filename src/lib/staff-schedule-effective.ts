@@ -45,10 +45,19 @@ export function effectiveSchedulesForDay(
   weekday: number,
 ): StaffScheduleLike[] {
   const effective = effectiveScheduleRule(schedules, override, weekday);
+  const hasWeekday = schedules.some((s) => Number(s.weekday) === weekday);
+
   if (!effective) {
+    if (!hasWeekday) return schedules;
     return schedules.map((s) =>
-      s.weekday === weekday ? { ...s, isWorking: false } : s,
+      Number(s.weekday) === weekday ? { ...s, isWorking: false } : s,
     );
   }
-  return schedules.map((s) => (s.weekday === weekday ? effective : s));
+
+  if (!hasWeekday) {
+    return [...schedules, effective];
+  }
+  return schedules.map((s) =>
+    Number(s.weekday) === weekday ? effective : s,
+  );
 }

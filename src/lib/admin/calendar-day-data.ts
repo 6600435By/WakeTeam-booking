@@ -35,6 +35,71 @@ const appointmentDayInclude = {
   },
 } as const;
 
+function journalAdminMeta(ctx: AdminContext, branchId: string | undefined) {
+  return {
+    role: ctx.role,
+    branchId: ctx.branchId,
+    isSuperAdmin: ctx.isSuperAdmin,
+    isBranchManager: ctx.isBranchManager,
+    managedBranchIds: ctx.managedBranchIds,
+    canEditAppointments: canEditJournalAppointments(ctx),
+    canEditAppointmentsInBranch: branchId
+      ? canEditJournalInBranch(ctx, branchId)
+      : canEditJournalAppointments(ctx),
+    canCreateAppointmentsInBranch: branchId
+      ? canCreateJournalInBranch(ctx, branchId)
+      : true,
+    journalReadOnlyOutsideScope:
+      ctx.isBranchManager &&
+      Boolean(branchId) &&
+      !isInManagementScope(ctx, branchId!),
+  };
+}
+
+async function queryStaffForDay(
+  ctx: AdminContext,
+  date: string,
+  branchId: string | undefined,
+) {
+  const weekday = weekdayMinsk(date);
+  const [staffRaw, scheduleOverrides] = await Promise.all([
+    prisma.staff.findMany({
+      where: {
+        isActive: true,
+        organizationId: ctx.organizationId,
+        ...(branchId ? { branchId } : {}),
+      },
+      orderBy: { sortOrder: "asc" },
+      include: {
+        schedules: { where: { weekday } },
+      },
+    }),
+    prisma.staffScheduleOverride.findMany({
+      where: {
+        date,
+        staff: {
+          isActive: true,
+          organizationId: ctx.organizationId,
+          ...(branchId ? { branchId } : {}),
+        },
+      },
+    }),
+  ]);
+
+  const overrideByStaff = new Map(
+    scheduleOverrides.map((row) => [row.staffId, row]),
+  );
+
+  return staffRaw.map((row) => ({
+    ...row,
+    schedules: effectiveSchedulesForDay(
+      row.schedules,
+      overrideByStaff.get(row.id) ?? null,
+      weekday,
+    ),
+  }));
+}
+
 export async function queryCalendarDayAppointments(
   ctx: AdminContext,
   date: string,
@@ -55,6 +120,26 @@ export async function queryCalendarDayAppointments(
   });
 }
 
+/** Lightweight day switch: staff schedules + appointments (no branches/services). */
+export async function queryCalendarDayDelta(
+  ctx: AdminContext,
+  date: string,
+  requestedBranchId?: string | null,
+) {
+  const branchId = resolveJournalBranchFilter(ctx, requestedBranchId);
+  const [staff, appointments] = await Promise.all([
+    queryStaffForDay(ctx, date, branchId),
+    queryCalendarDayAppointments(ctx, date, requestedBranchId),
+  ]);
+
+  return {
+    staff,
+    appointments,
+    date,
+    admin: journalAdminMeta(ctx, branchId),
+  };
+}
+
 export async function queryCalendarDay(
   ctx: AdminContext,
   date: string,
@@ -62,21 +147,8 @@ export async function queryCalendarDay(
 ) {
   const branchId = resolveJournalBranchFilter(ctx, requestedBranchId);
 
-  const { dayStart, dayEnd } = dayBounds(date);
-
-  const weekday = weekdayMinsk(date);
-
-  const [staffRaw, appointments, branches, services, scheduleOverrides] =
-    await Promise.all([
-    prisma.staff.findMany({
-      where: {
-        isActive: true,
-        organizationId: ctx.organizationId,
-        ...(branchId ? { branchId } : {}),
-      },
-      orderBy: { sortOrder: "asc" },
-      include: { schedules: true, branch: true },
-    }),
+  const [staff, appointments, branches, services] = await Promise.all([
+    queryStaffForDay(ctx, date, branchId),
     queryCalendarDayAppointments(ctx, date, requestedBranchId),
     prisma.branch.findMany({
       where:
@@ -89,7 +161,9 @@ export async function queryCalendarDay(
     prisma.service.findMany({
       where: {
         isActive: true,
-        ...(branchId ? { branchId } : { branch: { organizationId: ctx.organizationId } }),
+        ...(branchId
+          ? { branchId }
+          : { branch: { organizationId: ctx.organizationId } }),
       },
       orderBy: [{ branchId: "asc" }, { sortOrder: "asc" }],
       select: {
@@ -102,30 +176,7 @@ export async function queryCalendarDay(
         staff: { select: { staffId: true } },
       },
     }),
-    prisma.staffScheduleOverride.findMany({
-      where: {
-        date,
-        staff: {
-          isActive: true,
-          organizationId: ctx.organizationId,
-          ...(branchId ? { branchId } : {}),
-        },
-      },
-    }),
   ]);
-
-  const overrideByStaff = new Map(
-    scheduleOverrides.map((row) => [row.staffId, row]),
-  );
-
-  const staff = staffRaw.map((row) => ({
-    ...row,
-    schedules: effectiveSchedulesForDay(
-      row.schedules,
-      overrideByStaff.get(row.id) ?? null,
-      weekday,
-    ),
-  }));
 
   const catalogServices = services.filter((s) => !isLegacyTariffServiceName(s.name));
 
@@ -135,24 +186,7 @@ export async function queryCalendarDay(
     branches,
     services: catalogServices,
     date,
-    admin: {
-      role: ctx.role,
-      branchId: ctx.branchId,
-      isSuperAdmin: ctx.isSuperAdmin,
-      isBranchManager: ctx.isBranchManager,
-      managedBranchIds: ctx.managedBranchIds,
-      canEditAppointments: canEditJournalAppointments(ctx),
-      canEditAppointmentsInBranch: branchId
-        ? canEditJournalInBranch(ctx, branchId)
-        : canEditJournalAppointments(ctx),
-      canCreateAppointmentsInBranch: branchId
-        ? canCreateJournalInBranch(ctx, branchId)
-        : true,
-      journalReadOnlyOutsideScope:
-        ctx.isBranchManager &&
-        Boolean(branchId) &&
-        !isInManagementScope(ctx, branchId!),
-    },
+    admin: journalAdminMeta(ctx, branchId),
   };
 }
 

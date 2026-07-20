@@ -158,6 +158,7 @@ type Props = {
     startMinutes: number,
   ) => void;
   onOptimisticResize?: (group: Appointment[], durationMinutes: number) => void;
+  onOptimisticRollback?: () => void;
   onMoved: () => void | Promise<void>;
   onActionError?: (message: string) => void;
 };
@@ -251,6 +252,7 @@ export function JournalGrid({
   onAppointmentClick,
   onOptimisticMove,
   onOptimisticResize,
+  onOptimisticRollback,
   onMoved,
   onActionError,
 }: Props) {
@@ -453,17 +455,18 @@ export function JournalGrid({
             staffId,
           );
           pendingScrollRestore.current = { left: scrollLeft, top: scrollTop };
+          await onMoved();
         } catch (e) {
+          onOptimisticRollback?.();
           onActionError?.(
             e instanceof Error ? e.message : "Не удалось переместить запись",
           );
         } finally {
           isMutatingRef.current = false;
         }
-        void onMoved();
       })();
     },
-    [canDrop, date, onMoved, onActionError, onOptimisticMove],
+    [canDrop, date, onMoved, onActionError, onOptimisticMove, onOptimisticRollback],
   );
 
   const resizeGroupBlock = useCallback(
@@ -488,17 +491,18 @@ export function JournalGrid({
             groupCreateTemplate(first),
           );
           pendingScrollRestore.current = { left: scrollLeft, top: scrollTop };
+          await onMoved();
         } catch (e) {
+          onOptimisticRollback?.();
           onActionError?.(
             e instanceof Error ? e.message : "Не удалось изменить длительность",
           );
         } finally {
           isMutatingRef.current = false;
         }
-        void onMoved();
       })();
     },
-    [onMoved, onActionError, onOptimisticResize],
+    [onMoved, onActionError, onOptimisticResize, onOptimisticRollback],
   );
 
   useEffect(() => {

@@ -1,4 +1,5 @@
 import { adminFetch } from "@/lib/admin-fetch";
+import { formatAppointmentSaveError } from "@/lib/admin/appointment-save-errors";
 import {
   appointmentGroupCellMinutes,
   appointmentGroupSpanMinutes,
@@ -40,9 +41,7 @@ async function adminPatch(id: string, body: Record<string, unknown>) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(
-      typeof data.error === "string" ? data.error : "Ошибка сохранения",
-    );
+    throw new Error(formatAppointmentSaveError(data, "Ошибка сохранения"));
   }
 }
 
@@ -54,9 +53,7 @@ async function adminDelete(id: string) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(
-      typeof data.error === "string" ? data.error : "Ошибка удаления",
-    );
+    throw new Error(formatAppointmentSaveError(data, "Ошибка удаления"));
   }
 }
 
@@ -70,16 +67,22 @@ async function adminCreate(
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(
-      typeof data.error === "string" ? data.error : "Ошибка создания",
-    );
+    throw new Error(formatAppointmentSaveError(data, "Ошибка создания"));
   }
-  const appt = data.appointment;
-  return {
-    id: appt.id,
-    startAt: appt.startAt,
-    durationMinutes: appt.durationMinutes,
-  };
+  const fromBody = data.appointment as
+    | { id?: string; startAt?: string; durationMinutes?: number }
+    | undefined;
+  const id = fromBody?.id ?? (typeof data.id === "string" ? data.id : "");
+  const startAt =
+    fromBody?.startAt ??
+    (typeof body.startAt === "string" ? body.startAt : "");
+  const durationMinutes =
+    fromBody?.durationMinutes ??
+    (typeof body.durationMinutes === "number" ? body.durationMinutes : 0);
+  if (!id || !startAt) {
+    throw new Error("Сервер не вернул данные созданной записи");
+  }
+  return { id, startAt, durationMinutes };
 }
 
 function sortGroup(group: GroupApptRef[]): GroupApptRef[] {

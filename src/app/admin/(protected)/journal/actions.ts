@@ -8,15 +8,29 @@ import {
   queryAppointmentsList,
   queryCalendarDay,
   queryCalendarDayAppointments,
+  queryCalendarDayDelta,
 } from "@/lib/admin/calendar-day-data";
 import {
   serializeAppointmentsList,
   serializeCalendarDay,
+  serializeCalendarDayDelta,
   type SerializedAppointment,
   type SerializedCalendarDay,
+  type SerializedCalendarDayDelta,
 } from "@/lib/admin/calendar-day-serialize";
 
 export type CalendarDayPayload = SerializedCalendarDay;
+export type CalendarDayDeltaPayload = SerializedCalendarDayDelta;
+
+function mapJournalActionError(e: unknown, fallback: string): string {
+  if (e instanceof AdminAccessError) {
+    if (e.message === "UNAUTHORIZED") {
+      return "Сессия истекла. Войдите снова.";
+    }
+    return "Нет доступа к этому филиалу";
+  }
+  return fallback;
+}
 
 export async function loadCalendarDayAction(
   date: string,
@@ -29,16 +43,35 @@ export async function loadCalendarDayAction(
     if (!ctx) {
       return { ok: false, error: "Сессия истекла. Войдите снова." };
     }
+    if ((ctx.isSuperAdmin || ctx.isBranchManager) && !branchId) {
+      return { ok: false, error: "Выберите филиал" };
+    }
     const data = await queryCalendarDay(ctx, date, branchId || undefined);
     return { ok: true, data: serializeCalendarDay(data) };
   } catch (e) {
-    if (e instanceof AdminAccessError) {
-      if (e.message === "UNAUTHORIZED") {
-        return { ok: false, error: "Сессия истекла. Войдите снова." };
-      }
-      return { ok: false, error: "Нет доступа к этому филиалу" };
+    return { ok: false, error: mapJournalActionError(e, "Не удалось загрузить журнал") };
+  }
+}
+
+/** Date change within the same branch — skip branches/services refetch. */
+export async function loadCalendarDayDeltaAction(
+  date: string,
+  branchId?: string,
+): Promise<
+  { ok: true; data: CalendarDayDeltaPayload } | { ok: false; error: string }
+> {
+  try {
+    const ctx = await getAdminContext();
+    if (!ctx) {
+      return { ok: false, error: "Сессия истекла. Войдите снова." };
     }
-    return { ok: false, error: "Не удалось загрузить журнал" };
+    if ((ctx.isSuperAdmin || ctx.isBranchManager) && !branchId) {
+      return { ok: false, error: "Выберите филиал" };
+    }
+    const data = await queryCalendarDayDelta(ctx, date, branchId || undefined);
+    return { ok: true, data: serializeCalendarDayDelta(data) };
+  } catch (e) {
+    return { ok: false, error: mapJournalActionError(e, "Не удалось обновить день") };
   }
 }
 
@@ -53,6 +86,9 @@ export async function loadCalendarDayAppointmentsAction(
     if (!ctx) {
       return { ok: false, error: "Сессия истекла. Войдите снова." };
     }
+    if ((ctx.isSuperAdmin || ctx.isBranchManager) && !branchId) {
+      return { ok: false, error: "Выберите филиал" };
+    }
     const appointments = await queryCalendarDayAppointments(
       ctx,
       date,
@@ -60,13 +96,7 @@ export async function loadCalendarDayAppointmentsAction(
     );
     return { ok: true, appointments: serializeAppointmentsList(appointments) };
   } catch (e) {
-    if (e instanceof AdminAccessError) {
-      if (e.message === "UNAUTHORIZED") {
-        return { ok: false, error: "Сессия истекла. Войдите снова." };
-      }
-      return { ok: false, error: "Нет доступа к этому филиалу" };
-    }
-    return { ok: false, error: "Не удалось обновить записи" };
+    return { ok: false, error: mapJournalActionError(e, "Не удалось обновить записи") };
   }
 }
 

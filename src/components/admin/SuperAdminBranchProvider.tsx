@@ -73,6 +73,7 @@ export function SuperAdminBranchProvider({
             ? saved
             : list[0]?.id ?? "";
         setBranchIdState(initial);
+        // Persist cookie mirror so next SSR matches localStorage.
         if (initial) writeSuperAdminBranchId(initial);
       })
       .catch(() => {
