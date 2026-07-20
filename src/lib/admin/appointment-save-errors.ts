@@ -16,6 +16,11 @@ const BOOKING_CODE_MESSAGES: Record<
     status: 409,
     hint: "Выберите другой абонемент или способ оплаты.",
   },
+  MEMBERSHIP_ROLLBACK_FAILED: {
+    error: "Не удалось откатить списание абонемента",
+    status: 409,
+    hint: "Обновите страницу и повторите изменение статуса.",
+  },
   STAFF_REQUIRED: {
     error: "Не выбран реверс",
     status: 400,

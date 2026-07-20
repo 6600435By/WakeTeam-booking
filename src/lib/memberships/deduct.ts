@@ -27,10 +27,10 @@ async function atomicIncrementDeduction(
   minutes: number,
 ): Promise<void> {
   const updated = await db.$executeRaw`
-    UPDATE Membership
-    SET localDeductedMinutes = localDeductedMinutes + ${minutes}
+    UPDATE "Membership"
+    SET "localDeductedMinutes" = "localDeductedMinutes" + ${minutes}
     WHERE id = ${membershipId}
-      AND (sheetRemainingMinutes - localDeductedMinutes) >= ${minutes}
+      AND ("sheetRemainingMinutes" - "localDeductedMinutes") >= ${minutes}
   `;
   if (Number(updated) === 0) {
     throw new Error("MEMBERSHIP_INSUFFICIENT_MINUTES");
@@ -43,10 +43,10 @@ async function atomicDecrementDeduction(
   minutes: number,
 ): Promise<void> {
   const updated = await db.$executeRaw`
-    UPDATE Membership
-    SET localDeductedMinutes = localDeductedMinutes - ${minutes}
+    UPDATE "Membership"
+    SET "localDeductedMinutes" = "localDeductedMinutes" - ${minutes}
     WHERE id = ${membershipId}
-      AND localDeductedMinutes >= ${minutes}
+      AND "localDeductedMinutes" >= ${minutes}
   `;
   if (Number(updated) === 0) {
     throw new Error("MEMBERSHIP_ROLLBACK_FAILED");
