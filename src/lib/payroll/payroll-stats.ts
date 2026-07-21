@@ -11,6 +11,21 @@ import {
 } from "./work-shift-service";
 import { buildPayrollReport, type PayrollShiftRow } from "./payroll-report";
 import { summaryToPeriodRow } from "./period-report";
+import {
+  buildUnifiedMemberBlocks,
+  type UnifiedMemberBlock,
+  type UnifiedShiftInput,
+} from "./unified-payroll";
+
+export type PayrollMonthlyLine = {
+  memberId: string;
+  memberName: string;
+  role: string;
+  suggestedAmount: number;
+  confirmedAmount: number | null;
+  comment: string | null;
+  confirmedAt: string | null;
+};
 
 export type PayrollActionQueueItem = {
   shiftId: string;
@@ -44,6 +59,7 @@ export type PayrollStats = {
   };
   actionQueue: PayrollActionQueueItem[];
   members: ReturnType<typeof buildPayrollReport>["members"];
+  unifiedMembers: UnifiedMemberBlock[];
   grandTotal: ReturnType<typeof buildPayrollReport>["grandTotal"];
   pendingGrandTotal: { amount: number; shiftCount: number };
 };
@@ -81,6 +97,7 @@ export async function buildPayrollStats(input: {
   const approvedRows: PayrollShiftRow[] = [];
   const pendingRows: PayrollShiftRow[] = [];
   const actionQueue: PayrollActionQueueItem[] = [];
+  const unifiedInputs: UnifiedShiftInput[] = [];
 
   const visible = shifts.filter((s) => {
     const canReview = canApproveShift(ctx, s.member.role, s.branchId);
@@ -167,10 +184,31 @@ export async function buildPayrollStats(input: {
         previewAmount: previewSummary.totalAmount,
       });
     }
+
+    if (s.status === "open" || s.status === "closed" || s.status === "approved") {
+      unifiedInputs.push({
+        shiftId: s.id,
+        date: s.date,
+        status: s.status,
+        memberId: s.memberId,
+        memberName: staffDisplayName(s.member.user),
+        branchName: s.member.branch?.name ?? null,
+        role: s.member.role,
+        panelOnly: s.panelOnly,
+        employeeSubmittedAt: s.employeeSubmittedAt,
+        actualStart: s.actualStart,
+        actualEnd: s.actualEnd,
+        previewSummary,
+        payrollSummary,
+        canReview,
+        requiresSuperAdmin: s.member.role !== BRANCH_OPERATOR_ROLE,
+      });
+    }
   }
 
   const report = buildPayrollReport(from, to, approvedRows);
   const pendingReport = buildPayrollReport(from, to, pendingRows);
+  const unifiedMembers = buildUnifiedMemberBlocks(unifiedInputs, to);
 
   return {
     from,
@@ -178,7 +216,7 @@ export async function buildPayrollStats(input: {
     summary: {
       approvedAmount: report.grandTotal.amount,
       pendingAmount: pendingReport.grandTotal.amount,
-      openShiftCount: shifts.filter((s) => s.status === "open").length,
+      openShiftCount: visible.filter((s) => s.status === "open").length,
       approvedShiftCount: approvedRows.length,
       closedShiftCount: pendingRows.length,
       minutes: {
@@ -195,6 +233,7 @@ export async function buildPayrollStats(input: {
       return b.date.localeCompare(a.date);
     }),
     members: report.members,
+    unifiedMembers,
     grandTotal: report.grandTotal,
     pendingGrandTotal: {
       amount: pendingReport.grandTotal.amount,

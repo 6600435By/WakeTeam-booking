@@ -8,9 +8,11 @@ import {
   branchListWhere,
   BRANCH_OPERATOR_ROLE,
   BRANCH_ADMIN_ROLE,
+  BRANCH_MANAGER_ROLE,
 } from "@/lib/admin-access";
 import { prisma } from "@/lib/db";
 import { buildPayrollStats } from "@/lib/payroll/payroll-stats";
+import { loadMonthlyPayrollLines } from "@/lib/payroll/monthly-payroll-lines";
 import { staffDisplayName } from "@/lib/staff-user";
 
 export async function GET(req: NextRequest) {
@@ -36,20 +38,30 @@ export async function GET(req: NextRequest) {
       ? memberIdsParam.split(",").map((s) => s.trim()).filter(Boolean)
       : null;
 
-    const stats = await buildPayrollStats({
-      ctx,
-      from,
-      to,
-      branchId,
-      memberIds,
-      status: searchParams.get("status"),
-      role: searchParams.get("role"),
-    });
+    const [stats, monthlyLines] = await Promise.all([
+      buildPayrollStats({
+        ctx,
+        from,
+        to,
+        branchId,
+        memberIds,
+        status: searchParams.get("status"),
+        role: searchParams.get("role"),
+      }),
+      loadMonthlyPayrollLines({
+        organizationId: ctx.organizationId,
+        from,
+        to,
+        branchId,
+        isBranchAdmin: ctx.isBranchAdmin && !ctx.isSuperAdmin,
+        adminBranchId: ctx.branchId,
+      }),
+    ]);
 
     const employees = await prisma.organizationMember.findMany({
       where: {
         organizationId: ctx.organizationId,
-        role: { in: [BRANCH_OPERATOR_ROLE, BRANCH_ADMIN_ROLE] },
+        role: { in: [BRANCH_OPERATOR_ROLE, BRANCH_ADMIN_ROLE, BRANCH_MANAGER_ROLE] },
         ...(branchId ? { branchId } : ctx.isBranchAdmin ? { branchId: ctx.branchId } : {}),
       },
       include: {
@@ -67,6 +79,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       ...stats,
+      monthlyLines,
       employees: employees.map((m) => ({
         memberId: m.id,
         name: staffDisplayName(m.user),

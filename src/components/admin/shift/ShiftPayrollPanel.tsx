@@ -1,11 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { formatDurationMinutes, formatMoney } from "@/lib/payroll/shift-summary";
 import { periodLast15Days } from "@/lib/date-ranges";
+import {
+  unifiedShiftStatusLabel,
+  type UnifiedMemberBlock,
+  type UnifiedShiftRow,
+} from "@/lib/payroll/unified-payroll";
+import type { PayrollMonthlyLine } from "@/lib/payroll/payroll-stats";
 import { useSuperAdminBranchOptional } from "@/components/admin/SuperAdminBranchProvider";
 import { DatePickerField } from "@/components/admin/DatePickerField";
-import type { MemberPayrollBlock, PayrollReport } from "@/lib/payroll/payroll-report";
+import { ShiftReportCard, type ShiftData } from "./ShiftReportCard";
+import { useShiftPayrollActions } from "./useShiftPayrollActions";
 
 type Employee = {
   memberId: string;
@@ -17,86 +25,109 @@ type Employee = {
 
 type Branch = { id: string; name: string };
 
-type PayrollShift = MemberPayrollBlock["shifts"][number];
+type PayrollStatsResponse = {
+  from: string;
+  to: string;
+  summary: {
+    approvedAmount: number;
+    pendingAmount: number;
+    openShiftCount: number;
+    closedShiftCount: number;
+  };
+  unifiedMembers: UnifiedMemberBlock[];
+  monthlyLines: PayrollMonthlyLine[];
+  employees: Employee[];
+  branches: Branch[];
+  grandTotal: { amount: number; shiftCount: number };
+  pendingGrandTotal: { amount: number; shiftCount: number };
+};
+
+type Props = {
+  isSuperAdmin?: boolean;
+  isBranchManager?: boolean;
+  isBranchAdmin?: boolean;
+};
 
 const inputClass =
   "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900";
 const btn =
-  "rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50";
+  "rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50 touch-manipulation";
 const btnPrimary = `${btn} bg-slate-900 text-white`;
 const btnSecondary = `${btn} border border-slate-300 bg-white text-slate-800`;
-
-const STATUS_LABEL: Record<string, string> = {
-  closed: "На проверке",
-  approved: "Утверждена",
-};
 
 function isoToTimeInput(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
-  const h = String(d.getHours()).padStart(2, "0");
-  const m = String(d.getMinutes()).padStart(2, "0");
-  return `${h}:${m}`;
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-function dateTimeIso(date: string, time: string): string {
-  return new Date(`${date}T${time}:00+03:00`).toISOString();
+function shiftStatusClass(row: UnifiedShiftRow, periodTo: string): string {
+  if (row.status === "approved") return "bg-emerald-100 text-emerald-800";
+  if (row.status === "open") {
+    return row.date < periodTo
+      ? "bg-red-100 text-red-800"
+      : "bg-blue-100 text-blue-800";
+  }
+  if (!row.flags.employeeSubmitted) return "bg-amber-100 text-amber-900";
+  return "bg-slate-100 text-slate-700";
 }
 
-type EditForm = {
-  shiftId: string;
-  date: string;
-  isOperator: boolean;
-  timeFrom: string;
-  timeTo: string;
-  panelOverride: string;
-  idleOverride: string;
-  comment: string;
-};
+function lineSummary(shift: UnifiedShiftRow): string {
+  if (!shift.isOperator) return formatDurationMinutes(shift.shiftMinutes);
+  return [
+    `пульт ${formatDurationMinutes(shift.panelMinutes)}`,
+    `спот ${formatDurationMinutes(shift.spotMinutes)}`,
+    `простой ${formatDurationMinutes(shift.idleMinutes)}`,
+  ].join(" · ");
+}
 
-export function ShiftPayrollPanel() {
+function canApproveShift(
+  row: UnifiedShiftRow,
+  isSuperAdmin: boolean,
+): boolean {
+  if (row.status === "approved") return false;
+  if (row.flags.requiresSuperAdmin) return isSuperAdmin;
+  return true;
+}
+
+export function ShiftPayrollPanel({
+  isSuperAdmin = false,
+  isBranchManager = false,
+  isBranchAdmin = false,
+}: Props) {
   const superBranch = useSuperAdminBranchOptional();
   const defaultPeriod = periodLast15Days();
   const [from, setFrom] = useState(defaultPeriod.from);
   const [to, setTo] = useState(defaultPeriod.to);
   const [branchId, setBranchId] = useState("");
-  const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set());
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [report, setReport] = useState<PayrollReport | null>(null);
-  const [monthlyLines, setMonthlyLines] = useState<
-    {
-      memberId: string;
-      memberName: string;
-      suggestedAmount: number;
-      confirmedAmount: number | null;
-      comment: string | null;
-    }[]
-  >([]);
+  const [memberFilter, setMemberFilter] = useState("");
+  const [data, setData] = useState<PayrollStatsResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [expandedMembers, setExpandedMembers] = useState<Set<string>>(new Set());
+  const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
+  const [detailShiftId, setDetailShiftId] = useState<string | null>(null);
+  const [detailData, setDetailData] = useState<ShiftData | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [monthlyDrafts, setMonthlyDrafts] = useState<Record<string, string>>({});
-  const [stats, setStats] = useState<{
-    summary: {
-      approvedAmount: number;
-      pendingAmount: number;
-      openShiftCount: number;
-      closedShiftCount: number;
-    };
-    actionQueue: {
-      shiftId: string;
-      date: string;
-      memberName: string;
-      status: string;
-      requiresSuperAdmin: boolean;
-      employeeSubmitted: boolean;
-      previewAmount: number;
-    }[];
-    pendingGrandTotal: { amount: number };
-  } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [expandedMember, setExpandedMember] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<EditForm | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [editDraft, setEditDraft] = useState({
+    timeFrom: "",
+    timeTo: "",
+    panelOverride: "",
+    idleOverride: "",
+    comment: "",
+  });
+  const [approveComment, setApproveComment] = useState("Проверено");
+
+  const {
+    saving,
+    error,
+    setError,
+    approveShift,
+    saveCorrection,
+    deleteShift,
+    loadShiftDetail,
+    confirmMonthly,
+  } = useShiftPayrollActions();
 
   useEffect(() => {
     if (superBranch?.branchPickerMode && superBranch.branchId) {
@@ -104,14 +135,13 @@ export function ShiftPayrollPanel() {
     }
   }, [superBranch?.branchPickerMode, superBranch?.branchId]);
 
-  const memberIdsKey = [...selectedMembers].sort().join(",");
-
   const branchOptions = useMemo(() => {
     if (superBranch?.branches.length) return superBranch.branches;
-    return branches;
-  }, [superBranch?.branches, branches]);
+    return data?.branches ?? [];
+  }, [superBranch?.branches, data?.branches]);
 
   const showBranchPicker = branchOptions.length > 0 && Boolean(superBranch?.branchPickerMode);
+  const reportView = isSuperAdmin || isBranchManager ? "manager" : "admin";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -119,104 +149,52 @@ export function ShiftPayrollPanel() {
     try {
       const q = new URLSearchParams({ from, to });
       if (branchId) q.set("branchId", branchId);
-      if (selectedMembers.size > 0) {
-        q.set("memberIds", memberIdsKey);
-      }
-      const r = await fetch(`/api/admin/payroll-report?${q}`);
-      const d = await r.json();
+      if (memberFilter) q.set("memberIds", memberFilter);
+      const r = await fetch(`/api/admin/payroll-stats?${q}`);
+      const d = (await r.json()) as PayrollStatsResponse & { error?: string };
       if (!r.ok) throw new Error(d.error ?? "Ошибка загрузки");
-      setReport({
-        from: d.from,
-        to: d.to,
-        members: d.members,
-        grandTotal: d.grandTotal,
-      });
-      setEmployees(d.employees ?? []);
-      setBranches(d.branches ?? []);
-      setMonthlyLines(d.monthlyLines ?? []);
+      setData(d);
       const drafts: Record<string, string> = {};
       for (const line of d.monthlyLines ?? []) {
-        drafts[line.memberId] = String(
-          line.confirmedAmount ?? line.suggestedAmount ?? "",
-        );
+        drafts[line.memberId] = String(line.confirmedAmount ?? line.suggestedAmount ?? "");
       }
       setMonthlyDrafts(drafts);
-
-      const rs = await fetch(`/api/admin/payroll-stats?${q}`);
-      const sd = await rs.json();
-      if (rs.ok) setStats(sd);
-      else setStats(null);
+      setExpandedMembers((prev) => {
+        if (prev.size > 0) return prev;
+        const first = d.unifiedMembers[0]?.memberId;
+        return first ? new Set([first]) : new Set();
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка");
     } finally {
       setLoading(false);
     }
-  }, [from, to, branchId, memberIdsKey, selectedMembers.size]);
+  }, [from, to, branchId, memberFilter, setError]);
 
   useEffect(() => {
-    void load();
+    const timer = window.setTimeout(() => {
+      void load();
+    }, 300);
+    return () => window.clearTimeout(timer);
   }, [load]);
 
-  const allSelected =
-    employees.length > 0 && selectedMembers.size === employees.length;
+  const members = data?.unifiedMembers ?? [];
+  const employees = data?.employees ?? [];
 
-  function toggleMember(id: string) {
-    setSelectedMembers((prev) => {
+  function toggleMember(memberId: string) {
+    setExpandedMembers((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(memberId)) next.delete(memberId);
+      else next.add(memberId);
       return next;
     });
   }
 
-  function toggleAllMembers() {
-    if (allSelected) setSelectedMembers(new Set());
-    else setSelectedMembers(new Set(employees.map((e) => e.memberId)));
-  }
-
-  async function confirmMonthly(memberId: string, suggestedAmount: number) {
-    const raw = monthlyDrafts[memberId] ?? String(suggestedAmount);
-    const confirmedAmount = Number(raw);
-    if (!Number.isFinite(confirmedAmount) || confirmedAmount < 0) {
-      setError("Укажите корректную сумму оклада");
-      return;
-    }
-    setSaving(true);
-    setError("");
-    try {
-      const r = await fetch("/api/admin/payroll-report", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          memberId,
-          periodFrom: from,
-          periodTo: to,
-          confirmedAmount,
-        }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка");
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Ошибка");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const visibleMembers = useMemo(() => report?.members ?? [], [report]);
-
-  useEffect(() => {
-    if (visibleMembers[0] && !expandedMember) {
-      setExpandedMember(visibleMembers[0].memberId);
-    }
-  }, [visibleMembers, expandedMember]);
-
-  function openEdit(shift: PayrollShift) {
-    setEditForm({
-      shiftId: shift.shiftId,
-      date: shift.date,
-      isOperator: shift.isOperator,
+  function startEdit(shift: UnifiedShiftRow) {
+    setEditingShiftId(shift.shiftId);
+    setDetailShiftId(null);
+    setDetailData(null);
+    setEditDraft({
       timeFrom: isoToTimeInput(shift.actualStart),
       timeTo: isoToTimeInput(shift.actualEnd),
       panelOverride: shift.isOperator ? String(shift.panelMinutes) : "",
@@ -225,73 +203,48 @@ export function ShiftPayrollPanel() {
     });
   }
 
-  async function saveEdit() {
-    if (!editForm || !editForm.comment.trim()) {
-      setError("Укажите комментарий к изменению");
+  async function openDetail(shiftId: string) {
+    if (detailShiftId === shiftId) {
+      setDetailShiftId(null);
+      setDetailData(null);
       return;
     }
-    setSaving(true);
-    setError("");
-    try {
-      const body: Record<string, unknown> = {
-        comment: editForm.comment.trim(),
-      };
-      if (editForm.timeFrom) {
-        body.actualStart = dateTimeIso(editForm.date, editForm.timeFrom);
-      }
-      if (editForm.timeTo) {
-        body.actualEnd = dateTimeIso(editForm.date, editForm.timeTo);
-      }
-      if (editForm.isOperator && editForm.panelOverride !== "") {
-        body.panelMinutesOverride = Number(editForm.panelOverride);
-      }
-      if (editForm.isOperator && editForm.idleOverride !== "") {
-        body.idleMinutesOverride = Number(editForm.idleOverride);
-      }
-      const r = await fetch(`/api/admin/work-shifts/${editForm.shiftId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка сохранения");
-      setEditForm(null);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Ошибка");
-    } finally {
-      setSaving(false);
-    }
+    setEditingShiftId(null);
+    setDetailShiftId(shiftId);
+    setDetailLoading(true);
+    const detail = await loadShiftDetail(shiftId);
+    setDetailData(detail);
+    setDetailLoading(false);
   }
 
-  async function deleteShift(shift: PayrollShift) {
-    if (
-      !window.confirm(
-        `Удалить смену ${shift.date} (${shift.memberName})? Это действие нельзя отменить.`,
-      )
-    ) {
-      return;
-    }
-    const r = await fetch(`/api/admin/work-shifts/${shift.shiftId}`, {
-      method: "DELETE",
+  async function handleApprove(shift: UnifiedShiftRow) {
+    const closeIfOpen = shift.status === "open";
+    const ok = await approveShift(shift.shiftId, approveComment.trim() || "Проверено", closeIfOpen);
+    if (ok) await load();
+  }
+
+  async function handleSaveEdit(shift: UnifiedShiftRow, approveAfter: boolean) {
+    const ok = await saveCorrection({
+      shiftId: shift.shiftId,
+      date: shift.date,
+      isOperator: shift.isOperator,
+      timeFrom: editDraft.timeFrom,
+      timeTo: editDraft.timeTo,
+      panelOverride: editDraft.panelOverride,
+      idleOverride: editDraft.idleOverride,
+      comment: editDraft.comment,
+      closeIfOpen: shift.status === "open",
+      approveAfter,
     });
-    const d = await r.json();
-    if (!r.ok) {
-      setError(typeof d.error === "string" ? d.error : "Не удалось удалить");
-      return;
+    if (ok) {
+      setEditingShiftId(null);
+      await load();
     }
-    await load();
   }
 
-  function lineSummary(shift: PayrollShift): string {
-    if (!shift.isOperator) {
-      return formatDurationMinutes(shift.shiftMinutes);
-    }
-    return [
-      `пульт ${formatDurationMinutes(shift.panelMinutes)}`,
-      `спот ${formatDurationMinutes(shift.spotMinutes)}`,
-      `простой ${formatDurationMinutes(shift.idleMinutes)}`,
-    ].join(" · ");
+  async function handleDelete(shift: UnifiedShiftRow, memberName: string) {
+    const ok = await deleteShift(shift.shiftId, memberName, shift.date);
+    if (ok) await load();
   }
 
   return (
@@ -299,20 +252,8 @@ export function ShiftPayrollPanel() {
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-900">Период расчёта</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <DatePickerField
-            label="С"
-            value={from}
-            max={to}
-            onChange={setFrom}
-            className={inputClass}
-          />
-          <DatePickerField
-            label="По"
-            value={to}
-            min={from}
-            onChange={setTo}
-            className={inputClass}
-          />
+          <DatePickerField label="С" value={from} max={to} onChange={setFrom} className={inputClass} />
+          <DatePickerField label="По" value={to} min={from} onChange={setTo} className={inputClass} />
           {showBranchPicker && (
             <label className="block sm:col-span-2">
               <span className="mb-1 block text-xs text-slate-500">Филиал</span>
@@ -322,7 +263,7 @@ export function ShiftPayrollPanel() {
                 onChange={(e) => {
                   const id = e.target.value;
                   setBranchId(id);
-                  setSelectedMembers(new Set());
+                  setMemberFilter("");
                   if (superBranch?.branchPickerMode && id) superBranch.setBranchId(id);
                 }}
               >
@@ -335,374 +276,386 @@ export function ShiftPayrollPanel() {
               </select>
             </label>
           )}
+          {employees.length > 0 && (
+            <label className="block sm:col-span-2">
+              <span className="mb-1 block text-xs text-slate-500">Сотрудник</span>
+              <select
+                className={inputClass}
+                value={memberFilter}
+                onChange={(e) => setMemberFilter(e.target.value)}
+              >
+                <option value="">Все сотрудники</option>
+                {employees.map((e) => (
+                  <option key={e.memberId} value={e.memberId}>
+                    {e.name}
+                    {e.branchName ? ` · ${e.branchName}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
 
-        {stats && (
+        {data && (
           <div className="mt-4 grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
             <div className="rounded-lg bg-emerald-50 p-2">
               <p className="text-[10px] text-emerald-800">К выплате</p>
               <p className="text-sm font-bold text-emerald-950">
-                {stats.summary.approvedAmount.toFixed(2)} Br
+                {data.summary.approvedAmount.toFixed(2)} BYN
               </p>
             </div>
             <div className="rounded-lg bg-amber-50 p-2">
               <p className="text-[10px] text-amber-800">На проверке</p>
               <p className="text-sm font-bold text-amber-950">
-                {stats.pendingGrandTotal.amount.toFixed(2)} Br
+                {data.pendingGrandTotal.amount.toFixed(2)} BYN
               </p>
-              <p className="text-[10px] text-amber-700">{stats.summary.closedShiftCount} смен</p>
+              <p className="text-[10px] text-amber-700">
+                {data.summary.closedShiftCount} смен
+              </p>
             </div>
             <div className="rounded-lg bg-slate-50 p-2">
               <p className="text-[10px] text-slate-600">Не закрыто</p>
-              <p className="text-sm font-bold">{stats.summary.openShiftCount}</p>
+              <p className="text-sm font-bold">{data.summary.openShiftCount}</p>
             </div>
             <div className="rounded-lg bg-slate-50 p-2">
-              <p className="text-[10px] text-slate-600">Очередь</p>
-              <p className="text-sm font-bold">{stats.actionQueue.length}</p>
+              <p className="text-[10px] text-slate-600">Смен в периоде</p>
+              <p className="text-sm font-bold">
+                {members.reduce((acc, m) => acc + m.totals.shiftCount, 0)}
+              </p>
             </div>
           </div>
         )}
 
-        {stats && stats.actionQueue.length > 0 && (
-          <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 p-3">
-            <p className="mb-2 text-xs font-medium text-slate-700">Что проверить</p>
-            <ul className="space-y-1 text-xs">
-              {stats.actionQueue.slice(0, 5).map((item) => (
-                <li key={item.shiftId} className="flex flex-wrap justify-between gap-1">
-                  <span>
-                    {item.date} · {item.memberName}
-                    {item.requiresSuperAdmin ? " · только супер-админ" : ""}
-                    {!item.employeeSubmitted ? " · ждёт сотрудника" : ""}
-                  </span>
-                  <span className="text-slate-500">{item.previewAmount.toFixed(2)} Br</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {employees.length > 0 && (
-          <div className="mt-4">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-600">Сотрудники</span>
-              <button
-                type="button"
-                className="text-xs text-lime-700 hover:underline"
-                onClick={toggleAllMembers}
-              >
-                {allSelected ? "Снять все" : "Выбрать все"}
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {employees.map((e) => {
-                const active = selectedMembers.has(e.memberId);
-                return (
-                  <label
-                    key={e.memberId}
-                    className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm ${
-                      active
-                        ? "border-lime-600 bg-lime-50 text-lime-900"
-                        : "border-slate-200 text-slate-700"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      className="sr-only"
-                      checked={active}
-                      onChange={() => toggleMember(e.memberId)}
-                    />
-                    {e.name}
-                    {e.branchName && (
-                      <span className="text-xs text-slate-400">· {e.branchName}</span>
-                    )}
-                  </label>
-                );
-              })}
-            </div>
-            <p className="mt-1 text-[11px] text-slate-400">
-              Пустой выбор — все сотрудники
-            </p>
-          </div>
-        )}
-
-        <button
-          type="button"
-          className={`${btnPrimary} mt-4`}
-          disabled={loading}
-          onClick={() => void load()}
-        >
-          {loading ? "Расчёт…" : "Рассчитать"}
-        </button>
+        {loading && <p className="mt-3 text-sm text-slate-500">Загрузка…</p>}
       </div>
 
       {error && (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
       )}
 
-      {report && (
+      {data && (data.monthlyLines?.length ?? 0) > 0 && (
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-100 pb-3">
-            <div>
-              <p className="text-sm text-slate-500">Итого за период</p>
-              <p className="text-2xl font-bold text-slate-900">
-                {formatMoney(report.grandTotal.amount)} BYN
-              </p>
-            </div>
-            <div className="text-right text-xs text-slate-500">
-              <p>Смен: {report.grandTotal.shiftCount}</p>
-              {report.grandTotal.efficiencyPercent != null && (
-                <p>
-                  Эффективность: {report.grandTotal.efficiencyPercent}%
-                  {report.grandTotal.idleSharePercent != null &&
-                    ` · простой ${report.grandTotal.idleSharePercent}%`}
-                </p>
-              )}
-              {report.grandTotal.panelMinutes > 0 && (
-                <p>Пульт: {formatDurationMinutes(report.grandTotal.panelMinutes)}</p>
-              )}
-              {report.grandTotal.spotMinutes > 0 && (
-                <p>Спот: {formatDurationMinutes(report.grandTotal.spotMinutes)}</p>
-              )}
-              {report.grandTotal.idleMinutes > 0 && (
-                <p>Простой: {formatDurationMinutes(report.grandTotal.idleMinutes)}</p>
-              )}
-              {report.grandTotal.shiftMinutes > 0 &&
-                report.grandTotal.panelMinutes === 0 && (
-                  <p>Часы: {formatDurationMinutes(report.grandTotal.shiftMinutes)}</p>
-                )}
-            </div>
-          </div>
-
-          {monthlyLines.length > 0 && (
-            <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
-              <h3 className="font-semibold text-slate-900">Оклады за период</h3>
-              <p className="mt-1 text-xs text-slate-500">
-                Подтвердите или скорректируйте месячный оклад
-              </p>
-              <div className="mt-3 space-y-3">
-                {monthlyLines.map((line) => (
-                  <div
-                    key={line.memberId}
-                    className="flex flex-wrap items-end gap-2 border-b border-slate-100 pb-3 last:border-0"
-                  >
-                    <div className="min-w-[10rem] flex-1">
-                      <p className="text-sm font-medium">{line.memberName}</p>
-                      <p className="text-xs text-slate-500">
-                        По тарифу: {formatMoney(line.suggestedAmount)} BYN
-                      </p>
-                    </div>
-                    <label className="block">
-                      <span className="mb-1 block text-xs text-slate-500">К выплате</span>
-                      <input
-                        className={inputClass}
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={monthlyDrafts[line.memberId] ?? ""}
-                        onChange={(e) =>
-                          setMonthlyDrafts((d) => ({
-                            ...d,
-                            [line.memberId]: e.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      disabled={saving}
-                      className={btnPrimary}
-                      onClick={() =>
-                        void confirmMonthly(line.memberId, line.suggestedAmount)
-                      }
-                    >
-                      Подтвердить
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {visibleMembers.length === 0 && !loading && (
-            <p className="mt-4 text-sm text-slate-500">
-              Нет закрытых или утверждённых смен за выбранный период
-            </p>
-          )}
-
-          <div className="mt-4 space-y-2">
-            {visibleMembers.map((block) => (
+          <h3 className="font-semibold text-slate-900">Оклады за период</h3>
+          <div className="mt-3 space-y-3">
+            {data.monthlyLines.map((line) => (
               <div
-                key={block.memberId}
-                className="rounded-lg border border-slate-100 overflow-hidden"
+                key={line.memberId}
+                className="flex flex-wrap items-end gap-2 border-b border-slate-100 pb-3 last:border-0"
               >
+                <div className="min-w-[10rem] flex-1">
+                  <p className="text-sm font-medium">{line.memberName}</p>
+                  <p className="text-xs text-slate-500">
+                    По тарифу: {formatMoney(line.suggestedAmount)} BYN
+                  </p>
+                </div>
+                <label className="block">
+                  <span className="mb-1 block text-xs text-slate-500">К выплате</span>
+                  <input
+                    className={inputClass}
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={monthlyDrafts[line.memberId] ?? ""}
+                    onChange={(e) =>
+                      setMonthlyDrafts((d) => ({ ...d, [line.memberId]: e.target.value }))
+                    }
+                  />
+                </label>
                 <button
                   type="button"
-                  className="flex w-full items-center justify-between gap-2 bg-slate-50 px-3 py-2.5 text-left"
-                  onClick={() =>
-                    setExpandedMember((id) =>
-                      id === block.memberId ? null : block.memberId,
-                    )
-                  }
+                  disabled={saving}
+                  className={btnPrimary}
+                  onClick={() => {
+                    const raw = monthlyDrafts[line.memberId] ?? String(line.suggestedAmount);
+                    void confirmMonthly({
+                      memberId: line.memberId,
+                      periodFrom: from,
+                      periodTo: to,
+                      confirmedAmount: Number(raw),
+                    }).then((ok) => {
+                      if (ok) void load();
+                    });
+                  }}
                 >
-                  <div>
-                    <p className="font-medium text-slate-900">{block.memberName}</p>
-                    <p className="text-xs text-slate-500">
-                      {block.branchName ?? "—"} · {block.totals.shiftCount}{" "}
-                      {block.totals.shiftCount === 1 ? "смена" : "смен"}
-                    </p>
-                  </div>
-                  <p className="font-semibold text-slate-900">
-                    {formatMoney(block.totals.amount)} BYN
-                  </p>
+                  Подтвердить
                 </button>
-
-                {expandedMember === block.memberId && (
-                  <div className="divide-y divide-slate-100">
-                    {block.shifts.map((shift) => (
-                      <div
-                        key={shift.shiftId}
-                        className="flex flex-wrap items-start justify-between gap-2 px-3 py-2 text-sm"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium text-slate-800">
-                            {new Date(shift.date + "T12:00:00").toLocaleDateString(
-                              "ru-RU",
-                              { weekday: "short", day: "numeric", month: "short" },
-                            )}
-                            <span className="ml-2 text-xs font-normal text-slate-500">
-                              {STATUS_LABEL[shift.status] ?? shift.status}
-                            </span>
-                          </p>
-                          <p className="text-xs text-slate-500">{lineSummary(shift)}</p>
-                          <p className="text-xs text-slate-400">
-                            {shift.lines
-                              .map((l) => `${l.label} ${formatMoney(l.amount)}`)
-                              .join(" · ")}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-2">
-                          <p className="font-medium text-slate-900">
-                            {formatMoney(shift.totalAmount)} BYN
-                          </p>
-                          <button
-                            type="button"
-                            className="text-xs text-lime-700 hover:underline"
-                            onClick={() => openEdit(shift)}
-                          >
-                            Изменить
-                          </button>
-                          <button
-                            type="button"
-                            className="text-xs text-red-600 hover:underline"
-                            onClick={() => void deleteShift(shift)}
-                          >
-                            Удалить
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                    <div className="bg-slate-50/80 px-3 py-2 text-xs text-slate-600">
-                      Итого: пульт {formatDurationMinutes(block.totals.panelMinutes)}, спот{" "}
-                      {formatDurationMinutes(block.totals.spotMinutes)}, простой{" "}
-                      {formatDurationMinutes(block.totals.idleMinutes)}
-                      {block.totals.efficiencyPercent != null && (
-                        <span>
-                          {" "}
-                          · эффективность {block.totals.efficiencyPercent}%
-                        </span>
-                      )}
-                      {!block.shifts[0]?.isOperator &&
-                        ` · ${formatDurationMinutes(block.totals.shiftMinutes)} на смене`}
-                    </div>
-                  </div>
-                )}
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {editForm && (
-        <div className="fixed inset-0 z-[80] flex items-end bg-black/40 p-4 admin-desktop:items-center admin-desktop:justify-center">
-          <div className="w-full max-w-md rounded-xl bg-white p-4 space-y-3">
-            <h3 className="font-semibold">Редактировать смену</h3>
-            <p className="text-xs text-slate-500">{editForm.date}</p>
-            <div className="grid grid-cols-2 gap-2">
-              <label className="block">
-                <span className="mb-1 block text-xs text-slate-500">Начало</span>
-                <input
-                  type="time"
-                  className={inputClass}
-                  value={editForm.timeFrom}
-                  onChange={(e) =>
-                    setEditForm((f) => f && { ...f, timeFrom: e.target.value })
-                  }
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs text-slate-500">Конец</span>
-                <input
-                  type="time"
-                  className={inputClass}
-                  value={editForm.timeTo}
-                  onChange={(e) =>
-                    setEditForm((f) => f && { ...f, timeTo: e.target.value })
-                  }
-                />
-              </label>
+      {data && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3 border-b border-slate-100 pb-3">
+            <div>
+              <p className="text-sm text-slate-500">Итого за период</p>
+              <p className="text-2xl font-bold text-slate-900">
+                {formatMoney(
+                  data.summary.approvedAmount + data.pendingGrandTotal.amount,
+                )}{" "}
+                BYN
+              </p>
+              <p className="text-xs text-slate-500">
+                утверждено {formatMoney(data.summary.approvedAmount)} · ожидает{" "}
+                {formatMoney(data.pendingGrandTotal.amount)}
+              </p>
             </div>
-            {editForm.isOperator && (
-              <>
-                <label className="block">
-                  <span className="mb-1 block text-xs text-slate-500">Пульт, мин</span>
-                  <input
-                    type="number"
-                    className={inputClass}
-                    value={editForm.panelOverride}
-                    onChange={(e) =>
-                      setEditForm((f) => f && { ...f, panelOverride: e.target.value })
-                    }
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs text-slate-500">Простой, мин</span>
-                  <input
-                    type="number"
-                    className={inputClass}
-                    value={editForm.idleOverride}
-                    onChange={(e) =>
-                      setEditForm((f) => f && { ...f, idleOverride: e.target.value })
-                    }
-                  />
-                </label>
-              </>
-            )}
-            <textarea
-              className={inputClass}
-              rows={2}
-              placeholder="Комментарий (обязательно)"
-              value={editForm.comment}
-              onChange={(e) =>
-                setEditForm((f) => f && { ...f, comment: e.target.value })
-              }
-            />
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className={`${btnSecondary} flex-1`}
-                onClick={() => setEditForm(null)}
-              >
-                Отмена
-              </button>
-              <button
-                type="button"
-                className={`${btnPrimary} flex-1`}
-                disabled={saving}
-                onClick={() => void saveEdit()}
-              >
-                {saving ? "…" : "Сохранить"}
-              </button>
-            </div>
+            <label className="block min-w-[12rem]">
+              <span className="mb-1 block text-xs text-slate-500">Комментарий при утверждении</span>
+              <input
+                className={inputClass}
+                value={approveComment}
+                onChange={(e) => setApproveComment(e.target.value)}
+              />
+            </label>
+          </div>
+
+          {members.length === 0 && !loading && (
+            <p className="text-sm text-slate-500">Нет смен за выбранный период</p>
+          )}
+
+          <div className="space-y-3">
+            {members.map((block) => {
+              const expanded = expandedMembers.has(block.memberId);
+              const totalAmount = block.totals.approvedAmount + block.totals.pendingAmount;
+              return (
+                <div
+                  key={block.memberId}
+                  className="overflow-hidden rounded-lg border border-slate-200"
+                >
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 bg-slate-50 px-3 py-3 text-left"
+                    onClick={() => toggleMember(block.memberId)}
+                  >
+                    {expanded ? (
+                      <ChevronDown className="size-4 shrink-0 text-slate-500" />
+                    ) : (
+                      <ChevronRight className="size-4 shrink-0 text-slate-500" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-slate-900">{block.memberName}</p>
+                        {block.totals.needsActionCount > 0 && (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-900">
+                            нужно действие · {block.totals.needsActionCount}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        {block.branchName ?? "—"} · {block.totals.shiftCount}{" "}
+                        {block.totals.shiftCount === 1 ? "смена" : "смен"}
+                        {block.totals.openCount > 0
+                          ? ` · ${block.totals.openCount} не закрыта`
+                          : ""}
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        утверждено {formatMoney(block.totals.approvedAmount)} · ожидает{" "}
+                        {formatMoney(block.totals.pendingAmount)}
+                      </p>
+                    </div>
+                    <p className="shrink-0 text-lg font-bold text-slate-900">
+                      {formatMoney(totalAmount)} BYN
+                    </p>
+                  </button>
+
+                  {expanded && (
+                    <div className="divide-y divide-slate-100 border-t border-slate-100">
+                      {block.shifts.map((shift) => (
+                        <div key={shift.shiftId} className="px-3 py-3">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-medium text-slate-800">
+                                  {new Date(shift.date + "T12:00:00").toLocaleDateString(
+                                    "ru-RU",
+                                    { weekday: "short", day: "numeric", month: "short" },
+                                  )}
+                                </p>
+                                <span
+                                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${shiftStatusClass(shift, to)}`}
+                                >
+                                  {unifiedShiftStatusLabel(shift, to)}
+                                </span>
+                                {shift.isPreview && (
+                                  <span className="text-[10px] text-slate-400">превью</span>
+                                )}
+                              </div>
+                              <p className="mt-0.5 text-xs text-slate-500">{lineSummary(shift)}</p>
+                              <p className="text-xs text-slate-400">
+                                {shift.lines
+                                  .map((l) => `${l.label} ${formatMoney(l.amount)}`)
+                                  .join(" · ")}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 flex-col items-end gap-1">
+                              <p className="font-semibold text-slate-900">
+                                {formatMoney(shift.totalAmount)} BYN
+                              </p>
+                              <div className="flex flex-wrap justify-end gap-1">
+                                {canApproveShift(shift, isSuperAdmin) &&
+                                  shift.status !== "approved" && (
+                                    <button
+                                      type="button"
+                                      className={btnPrimary}
+                                      disabled={saving}
+                                      onClick={() => void handleApprove(shift)}
+                                    >
+                                      {shift.status === "open"
+                                        ? "Закрыть и утвердить"
+                                        : "Утвердить"}
+                                    </button>
+                                  )}
+                                <button
+                                  type="button"
+                                  className={btnSecondary}
+                                  onClick={() => startEdit(shift)}
+                                >
+                                  Изменить
+                                </button>
+                                <button
+                                  type="button"
+                                  className={btnSecondary}
+                                  onClick={() => void openDetail(shift.shiftId)}
+                                >
+                                  {detailShiftId === shift.shiftId ? "Скрыть" : "Детали"}
+                                </button>
+                                {(isSuperAdmin || isBranchManager || isBranchAdmin) && (
+                                  <button
+                                    type="button"
+                                    className="text-xs text-red-600 hover:underline"
+                                    onClick={() => void handleDelete(shift, block.memberName)}
+                                  >
+                                    Удалить
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {editingShiftId === shift.shiftId && (
+                            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/50 p-3 space-y-2">
+                              <div className="grid grid-cols-2 gap-2">
+                                <label className="block">
+                                  <span className="mb-1 block text-xs text-slate-500">Начало</span>
+                                  <input
+                                    type="time"
+                                    className={inputClass}
+                                    value={editDraft.timeFrom}
+                                    onChange={(e) =>
+                                      setEditDraft((d) => ({ ...d, timeFrom: e.target.value }))
+                                    }
+                                  />
+                                </label>
+                                <label className="block">
+                                  <span className="mb-1 block text-xs text-slate-500">Конец</span>
+                                  <input
+                                    type="time"
+                                    className={inputClass}
+                                    value={editDraft.timeTo}
+                                    onChange={(e) =>
+                                      setEditDraft((d) => ({ ...d, timeTo: e.target.value }))
+                                    }
+                                  />
+                                </label>
+                              </div>
+                              {shift.isOperator && (
+                                <div className="grid grid-cols-2 gap-2">
+                                  <label className="block">
+                                    <span className="mb-1 block text-xs text-slate-500">
+                                      Пульт, мин
+                                    </span>
+                                    <input
+                                      type="number"
+                                      className={inputClass}
+                                      value={editDraft.panelOverride}
+                                      onChange={(e) =>
+                                        setEditDraft((d) => ({
+                                          ...d,
+                                          panelOverride: e.target.value,
+                                        }))
+                                      }
+                                    />
+                                  </label>
+                                  <label className="block">
+                                    <span className="mb-1 block text-xs text-slate-500">
+                                      Простой, мин
+                                    </span>
+                                    <input
+                                      type="number"
+                                      className={inputClass}
+                                      value={editDraft.idleOverride}
+                                      onChange={(e) =>
+                                        setEditDraft((d) => ({
+                                          ...d,
+                                          idleOverride: e.target.value,
+                                        }))
+                                      }
+                                    />
+                                  </label>
+                                </div>
+                              )}
+                              <textarea
+                                className={inputClass}
+                                rows={2}
+                                placeholder="Комментарий (обязательно)"
+                                value={editDraft.comment}
+                                onChange={(e) =>
+                                  setEditDraft((d) => ({ ...d, comment: e.target.value }))
+                                }
+                              />
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  className={btnSecondary}
+                                  onClick={() => setEditingShiftId(null)}
+                                >
+                                  Отмена
+                                </button>
+                                <button
+                                  type="button"
+                                  className={btnSecondary}
+                                  disabled={saving}
+                                  onClick={() => void handleSaveEdit(shift, false)}
+                                >
+                                  Сохранить
+                                </button>
+                                {shift.status !== "approved" && (
+                                  <button
+                                    type="button"
+                                    className={btnPrimary}
+                                    disabled={saving}
+                                    onClick={() => void handleSaveEdit(shift, true)}
+                                  >
+                                    Сохранить и утвердить
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {detailShiftId === shift.shiftId && (
+                            <div className="mt-3">
+                              {detailLoading && (
+                                <p className="text-sm text-slate-500">Загрузка деталей…</p>
+                              )}
+                              {!detailLoading && detailData && (
+                                <ShiftReportCard
+                                  data={detailData}
+                                  view={reportView}
+                                  highlightedMemberId={block.memberId}
+                                />
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
