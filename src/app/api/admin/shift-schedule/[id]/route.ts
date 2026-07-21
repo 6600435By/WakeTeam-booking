@@ -10,7 +10,7 @@ import {
 import { prisma } from "@/lib/db";
 import { staffDisplayName } from "@/lib/staff-user";
 import { logShiftAssign } from "@/lib/audit/shift-audit";
-import { setShiftPlannedReverses, resolvePlannedReverseIds } from "@/lib/payroll/shift-planned-reverses";
+import { setShiftPlannedReverses, resolvePlannedReverseIds, activatePlannedReversesOnOpen } from "@/lib/payroll/shift-planned-reverses";
 import { validateShiftSchedule } from "@/lib/payroll/shift-schedule";
 
 const patchSchema = z.object({
@@ -39,9 +39,9 @@ export async function PATCH(
     if (!shift || shift.organizationId !== ctx.organizationId) {
       return NextResponse.json({ error: "Не найдено" }, { status: 404 });
     }
-    if (shift.status !== "scheduled") {
+    if (shift.status !== "scheduled" && shift.status !== "open") {
       return NextResponse.json(
-        { error: "Редактировать можно только запланированные смены" },
+        { error: "Редактировать можно только запланированные или открытые смены" },
         { status: 400 },
       );
     }
@@ -109,6 +109,7 @@ export async function PATCH(
         plannedEnd: body.plannedEnd ?? shift.plannedEnd,
         plannedStaffId: schedule.plannedStaffId,
         workAsAdmin: schedule.workAsAdmin,
+        panelOnly: false,
       },
       include: {
         member: {
@@ -124,6 +125,14 @@ export async function PATCH(
       hasStaffIdsUpdate || hasStaffIdUpdate
         ? await setShiftPlannedReverses(id, schedule.plannedStaffIds)
         : staffIdsForValidation ?? schedule.plannedStaffIds;
+
+    if (shift.status === "open") {
+      await activatePlannedReversesOnOpen(
+        id,
+        schedule.plannedStaffId,
+        shift.actualStart ?? new Date(),
+      );
+    }
 
     const names = staffIds.length
       ? await prisma.staff.findMany({
@@ -186,9 +195,9 @@ export async function DELETE(
     if (!shift || shift.organizationId !== ctx.organizationId) {
       return NextResponse.json({ error: "Не найдено" }, { status: 404 });
     }
-    if (shift.status !== "scheduled") {
+    if (shift.status !== "scheduled" && shift.status !== "open") {
       return NextResponse.json(
-        { error: "Удалить можно только запланированную смену" },
+        { error: "Удалить можно только запланированную или открытую смену" },
         { status: 400 },
       );
     }

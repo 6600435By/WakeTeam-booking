@@ -23,6 +23,7 @@ import {
   computeShiftSummary,
   type ShiftWithRelations,
 } from "@/lib/payroll/work-shift-service";
+import type { BranchShiftDaySummary } from "@/lib/payroll/branch-shift-day-summary";
 import {
   previousDateKey,
   saveHandoffNote,
@@ -31,18 +32,28 @@ import { activatePlannedReversesOnOpen } from "@/lib/payroll/shift-planned-rever
 
 function enrichOptionsForViewer(
   ctx: Awaited<ReturnType<typeof requireAdminContext>>,
+  mode: "detail" | "list" = "detail",
 ) {
+  if (mode === "list") {
+    return { light: true as const, includeBranchDaySummary: false };
+  }
   return { includeBranchDaySummary: canViewBranchShiftSummary(ctx) };
 }
 
 async function enrichMany(
   shifts: ShiftWithRelations[],
   ctx: Awaited<ReturnType<typeof requireAdminContext>>,
+  mode: "detail" | "list" = "detail",
 ) {
-  const opts = enrichOptionsForViewer(ctx);
+  const opts = enrichOptionsForViewer(ctx, mode);
+  const branchDaySummaryCache = new Map<string, Promise<BranchShiftDaySummary>>();
+  const now = new Date();
   return Promise.all(
     shifts.map((s) =>
-      enrichShiftResponse(s as NonNullable<ShiftWithRelations>, new Date(), opts),
+      enrichShiftResponse(s as NonNullable<ShiftWithRelations>, now, {
+        ...opts,
+        branchDaySummaryCache,
+      }),
     ),
   );
 }
@@ -139,6 +150,7 @@ export async function GET(req: NextRequest) {
             canApproveShift(ctx, s.member.role, s.branchId),
           ),
         ctx,
+        "list",
       );
       return NextResponse.json({ shifts: enriched });
     }
@@ -152,7 +164,7 @@ export async function GET(req: NextRequest) {
         include: SHIFT_INCLUDE,
         orderBy: { date: "desc" },
       });
-      const enriched = await enrichMany(shifts, ctx);
+      const enriched = await enrichMany(shifts, ctx, "list");
       return NextResponse.json({ shifts: enriched });
     }
 
@@ -256,6 +268,64 @@ export async function POST(req: NextRequest) {
     });
     if (existing) {
       if (existing.status === "open") {
+        // Upgrade auto panelOnly shift to a full manual open (idle counts again).
+        if (existing.panelOnly) {
+          const planned = await getBranchPlannedWindow(existing.branchId, date);
+          const actualStart = resolveActualStart(date, body.actualStart);
+          const startErr = validateActualStart(
+            date,
+            actualStart,
+            existing.plannedStart ?? planned.start,
+          );
+          if (startErr) {
+            return NextResponse.json({ error: startErr }, { status: 400 });
+          }
+          const keepStart =
+            existing.actualStart && existing.actualStart.getTime() < actualStart.getTime()
+              ? existing.actualStart
+              : actualStart;
+          await prisma.workShift.update({
+            where: { id: existing.id },
+            data: {
+              panelOnly: false,
+              actualStart: keepStart,
+              status: "open",
+            },
+          });
+          await activatePlannedReversesOnOpen(
+            existing.id,
+            existing.plannedStaffId,
+            keepStart,
+          );
+          if (body.handoffComment?.trim()) {
+            await saveHandoffNote({
+              organizationId: ctx.organizationId,
+              branchId: existing.branchId,
+              targetDate: previousDateKey(date),
+              workShiftId: existing.id,
+              memberId: ctx.memberId,
+              comment: body.handoffComment,
+            });
+          }
+          const upgraded = await prisma.workShift.findUnique({
+            where: { id: existing.id },
+            include: SHIFT_INCLUDE,
+          });
+          if (upgraded) {
+            const branch = await prisma.branch.findUnique({
+              where: { id: existing.branchId },
+              select: { name: true },
+            });
+            logShiftOpen(ctx, {
+              shiftId: upgraded.id,
+              branchId: upgraded.branchId,
+              memberUser: upgraded.member.user,
+              branchName: branch?.name ?? upgraded.member.branch?.name ?? "филиал",
+              actualStart: keepStart,
+            });
+          }
+          return NextResponse.json(await enrichShiftResponse(upgraded!));
+        }
         return NextResponse.json(await enrichShiftResponse(existing));
       }
       if (existing.status === "scheduled") {
@@ -271,7 +341,7 @@ export async function POST(req: NextRequest) {
         }
         await prisma.workShift.update({
           where: { id: existing.id },
-          data: { status: "open", actualStart },
+          data: { status: "open", actualStart, panelOnly: false },
         });
         await activatePlannedReversesOnOpen(
           existing.id,

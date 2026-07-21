@@ -19,6 +19,7 @@ import { prisma } from "@/lib/db";
 import { reconcileMembershipOnDelete } from "@/lib/memberships/deduct";
 import { reconcileDailyRentalCharges } from "@/lib/rental-pricing";
 import { resolveDefaultOperatorMemberId } from "@/lib/payroll/resolve-appointment-operator";
+import { ensureOperatorOnShift } from "@/lib/payroll/ensure-operator-shift";
 import { formatDateKey } from "@/lib/time";
 import {
   validateOperatorForCompletedStatus,
@@ -191,6 +192,16 @@ export async function PATCH(
         return NextResponse.json(mapped.body, { status: mapped.status });
       }
       throw err;
+    }
+
+    if (finalOperatorMemberId) {
+      const nextStartAt = body.startAt ? new Date(body.startAt) : existing.startAt;
+      await ensureOperatorOnShift({
+        organizationId: ctx.organizationId,
+        branchId: existing.branchId,
+        memberId: finalOperatorMemberId,
+        at: nextStartAt,
+      });
     }
 
     const newDateKey = formatDateKey(

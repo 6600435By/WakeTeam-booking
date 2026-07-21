@@ -51,6 +51,8 @@ function collectPanelIntervals(
     const hitShift = intersectInterval(shiftWindow, apptWindow);
     if (!hitShift) continue;
 
+    // Explicit operator pin credits the full appointment window as пульт
+    // (auto-added panelOnly shifts have no ReverseAssignment yet).
     if (appt.operatorMemberId) {
       intervals.push(hitShift);
       continue;

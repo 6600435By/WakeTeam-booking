@@ -82,17 +82,49 @@ export async function buildPayrollStats(input: {
   const pendingRows: PayrollShiftRow[] = [];
   const actionQueue: PayrollActionQueueItem[] = [];
 
-  for (const s of shifts) {
+  const visible = shifts.filter((s) => {
     const canReview = canApproveShift(ctx, s.member.role, s.branchId);
-    if (!ctx.isSuperAdmin && !canReview && s.memberId !== ctx.memberId) continue;
+    return ctx.isSuperAdmin || canReview || s.memberId === ctx.memberId;
+  });
 
-    const previewSummary = await computeShiftSummary(s, new Date(), {
-      spotMode: "preview",
-    });
-    const payrollSummary =
-      s.status === "approved"
-        ? await computeShiftSummary(s, new Date(), { spotMode: "payroll" })
-        : previewSummary;
+  const now = new Date();
+  const handoffShiftIds = visible
+    .filter(
+      (s) =>
+        canApproveShift(ctx, s.member.role, s.branchId) &&
+        (s.status === "closed" || (s.status === "open" && s.date < to)),
+    )
+    .map((s) => s.id);
+
+  const [summaries, handoffs] = await Promise.all([
+    Promise.all(
+      visible.map(async (s) => {
+        const previewSummary = await computeShiftSummary(s, now, {
+          spotMode: "preview",
+        });
+        const payrollSummary =
+          s.status === "approved"
+            ? await computeShiftSummary(s, now, { spotMode: "payroll" })
+            : previewSummary;
+        return { previewSummary, payrollSummary };
+      }),
+    ),
+    handoffShiftIds.length
+      ? prisma.shiftHandoffNote.findMany({
+          where: { workShiftId: { in: handoffShiftIds } },
+          select: { workShiftId: true, comment: true },
+        })
+      : Promise.resolve([] as { workShiftId: string; comment: string | null }[]),
+  ]);
+
+  const handoffByShift = new Map(
+    handoffs.map((h) => [h.workShiftId, h] as const),
+  );
+
+  for (let i = 0; i < visible.length; i++) {
+    const s = visible[i];
+    const { previewSummary, payrollSummary } = summaries[i];
+    const canReview = canApproveShift(ctx, s.member.role, s.branchId);
 
     const row: PayrollShiftRow = {
       ...summaryToPeriodRow(s.id, s.date, s.status, payrollSummary),
@@ -120,9 +152,7 @@ export async function buildPayrollStats(input: {
       canReview &&
       (s.status === "closed" || (s.status === "open" && s.date < to))
     ) {
-      const handoff = await prisma.shiftHandoffNote.findFirst({
-        where: { workShiftId: s.id },
-      });
+      const handoff = handoffByShift.get(s.id);
       actionQueue.push({
         shiftId: s.id,
         date: s.date,

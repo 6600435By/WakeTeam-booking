@@ -32,6 +32,10 @@ import { computeBranchShiftSales } from "./shift-branch-sales";
 
 export type EnrichShiftOptions = {
   includeBranchDaySummary?: boolean;
+  /** Skip heavy branch sales + day aggregates (list endpoints). */
+  light?: boolean;
+  /** Shared cache for branch/day summaries within one enrichMany call. */
+  branchDaySummaryCache?: Map<string, Promise<BranchShiftDaySummary>>;
 };
 
 export const SHIFT_INCLUDE = {
@@ -137,7 +141,8 @@ export async function computeShiftSummary(
   let inServicePanelMinutes = 0;
   let inServiceCount = 0;
   let unfinishedAppointmentCount = 0;
-  // Panel can come from ReverseAssignment OR pinned operatorMemberId on appointments.
+  // Panel from ReverseAssignment and/or pinned operatorMemberId on appointments.
+  // Auto-created panelOnly shifts get пульт without idle (see panelOnly below).
   if (shiftStart && shiftEnd) {
     const staffIds = [...new Set(shift.reverseAssignments.map((a) => a.staffId))];
     const dayStart = parseTimeOnDate(shift.date, "00:00");
@@ -197,6 +202,9 @@ export async function computeShiftSummary(
   const spotMinutes = calcSpotMinutes(shift.spotEntries, shiftEnd ?? now, spotMode);
   const unconfirmedSpotMinutes = calcUnconfirmedSpotMinutes(shift.spotEntries, shiftEnd ?? now);
   let idleMinutes = Math.max(0, shiftMinutes - panelMinutes - spotMinutes);
+  if (shift.panelOnly) {
+    idleMinutes = 0;
+  }
   if (shift.idleMinutesOverride != null) {
     idleMinutes = shift.idleMinutesOverride;
   }
@@ -230,51 +238,67 @@ export async function enrichShiftResponse(
   now = new Date(),
   options?: EnrichShiftOptions,
 ) {
-  const summary = await computeShiftSummary(shift, now);
+  const light = options?.light === true;
+
+  const [
+    summary,
+    planned,
+    spotTasks,
+    baselineTasksRaw,
+    completions,
+    checklistItems,
+  ] = await Promise.all([
+    computeShiftSummary(shift, now),
+    getBranchPlannedWindow(shift.branchId, shift.date),
+    prisma.spotTask.findMany({
+      where: {
+        assigneeMemberId: shift.memberId,
+        date: shift.date,
+        branchWide: false,
+      },
+      orderBy: { createdAt: "asc" },
+    }),
+    listBaselineTasksForDay(shift.branchId, shift.date),
+    prisma.shiftBaselineCompletion.findMany({
+      where: { workShiftId: shift.id },
+      select: { taskId: true },
+    }),
+    getChecklistForShift(shift.id, shift.branchId),
+  ]);
+
   const efficiency = buildEfficiencyMetrics(
     summary.shiftMinutes,
     summary.panelMinutes,
     summary.spotMinutes,
     summary.idleMinutes,
   );
-  const planned = await getBranchPlannedWindow(shift.branchId, shift.date);
-  const spotTasks = await prisma.spotTask.findMany({
-    where: {
-      assigneeMemberId: shift.memberId,
-      date: shift.date,
-      branchWide: false,
-    },
-    orderBy: { createdAt: "asc" },
-  });
-  const baselineTasksRaw = await listBaselineTasksForDay(
-    shift.branchId,
-    shift.date,
-  );
-  const completions = await prisma.shiftBaselineCompletion.findMany({
-    where: { workShiftId: shift.id },
-    select: { taskId: true },
-  });
   const completedIds = new Set(completions.map((c) => c.taskId));
-
-  const checklistItems = await getChecklistForShift(shift.id, shift.branchId);
-
   const reviewNotes = extractReviewNotes(shift.adjustments);
 
   let branchSales: BranchShiftSales | null = null;
   let branchDaySummary: BranchShiftDaySummary | null = null;
-  const window = shiftSalesWindow(shift, now);
+  const window = !light ? shiftSalesWindow(shift, now) : null;
   if (window) {
-    branchSales = await computeBranchShiftSales(
-      shift.branchId,
-      window.start,
-      window.end,
-    );
     if (options?.includeBranchDaySummary) {
-      branchDaySummary = await computeBranchShiftDaySummary(
+      const cacheKey = `${shift.branchId}:${shift.date}`;
+      const cache = options.branchDaySummaryCache;
+      let dayPromise = cache?.get(cacheKey);
+      if (!dayPromise) {
+        dayPromise = computeBranchShiftDaySummary(
+          shift.branchId,
+          shift.date,
+          window,
+          now,
+        );
+        cache?.set(cacheKey, dayPromise);
+      }
+      branchDaySummary = await dayPromise;
+      branchSales = branchDaySummary.sales;
+    } else {
+      branchSales = await computeBranchShiftSales(
         shift.branchId,
-        shift.date,
-        window,
-        now,
+        window.start,
+        window.end,
       );
     }
   }
@@ -296,6 +320,7 @@ export async function enrichShiftResponse(
       branchName: shift.member.branch?.name ?? null,
       role: shift.member.role,
       workAsAdmin: shift.workAsAdmin,
+      panelOnly: shift.panelOnly,
       plannedStaffId: shift.plannedStaffId,
     },
     reverseAssignments: shift.reverseAssignments.map((a) => ({

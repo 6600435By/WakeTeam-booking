@@ -67,6 +67,7 @@ export type ShiftData = {
     branchName: string | null;
     role: string;
     workAsAdmin?: boolean;
+    panelOnly?: boolean;
   };
   reverseAssignments: {
     id: string;

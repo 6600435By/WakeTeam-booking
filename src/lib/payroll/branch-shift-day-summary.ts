@@ -58,8 +58,14 @@ export async function computeBranchShiftDaySummary(
     totalAmount: 0,
   };
 
-  for (const shift of shifts) {
-    const summary = await computeShiftSummary(shift, now);
+  const [summaries, sales] = await Promise.all([
+    Promise.all(shifts.map((shift) => computeShiftSummary(shift, now))),
+    computeBranchShiftSales(branchId, salesWindow.start, salesWindow.end),
+  ]);
+
+  for (let i = 0; i < shifts.length; i++) {
+    const shift = shifts[i];
+    const summary = summaries[i];
     const row: BranchDayStaffRow = {
       shiftId: shift.id,
       memberId: shift.memberId,
@@ -79,12 +85,6 @@ export async function computeBranchShiftDaySummary(
     totals.shiftMinutes += summary.shiftMinutes;
     totals.totalAmount += summary.totalAmount;
   }
-
-  const sales = await computeBranchShiftSales(
-    branchId,
-    salesWindow.start,
-    salesWindow.end,
-  );
 
   return { staffOnShift, totals, sales };
 }

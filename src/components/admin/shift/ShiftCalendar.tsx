@@ -342,7 +342,7 @@ export function ShiftCalendar({
   }
 
   function openEditShift(shift: CalendarShift, date: string) {
-    if (!canEdit || shift.status !== "scheduled") {
+    if (!canEdit || (shift.status !== "scheduled" && shift.status !== "open")) {
       setSelectedDate(date);
       return;
     }
@@ -867,7 +867,7 @@ export function ShiftCalendar({
                           {!s.workAsAdmin && staffLabel && (
                             <p className="text-xs text-slate-500">Реверс: {staffLabel}</p>
                           )}
-                          {canEdit && s.status === "scheduled" && (
+                          {canEdit && (s.status === "scheduled" || s.status === "open") && (
                             <span
                               role="button"
                               tabIndex={0}
@@ -903,7 +903,7 @@ export function ShiftCalendar({
                           {workShiftStatusLabel(s.status)}
                         </span>
                       </button>
-                      {canEdit && s.status === "scheduled" && (
+                      {canEdit && (s.status === "scheduled" || s.status === "open") && (
                         <button
                           type="button"
                           className="m-1 shrink-0 rounded-lg border border-red-200 p-2 text-red-600 hover:bg-red-50"

@@ -156,6 +156,7 @@ export function ShiftAdminPage({
   );
 
   const [tab, setTab] = useState<Tab>(tasksOnly ? "calendar" : "today");
+  const [viewDate, setViewDate] = useState(() => formatDateKey(new Date()));
   const [data, setData] = useState<ShiftData | null>(null);
   const [branchToday, setBranchToday] = useState<BranchShiftStatus | null>(null);
   const [tasks, setTasks] = useState<SpotTask[]>([]);
@@ -188,6 +189,7 @@ export function ShiftAdminPage({
     try {
       const q = new URLSearchParams();
       if (effectiveBranchId) q.set("branchId", effectiveBranchId);
+      if (viewDate) q.set("date", viewDate);
       const suffix = q.size ? `?${q}` : "";
       const r = await fetch(`/api/admin/work-shifts${suffix}`);
       const d = await r.json();
@@ -199,7 +201,7 @@ export function ShiftAdminPage({
     } finally {
       setLoading(false);
     }
-  }, [effectiveBranchId]);
+  }, [effectiveBranchId, viewDate]);
 
   const loadResources = useCallback(async () => {
     if (!effectiveBranchId) return;
@@ -555,6 +557,7 @@ export function ShiftAdminPage({
 
   const activeAssign = data?.reverseAssignments.find((a) => !a.endedAt);
   const shiftOpen = data?.shift.status === "open";
+  const shiftPanelOnly = Boolean(data?.shift.panelOnly);
   const shiftScheduled = data?.shift.status === "scheduled";
   const isOpRole = data?.summary.isOperator ?? isOperator;
 
@@ -581,7 +584,10 @@ export function ShiftAdminPage({
           <button
             key={t.id}
             type="button"
-            onClick={() => setTab(t.id)}
+            onClick={() => {
+              if (t.id === "today") setViewDate(formatDateKey(new Date()));
+              setTab(t.id);
+            }}
             className={`flex-1 rounded-md py-2 text-sm font-medium ${
               tab === t.id ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"
             }`}
@@ -686,9 +692,28 @@ export function ShiftAdminPage({
 
               {shiftOpen ? (
                 <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-                  <p className="text-sm font-medium text-green-700">Смена идёт</p>
+                  {shiftPanelOnly ? (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
+                      <p className="text-sm font-medium text-amber-900">
+                        Смена по пульту (без простоя)
+                      </p>
+                      <p className="text-xs text-amber-800">
+                        Вас назначили оператором в записи. Откройте полную смену, чтобы учитывать
+                        простой и работать с реверсом.
+                      </p>
+                      <button
+                        type="button"
+                        className={btnPrimary}
+                        onClick={() => void prepareOpenShift()}
+                      >
+                        Открыть полную смену
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-sm font-medium text-green-700">Смена идёт</p>
+                  )}
 
-                  {isOpRole && (
+                  {isOpRole && !shiftPanelOnly && (
                     <>
                       <div>
                         <label className="mb-1 block text-xs text-slate-500">Реверс</label>
@@ -861,7 +886,7 @@ export function ShiftAdminPage({
                     </div>
                   )}
 
-                  {!showCloseSummary ? (
+                  {!shiftPanelOnly && !showCloseSummary ? (
                     <button
                       type="button"
                       className={`${btnPrimary} w-full`}
@@ -869,7 +894,7 @@ export function ShiftAdminPage({
                     >
                       Завершить смену
                     </button>
-                  ) : (
+                  ) : !shiftPanelOnly ? (
                     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-3">
                       <p className="text-sm font-medium text-slate-900">Итог смены</p>
                       {isBranchManager && (
@@ -982,7 +1007,16 @@ export function ShiftAdminPage({
       )}
 
       {tab === "report" && (
-        <MyShiftsPanel onGoToday={() => setTab("today")} />
+        <MyShiftsPanel
+          onGoToShift={(shift) => {
+            if (shift.branchId) {
+              setOperatingBranchId(shift.branchId);
+              superBranch?.setBranchId?.(shift.branchId);
+            }
+            setViewDate(shift.date);
+            setTab("today");
+          }}
+        />
       )}
 
       {effectiveBranchId && (

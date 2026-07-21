@@ -376,6 +376,8 @@ model WorkShift {
   plannedStaffId       String?
   plannedStaff         Staff?             @relation("PlannedReverse", fields: [plannedStaffId], references: [id], onDelete: SetNull)
   workAsAdmin            Boolean            @default(false)
+  /// Auto-created from appointment operator pin: pay panel only, no idle.
+  panelOnly              Boolean            @default(false)
   employeeSubmittedAt    DateTime?
   employeeSubmitComment  String?
   createdAt              DateTime           @default(now())

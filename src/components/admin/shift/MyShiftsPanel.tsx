@@ -27,10 +27,10 @@ function currentMinskTime() {
 }
 
 type Props = {
-  onGoToday?: () => void;
+  onGoToShift?: (shift: { id: string; date: string; branchId: string }) => void;
 };
 
-export function MyShiftsPanel({ onGoToday }: Props) {
+export function MyShiftsPanel({ onGoToShift }: Props) {
   const [from, setFrom] = useState(() => {
     const d = new Date();
     d.setDate(1);
@@ -216,8 +216,18 @@ export function MyShiftsPanel({ onGoToday }: Props) {
                   </div>
                 </>
               )}
-              {selected.shift.status === "open" && onGoToday && (
-                <button type="button" className={btnSecondary} onClick={onGoToday}>
+              {selected.shift.status === "open" && onGoToShift && (
+                <button
+                  type="button"
+                  className={btnSecondary}
+                  onClick={() =>
+                    onGoToShift({
+                      id: selected.shift.id,
+                      date: selected.shift.date,
+                      branchId: selected.shift.branchId,
+                    })
+                  }
+                >
                   Перейти к смене
                 </button>
               )}

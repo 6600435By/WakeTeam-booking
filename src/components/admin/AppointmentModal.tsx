@@ -445,16 +445,17 @@ export function AppointmentModal({
             name: m.name,
           }),
         );
-        const fallback: OperatorOption[] = (d.members ?? [])
+        const allOperators: OperatorOption[] = (d.members ?? [])
           .filter((m: { role: string }) => m.role === "branch_operator")
           .map((m: { memberId: string; name: string }) => ({
             memberId: m.memberId,
             name: m.name,
           }));
-        const list = onShift.length > 0 ? onShift : fallback;
+        // Any operator can be selected; missing shift is auto-created as panelOnly.
+        const list = allOperators.length > 0 ? allOperators : onShift;
         setOperatorOptions((prev) => {
           const merged = new Map<string, OperatorOption>();
-          for (const item of [...prev, ...list]) {
+          for (const item of [...prev, ...onShift, ...list]) {
             merged.set(item.memberId, item);
           }
           return [...merged.values()];

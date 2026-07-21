@@ -121,6 +121,7 @@ export function ShiftReadinessModal({
   const [previousHandoffText, setPreviousHandoffText] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
   const cardRefs = useRef<Record<string, HTMLElement | null>>({});
+  const editBranchHoursRef = useRef(false);
 
   const showBranchPicker = branchOptions.length > 1 && onBranchChange;
 
@@ -142,9 +143,9 @@ export function ShiftReadinessModal({
     }
   }, [branchId, date, canEdit]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!branchId) return;
-    setLoading(true);
+    if (!opts?.silent) setLoading(true);
     setError("");
     try {
       const q = new URLSearchParams({ branchId, date });
@@ -152,17 +153,25 @@ export function ShiftReadinessModal({
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Ошибка загрузки");
       setData(d);
-      if (d.branchPlannedWindow?.start) setBranchFrom(d.branchPlannedWindow.start);
-      if (d.branchPlannedWindow?.end) setBranchTo(d.branchPlannedWindow.end);
+      // Don't clobber in-progress branch hours edits on poll refresh.
+      if (!editBranchHoursRef.current) {
+        if (d.branchPlannedWindow?.start) setBranchFrom(d.branchPlannedWindow.start);
+        if (d.branchPlannedWindow?.end) setBranchTo(d.branchPlannedWindow.end);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка");
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, [branchId, date]);
 
   useEffect(() => {
+    editBranchHoursRef.current = editBranchHours;
+  }, [editBranchHours]);
+
+  useEffect(() => {
     if (!open) return;
+    let cancelled = false;
     setStep(1);
     setAddOpen(false);
     setEditBranchHours(false);
@@ -173,11 +182,12 @@ export function ShiftReadinessModal({
     void load();
     void loadServices();
     const timer = window.setInterval(() => {
-      void load();
+      void load({ silent: true });
     }, 30_000);
     void fetch(`/api/admin/shift-resources?branchId=${encodeURIComponent(branchId)}`)
       .then((r) => r.json())
       .then((d) => {
+        if (cancelled) return;
         if (d.members) setMembers(d.members);
         if (d.managers) {
           setManagers(
@@ -193,11 +203,17 @@ export function ShiftReadinessModal({
     void fetch(`/api/admin/shift-handoff?${q}`)
       .then(async (r) => {
         const d = await r.json();
+        if (cancelled) return;
         if (r.ok && d.existingComment) setPreviousHandoffText(d.existingComment);
         else setPreviousHandoffText(null);
       })
-      .catch(() => setPreviousHandoffText(null));
-    return () => window.clearInterval(timer);
+      .catch(() => {
+        if (!cancelled) setPreviousHandoffText(null);
+      });
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [open, branchId, date, load, loadServices]);
 
   useEffect(() => {
@@ -501,7 +517,7 @@ export function ShiftReadinessModal({
               {shift.status === "open" ? " · на смене" : ""}
             </div>
           </div>
-          {canEdit && shift.status === "scheduled" && (
+          {canEdit && (shift.status === "scheduled" || shift.status === "open") && (
             <div className="flex shrink-0 gap-1">
               <button
                 type="button"
@@ -566,7 +582,7 @@ export function ShiftReadinessModal({
         {needsReverse && (
           <div className="mt-2">
             <span className="mb-1 block text-xs text-slate-500">Реверсы</span>
-            {canEdit && shift.status === "scheduled" ? (
+            {canEdit && (shift.status === "scheduled" || shift.status === "open") ? (
               <div className="flex flex-wrap gap-2">
                 {allResources.map((r) => {
                   const checked = shift.plannedStaffIds.includes(r.id);

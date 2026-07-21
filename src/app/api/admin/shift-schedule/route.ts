@@ -11,7 +11,7 @@ import { prisma } from "@/lib/db";
 import { staffDisplayName } from "@/lib/staff-user";
 import { logShiftAssign } from "@/lib/audit/shift-audit";
 import { getBranchPlannedWindow } from "@/lib/payroll/branch-planned-window";
-import { setShiftPlannedReverses } from "@/lib/payroll/shift-planned-reverses";
+import { setShiftPlannedReverses, activatePlannedReversesOnOpen } from "@/lib/payroll/shift-planned-reverses";
 import { validateShiftSchedule } from "@/lib/payroll/shift-schedule";
 
 const createSchema = z.object({
@@ -115,7 +115,7 @@ export async function POST(req: NextRequest) {
       where: { memberId_date: { memberId: body.memberId, date: body.date } },
     });
     if (existing) {
-      if (existing.status !== "scheduled") {
+      if (existing.status === "closed" || existing.status === "approved") {
         return NextResponse.json(
           { error: "У сотрудника уже есть смена на этот день" },
           { status: 400 },
@@ -129,6 +129,7 @@ export async function POST(req: NextRequest) {
           plannedEnd: body.plannedEnd ?? existing.plannedEnd ?? planned.end ?? "22:00",
           plannedStaffId: schedule.plannedStaffId,
           workAsAdmin: schedule.workAsAdmin,
+          panelOnly: false,
         },
         include: {
           member: {
@@ -140,6 +141,13 @@ export async function POST(req: NextRequest) {
         },
       });
       const staffIds = await setShiftPlannedReverses(existing.id, schedule.plannedStaffIds);
+      if (existing.status === "open") {
+        await activatePlannedReversesOnOpen(
+          existing.id,
+          schedule.plannedStaffId,
+          existing.actualStart ?? new Date(),
+        );
+      }
       const names = await prisma.staff.findMany({
         where: { id: { in: staffIds } },
         select: { id: true, name: true },
@@ -162,6 +170,16 @@ export async function POST(req: NextRequest) {
     }
 
     const planned = await getBranchPlannedWindow(body.branchId, body.date);
+    const branchOpen = await prisma.workShift.findFirst({
+      where: {
+        branchId: body.branchId,
+        date: body.date,
+        status: "open",
+      },
+      select: { id: true },
+    });
+    const openNow = Boolean(branchOpen);
+    const actualStart = openNow ? new Date() : null;
     const shift = await prisma.workShift.create({
       data: {
         organizationId: ctx.organizationId,
@@ -172,7 +190,9 @@ export async function POST(req: NextRequest) {
         plannedEnd: body.plannedEnd ?? planned.end ?? "22:00",
         plannedStaffId: schedule.plannedStaffId,
         workAsAdmin: schedule.workAsAdmin,
-        status: "scheduled",
+        status: openNow ? "open" : "scheduled",
+        actualStart,
+        panelOnly: false,
       },
       include: {
         member: {
@@ -184,6 +204,9 @@ export async function POST(req: NextRequest) {
       },
     });
     const staffIds = await setShiftPlannedReverses(shift.id, schedule.plannedStaffIds);
+    if (openNow && actualStart) {
+      await activatePlannedReversesOnOpen(shift.id, schedule.plannedStaffId, actualStart);
+    }
     const names = await prisma.staff.findMany({
       where: { id: { in: staffIds } },
       select: { id: true, name: true },

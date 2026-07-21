@@ -14,6 +14,7 @@ import { logAppointmentCreate } from "@/lib/audit/appointment-audit";
 import { prisma } from "@/lib/db";
 import { serviceRequiresOperator } from "@/lib/appointment-status";
 import { resolveDefaultOperatorMemberId } from "@/lib/payroll/resolve-appointment-operator";
+import { ensureOperatorOnShift } from "@/lib/payroll/ensure-operator-shift";
 import { createBooking } from "@/lib/slots/generateSlots";
 import { formatDateKey, parseTimeOnDate } from "@/lib/time";
 
@@ -137,6 +138,12 @@ export async function POST(req: NextRequest) {
       await prisma.appointment.update({
         where: { id: result.id },
         data: { operatorMemberId: resolvedOperatorId },
+      });
+      await ensureOperatorOnShift({
+        organizationId: ctx.organizationId,
+        branchId: staff.branchId,
+        memberId: resolvedOperatorId,
+        at: startAt,
       });
     }
 
