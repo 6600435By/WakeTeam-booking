@@ -965,7 +965,7 @@ export function ShiftAdminPage({
                         </button>
                       </div>
                     </div>
-                  )}
+                  ) : null}
                 </div>
               ) : (
                 <div className="space-y-2">
