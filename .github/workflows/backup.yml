@@ -49,25 +49,31 @@ jobs:
           sudo apt-get install -y postgresql-client-18 zip unzip
           echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
 
+      # Mode must come from github.event.schedule (the cron expression), not wall-clock
+      # hour — GitHub often starts scheduled jobs hours late, which used to skip all backups.
       - name: Decide job mode
         id: mode
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
         run: |
           PART="${{ github.event.inputs.part }}"
           if [ "${{ github.event_name }}" = "schedule" ]; then
             MONTH=$(date -u +%-m)
-            DAY=$(date -u +%-d)
-            HOUR=$(date -u +%-H)
+            IN_SEASON=1
             if [ "$MONTH" -ge 11 ] || [ "$MONTH" -le 4 ]; then
-              if [ "$DAY" = "1" ] && [ "$HOUR" = "4" ]; then
-                echo "mode=trim-offseason" >> "$GITHUB_OUTPUT"
-              else
-                echo "mode=skip" >> "$GITHUB_OUTPUT"
-              fi
-            elif [ "$HOUR" = "3" ]; then
+              IN_SEASON=0
+            fi
+
+            if [ "$SCHEDULE" = "0 4 1 11,12,1,2,3,4 *" ]; then
+              echo "mode=trim-offseason" >> "$GITHUB_OUTPUT"
+            elif [ "$IN_SEASON" = "0" ]; then
+              echo "mode=skip" >> "$GITHUB_OUTPUT"
+            elif [ "$SCHEDULE" = "0 3 * * *" ]; then
               echo "mode=db" >> "$GITHUB_OUTPUT"
-            elif [ "$HOUR" = "4" ]; then
+            elif [ "$SCHEDULE" = "0 4 * * *" ]; then
               echo "mode=files" >> "$GITHUB_OUTPUT"
             else
+              echo "Unknown schedule cron: $SCHEDULE" >&2
               echo "mode=skip" >> "$GITHUB_OUTPUT"
             fi
           elif [ -n "$PART" ]; then
@@ -77,9 +83,9 @@ jobs:
           fi
           echo "force=${{ github.event.inputs.force || 'false' }}" >> "$GITHUB_OUTPUT"
 
-      - name: Skip off-season run
+      - name: Skip scheduled run
         if: steps.mode.outputs.mode == 'skip'
-        run: echo "Off-season scheduled slot — nothing to do."
+        run: echo "Scheduled slot skipped (off-season or unknown cron)."
 
       - name: Backup database
         if: steps.mode.outputs.mode == 'db' || steps.mode.outputs.mode == 'all'
