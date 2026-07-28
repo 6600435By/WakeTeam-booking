@@ -12,7 +12,7 @@ import {
   statusLabel,
 } from "@/lib/appointment-status";
 import { SOURCE_OPTIONS, sourceLabel } from "@/lib/statistics-constants";
-import { PAYMENT_METHOD_OPTIONS, paymentMethodLabel } from "@/lib/payment-method";
+import { PAYMENT_METHOD_OPTIONS, appointmentPaymentLabel } from "@/lib/payment-method";
 import { periodToday, periodWeek, todayDateKey } from "@/lib/date-ranges";
 
 type Branch = { id: string; name: string };
@@ -28,6 +28,8 @@ type Appointment = {
   price: number;
   durationMinutes: number;
   paymentMethod: string | null;
+  cashAmount?: number;
+  cardAmount?: number;
   comment: string | null;
   cancelReason: string | null;
   source: string;
@@ -199,6 +201,7 @@ export function StatisticsPage() {
       "Услуга",
       "Ресурс",
       "Цена",
+      "Оплата",
       "Длительность",
       "Дата записи",
       "Создана",
@@ -218,6 +221,7 @@ export function StatisticsPage() {
         a.service.name,
         a.staff.name,
         a.price,
+        appointmentPaymentLabel(a),
         a.durationMinutes,
         new Date(a.startAt).toLocaleString("ru-RU", { timeZone: "Europe/Minsk" }),
         new Date(a.createdAt).toLocaleString("ru-RU", { timeZone: "Europe/Minsk" }),
@@ -596,10 +600,12 @@ export function StatisticsPage() {
                             timeZone: "Europe/Minsk",
                           })}{" "}
                           · {a.price} Br · {a.durationMinutes} мин
-                          {a.paymentMethod && (
+                          {(a.paymentMethod ||
+                            (a.cashAmount ?? 0) > 0 ||
+                            (a.cardAmount ?? 0) > 0) && (
                             <span className="text-slate-400">
                               {" "}
-                              · {paymentMethodLabel(a.paymentMethod)}
+                              · {appointmentPaymentLabel(a)}
                             </span>
                           )}
                         </p>
@@ -650,7 +656,7 @@ export function StatisticsPage() {
                         </td>
                         <td className="px-2 py-2">{a.price} Br</td>
                         <td className="px-2 py-2 text-slate-600">
-                          {paymentMethodLabel(a.paymentMethod)}
+                          {appointmentPaymentLabel(a)}
                         </td>
                         <td className="px-4 py-2">
                           {new Date(a.startAt).toLocaleString("ru-RU", {

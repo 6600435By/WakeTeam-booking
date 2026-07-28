@@ -56,7 +56,25 @@ export function buildStatisticsWhere(
   }
 
   if (filters.status) where.status = filters.status;
-  if (filters.paymentMethod) where.paymentMethod = filters.paymentMethod;
+  if (filters.paymentMethod === "cash") {
+    where.OR = [
+      { cashAmount: { gt: 0 } },
+      { paymentMethod: "cash", cashAmount: 0, cardAmount: 0 },
+    ];
+  } else if (
+    filters.paymentMethod === "card" ||
+    filters.paymentMethod === "corporate"
+  ) {
+    where.OR = [
+      { cardAmount: { gt: 0 } },
+      {
+        paymentMethod: { in: ["card", "corporate"] },
+        cashAmount: 0,
+        cardAmount: 0,
+      },
+    ];
+  }
+  // "split" and other obsolete filter values are ignored (no combined bucket)
   if (filters.staffId) where.staffId = filters.staffId;
   if (filters.serviceId) where.serviceId = filters.serviceId;
   if (filters.source) where.source = filters.source;
