@@ -1,7 +1,7 @@
 "use client";
 
 import { adminFetch } from "@/lib/admin-fetch";
-import { formatAdminError } from "@/lib/admin/admin-api-error";
+import { formatAdminError } from "@/lib/admin/format-admin-error";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { DatePickerField } from "@/components/admin/DatePickerField";

@@ -1,6 +1,6 @@
 "use client";
 
-import { formatAdminError, parseAdminErrorParts } from "@/lib/admin/admin-api-error";
+import { formatAdminError, parseAdminErrorParts } from "@/lib/admin/format-admin-error";
 
 /** Compact error block: title + actionable hint. */
 export function AdminErrorBanner({

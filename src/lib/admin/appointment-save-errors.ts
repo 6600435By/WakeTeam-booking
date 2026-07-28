@@ -4,7 +4,7 @@ import {
   humanizeZodIssue,
   zodToAdminError,
   type AdminApiErrorBody,
-} from "@/lib/admin/admin-api-error";
+} from "@/lib/admin/format-admin-error";
 
 /** User-facing messages for appointment create/update failures in the journal. */
 

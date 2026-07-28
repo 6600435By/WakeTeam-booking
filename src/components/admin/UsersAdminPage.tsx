@@ -1,6 +1,6 @@
 "use client";
 
-import { formatAdminError } from "@/lib/admin/admin-api-error";
+import { formatAdminError } from "@/lib/admin/format-admin-error";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {

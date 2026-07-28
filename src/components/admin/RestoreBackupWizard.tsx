@@ -1,6 +1,6 @@
 "use client";
 
-import { formatAdminError } from "@/lib/admin/admin-api-error";
+import { formatAdminError } from "@/lib/admin/format-admin-error";
 
 import { useEffect, useState } from "react";
 import type { BackupListItem, BackupStorageWarning, RestoreStatus } from "@/lib/backups/types";

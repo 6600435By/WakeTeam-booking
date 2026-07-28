@@ -30,7 +30,7 @@ import {
   saveAppointmentEdit,
   type GroupApptRef,
 } from "@/lib/admin/appointment-group-client";
-import { formatAdminError } from "@/lib/admin/admin-api-error";
+import { formatAdminError } from "@/lib/admin/format-admin-error";
 import { AdminErrorBanner, adminErrorFromUnknown } from "@/components/admin/AdminErrorBanner";
 import { adminFetch } from "@/lib/admin-fetch";
 import {

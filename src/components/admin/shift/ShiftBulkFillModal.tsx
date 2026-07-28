@@ -1,6 +1,6 @@
 "use client";
 
-import { formatAdminError } from "@/lib/admin/admin-api-error";
+import { formatAdminError } from "@/lib/admin/format-admin-error";
 
 import { useMemo, useState } from "react";
 import { DatePickerField } from "@/components/admin/DatePickerField";
