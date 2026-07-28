@@ -23,13 +23,32 @@ function dayBounds(date: string) {
   return { dayStart, dayEnd };
 }
 
-const appointmentDayInclude = {
-  client: true,
-  service: true,
-  staff: true,
-  rentalItem: true,
+const appointmentDaySelect = {
+  id: true,
+  publicNumber: true,
+  startAt: true,
+  endAt: true,
+  status: true,
+  price: true,
+  durationMinutes: true,
+  comment: true,
+  membershipId: true,
+  paymentMethod: true,
+  cashAmount: true,
+  cardAmount: true,
+  rentalItemId: true,
+  rentalQuantity: true,
+  rentalAmount: true,
+  cancelReason: true,
+  branchId: true,
+  bookingGroupId: true,
+  operatorMemberId: true,
+  client: { select: { firstName: true, lastName: true, phone: true } },
+  service: { select: { id: true, name: true } },
+  staff: { select: { id: true, name: true } },
   operatorMember: {
-    include: {
+    select: {
+      id: true,
       user: { select: { name: true, lastName: true, login: true, email: true } },
     },
   },
@@ -70,8 +89,23 @@ async function queryStaffForDay(
         ...(branchId ? { branchId } : {}),
       },
       orderBy: { sortOrder: "asc" },
-      include: {
-        schedules: { where: { weekday } },
+      select: {
+        id: true,
+        name: true,
+        branchId: true,
+        kind: true,
+        sortOrder: true,
+        slotMinutes: true,
+        isActive: true,
+        schedules: {
+          where: { weekday },
+          select: {
+            weekday: true,
+            isWorking: true,
+            timeFrom: true,
+            timeTo: true,
+          },
+        },
       },
     }),
     prisma.staffScheduleOverride.findMany({
@@ -115,7 +149,7 @@ export async function queryCalendarDayAppointments(
       ...(branchId ? { branchId } : {}),
       status: { notIn: [...JOURNAL_HIDDEN_STATUSES] },
     },
-    include: appointmentDayInclude,
+    select: appointmentDaySelect,
     orderBy: { startAt: "asc" },
   });
 }
@@ -209,18 +243,9 @@ export async function queryAppointmentsList(
       startAt: { gte: dayStart, lt: dayEnd },
       ...(branchId ? { branchId } : {}),
     },
-    include: {
-      client: true,
-      service: true,
-      staff: true,
-      rentalItem: true,
-      operatorMember: {
-        include: {
-          user: { select: { name: true, lastName: true, login: true, email: true } },
-        },
-      },
-    },
+    select: appointmentDaySelect,
     orderBy: { startAt: "desc" },
+    take: 1500,
   });
 }
 

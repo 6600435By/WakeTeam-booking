@@ -74,18 +74,40 @@ export async function GET(req: NextRequest) {
         startAt: { gte: dayStart, lt: dayEnd },
         ...(branchId ? { branchId } : {}),
       },
-      include: {
-        client: true,
-        service: true,
-        staff: true,
-        rentalItem: true,
+      select: {
+        id: true,
+        publicNumber: true,
+        startAt: true,
+        endAt: true,
+        status: true,
+        price: true,
+        durationMinutes: true,
+        comment: true,
+        membershipId: true,
+        paymentMethod: true,
+        cashAmount: true,
+        cardAmount: true,
+        rentalItemId: true,
+        rentalQuantity: true,
+        rentalAmount: true,
+        cancelReason: true,
+        branchId: true,
+        bookingGroupId: true,
+        operatorMemberId: true,
+        client: { select: { firstName: true, lastName: true, phone: true } },
+        service: { select: { id: true, name: true } },
+        staff: { select: { id: true, name: true } },
         operatorMember: {
-          include: {
-            user: { select: { name: true, lastName: true, login: true, email: true } },
+          select: {
+            id: true,
+            user: {
+              select: { name: true, lastName: true, login: true, email: true },
+            },
           },
         },
       },
       orderBy: { startAt: "desc" },
+      take: 1500,
     });
     return NextResponse.json({ appointments });
   } catch (e) {

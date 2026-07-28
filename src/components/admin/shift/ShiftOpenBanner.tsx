@@ -7,7 +7,7 @@ import { formatBranchOpenLabel, type BranchShiftStatus } from "@/lib/payroll/bra
 import { formatTimeMinsk } from "@/lib/time";
 
 const DISMISS_KEY = "shift-open-banner-dismiss";
-const POLL_MS = 30_000;
+const POLL_MS = 60_000;
 
 type WorkShiftsTodayResponse = {
   today?: { shift?: { status?: string; panelOnly?: boolean } } | null;
@@ -28,8 +28,9 @@ export function ShiftOpenBanner() {
     }
     try {
       const q = new URLSearchParams();
+      q.set("lite", "1");
       if (superBranch?.branchId) q.set("branchId", superBranch.branchId);
-      const suffix = q.size ? `?${q}` : "";
+      const suffix = `?${q}`;
       const r = await fetch(`/api/admin/work-shifts${suffix}`);
       const d = (await r.json()) as WorkShiftsTodayResponse;
       if (!r.ok) return;

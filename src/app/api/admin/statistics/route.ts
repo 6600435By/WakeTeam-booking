@@ -44,6 +44,8 @@ function parseFilters(req: NextRequest): StatisticsFilters {
   };
 }
 
+const TABLE_TAKE = 500;
+
 export async function GET(req: NextRequest) {
   try {
     const ctx = await requireAdminContext();
@@ -51,83 +53,121 @@ export async function GET(req: NextRequest) {
     const filters = parseFilters(req);
     const where = buildStatisticsWhere(ctx, filters);
     const branchId = resolveBranchFilter(ctx, filters.branchId);
+    const includeOptions = req.nextUrl.searchParams.get("options") !== "0";
 
-    const [appointments, branches, staff, services] = await Promise.all([
+    const [summaryAgg, seriesRows, appointments, optionPack] = await Promise.all([
+      prisma.appointment.aggregate({
+        where,
+        _count: { _all: true },
+        _sum: { price: true, durationMinutes: true },
+      }),
       prisma.appointment.findMany({
         where,
-        include: {
-          client: true,
-          service: true,
-          staff: true,
+        select: { startAt: true, price: true, durationMinutes: true },
+        orderBy: { startAt: "asc" },
+      }),
+      prisma.appointment.findMany({
+        where,
+        select: {
+          id: true,
+          publicNumber: true,
+          startAt: true,
+          createdAt: true,
+          status: true,
+          price: true,
+          durationMinutes: true,
+          paymentMethod: true,
+          cashAmount: true,
+          cardAmount: true,
+          comment: true,
+          cancelReason: true,
+          source: true,
+          branchId: true,
+          client: {
+            select: {
+              firstName: true,
+              lastName: true,
+              phone: true,
+              email: true,
+            },
+          },
+          service: { select: { name: true } },
+          staff: { select: { name: true } },
         },
         orderBy: { startAt: "desc" },
-        take: 1000,
+        take: TABLE_TAKE,
       }),
-      prisma.branch.findMany({
-        where: branchListWhere(ctx),
-        orderBy: { sortOrder: "asc" },
-        select: { id: true, name: true },
-      }),
-      prisma.staff.findMany({
-        where: {
-          organizationId: ctx.organizationId,
-          isActive: true,
-          ...(branchId ? { branchId } : {}),
-        },
-        orderBy: { sortOrder: "asc" },
-        select: { id: true, name: true, branchId: true },
-      }),
-      prisma.service.findMany({
-        where: {
-          isActive: true,
-          ...(branchId
-            ? { branchId }
-            : { branch: { organizationId: ctx.organizationId } }),
-        },
-        orderBy: { sortOrder: "asc" },
-        select: { id: true, name: true, branchId: true },
-      }),
+      includeOptions
+        ? Promise.all([
+            prisma.branch.findMany({
+              where: branchListWhere(ctx),
+              orderBy: { sortOrder: "asc" },
+              select: { id: true, name: true },
+            }),
+            prisma.staff.findMany({
+              where: {
+                organizationId: ctx.organizationId,
+                isActive: true,
+                ...(branchId ? { branchId } : {}),
+              },
+              orderBy: { sortOrder: "asc" },
+              select: { id: true, name: true, branchId: true },
+            }),
+            prisma.service.findMany({
+              where: {
+                isActive: true,
+                ...(branchId
+                  ? { branchId }
+                  : { branch: { organizationId: ctx.organizationId } }),
+              },
+              orderBy: { sortOrder: "asc" },
+              select: { id: true, name: true, branchId: true },
+            }),
+          ])
+        : Promise.resolve(null),
     ]);
 
-    const summary = appointments.reduce(
-      (acc, a) => {
-        acc.count += 1;
-        acc.totalPrice += a.price;
-        acc.totalDurationMinutes += a.durationMinutes;
-        return acc;
-      },
-      { count: 0, totalPrice: 0, totalDurationMinutes: 0 },
-    );
+    const summary = {
+      count: summaryAgg._count._all,
+      totalPrice: summaryAgg._sum.price ?? 0,
+      totalDurationMinutes: summaryAgg._sum.durationMinutes ?? 0,
+    };
 
-    const series = aggregateByDay(
-      appointments.map((a) => ({
-        startAt: a.startAt,
-        price: a.price,
-        durationMinutes: a.durationMinutes,
-      })),
-      filters.dateFrom,
-      filters.dateTo,
-    );
+    const series = aggregateByDay(seriesRows, filters.dateFrom, filters.dateTo);
+
+    const options = optionPack
+      ? {
+          branches: optionPack[0],
+          staff: optionPack[1],
+          services: optionPack[2],
+          isSuperAdmin: ctx.isSuperAdmin,
+          lockedBranchId: ctx.isSuperAdmin ? null : ctx.branchId,
+        }
+      : undefined;
 
     return NextResponse.json({
       filters,
       summary,
       series,
       appointments,
-      options: {
-        branches,
-        staff,
-        services,
-        isSuperAdmin: ctx.isSuperAdmin,
-        lockedBranchId: ctx.isSuperAdmin ? null : ctx.branchId,
-      },
+      truncated: summary.count > appointments.length,
+      options,
     });
   } catch (e) {
     const handled = handleAdminError(e);
     if (handled) {
-      return NextResponse.json({ error: handled.error, ...(handled.hint ? { hint: handled.hint } : {}) }, { status: handled.status });
+      return NextResponse.json(
+        { error: handled.error, ...(handled.hint ? { hint: handled.hint } : {}) },
+        { status: handled.status },
+      );
     }
     console.error(e);
-    return NextResponse.json({ error: "Не удалось выполнить действие", hint: "Обновите страницу и повторите действие. Если ошибка повторяется — перелогиньтесь или обратитесь к администратору." }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: "Не удалось выполнить действие",
+        hint: "Обновите страницу и повторите действие. Если ошибка повторяется — перелогиньтесь или обратитесь к администратору.",
+      },
+      { status: 500 },
+    );
   }
 }

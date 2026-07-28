@@ -167,6 +167,9 @@ model Staff {
   reverseAssignments ReverseAssignment[]
   plannedWorkShifts  WorkShift[] @relation("PlannedReverse")
   shiftPlannedReverses WorkShiftPlannedReverse[] @relation("ShiftPlannedReverses")
+
+  @@index([organizationId, branchId, isActive])
+  @@index([branchId, isActive, sortOrder])
 }
 
 /// weekday: 1 = Monday … 7 = Sunday
@@ -224,6 +227,8 @@ model Service {
   staff             ServiceStaff[]
   appointments      Appointment[]
   priceRules        ServicePriceRule[]
+
+  @@index([branchId, isActive, sortOrder])
 }
 
 model ServicePriceRule {
@@ -395,6 +400,8 @@ model WorkShift {
 
   @@unique([memberId, date])
   @@index([branchId, date, status])
+  @@index([organizationId, date])
+  @@index([organizationId, branchId, date])
 }
 
 model ReverseAssignment {

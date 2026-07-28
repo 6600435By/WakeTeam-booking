@@ -2,7 +2,7 @@
 
 import { adminFetch } from "@/lib/admin-fetch";
 import { formatAdminError } from "@/lib/admin/format-admin-error";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DatePickerField } from "@/components/admin/DatePickerField";
 import { StatisticsChart } from "./StatisticsChart";
 import { StatusBadge } from "./StatusBadge";
@@ -120,6 +120,8 @@ export function StatisticsPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [isSuperAdmin, setIsSuperAdmin] = useState(true);
   const [lockedBranchId, setLockedBranchId] = useState<string | null>(null);
+  const [listTruncated, setListTruncated] = useState(false);
+  const optionsBranchRef = useRef<string | null>(null);
 
   const branchMap = useMemo(
     () => new Map(branches.map((b) => [b.id, b.name])),
@@ -152,6 +154,13 @@ export function StatisticsPage() {
     ] as const) {
       if (f[key]) q.set(key, f[key]);
     }
+    const optionsBranchKey = f.branchId || "";
+    if (
+      optionsBranchRef.current !== null &&
+      optionsBranchRef.current === optionsBranchKey
+    ) {
+      q.set("options", "0");
+    }
 
     try {
       const res = await adminFetch(`/api/admin/statistics?${q}`);
@@ -160,14 +169,18 @@ export function StatisticsPage() {
       setSummary(d.summary);
       setSeries(d.series ?? []);
       setAppointments(d.appointments ?? []);
-      setBranches(d.options?.branches ?? []);
-      setStaff(d.options?.staff ?? []);
-      setServices(d.options?.services ?? []);
-      setIsSuperAdmin(d.options?.isSuperAdmin ?? true);
-      setLockedBranchId(d.options?.lockedBranchId ?? null);
-      if (!f.branchId && d.options?.lockedBranchId) {
-        setDraft((prev) => ({ ...prev, branchId: d.options.lockedBranchId }));
-        setFilters((prev) => ({ ...prev, branchId: d.options.lockedBranchId }));
+      setListTruncated(Boolean(d.truncated));
+      if (d.options) {
+        setBranches(d.options.branches ?? []);
+        setStaff(d.options.staff ?? []);
+        setServices(d.options.services ?? []);
+        setIsSuperAdmin(d.options.isSuperAdmin ?? true);
+        setLockedBranchId(d.options.lockedBranchId ?? null);
+        optionsBranchRef.current = optionsBranchKey;
+        if (!f.branchId && d.options.lockedBranchId) {
+          setDraft((prev) => ({ ...prev, branchId: d.options.lockedBranchId }));
+          setFilters((prev) => ({ ...prev, branchId: d.options.lockedBranchId }));
+        }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка");
@@ -569,8 +582,14 @@ export function StatisticsPage() {
         <div className="border-b border-slate-100 px-4 py-3">
           <h2 className="text-sm font-semibold text-slate-800">
             Записи ({appointments.length}
-            {appointments.length >= 1000 ? "+" : ""})
+            {listTruncated ? ` из ${summary.count}` : ""})
           </h2>
+          {listTruncated && (
+            <p className="mb-2 text-xs text-amber-700">
+              Показаны последние {appointments.length} записей. Сводка и график считают все{" "}
+              {summary.count}.
+            </p>
+          )}
         </div>
         {loading ? (
           <p className="p-6 text-sm text-slate-400">Загрузка…</p>

@@ -109,6 +109,54 @@ export async function GET(req: NextRequest) {
     const queue = searchParams.get("queue");
 
     const mineParam = searchParams.get("mine");
+    const lite = searchParams.get("lite") === "1";
+
+    // Lightweight payload for ShiftOpenBanner (polled globally) — no SHIFT_INCLUDE / enrich.
+    if (lite) {
+      const today = formatDateKey(new Date());
+      const myShift = ctx.memberId
+        ? await prisma.workShift.findFirst({
+            where: { memberId: ctx.memberId, date: today },
+            select: {
+              status: true,
+              panelOnly: true,
+              branchId: true,
+            },
+          })
+        : null;
+
+      let resolvedBranchId =
+        branchId ?? myShift?.branchId ?? ctx.branchId ?? null;
+      if (!resolvedBranchId && ctx.isSuperAdmin) {
+        const openShift = await prisma.workShift.findFirst({
+          where: {
+            organizationId: ctx.organizationId,
+            date: today,
+            status: "open",
+          },
+          select: { branchId: true },
+          orderBy: { actualStart: "asc" },
+        });
+        resolvedBranchId = openShift?.branchId ?? null;
+      }
+
+      const branchToday = resolvedBranchId
+        ? await queryBranchShiftStatus(ctx.organizationId, resolvedBranchId, today)
+        : null;
+
+      return NextResponse.json({
+        today: myShift
+          ? {
+              shift: {
+                status: myShift.status,
+                panelOnly: myShift.panelOnly,
+              },
+            }
+          : null,
+        branchToday,
+        date: today,
+      });
+    }
 
     if (queue === "review") {
       if (!canReviewShifts(ctx)) {
