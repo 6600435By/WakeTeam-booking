@@ -70,6 +70,8 @@ type Appointment = {
   comment: string | null;
   membershipId?: string | null;
   paymentMethod?: string | null;
+  cashAmount?: number;
+  cardAmount?: number;
   rentalItemId?: string | null;
   rentalQuantity?: number;
   rentalAmount?: number;
@@ -111,6 +113,8 @@ type ModalInitial = {
   comment?: string;
   membershipId?: string | null;
   paymentMethod?: string | null;
+  cashAmount?: number;
+  cardAmount?: number;
   rentalItemId?: string | null;
   rentalQuantity?: number;
   totalPrice?: number;
@@ -682,6 +686,8 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
         comment: editAppt.comment ?? "",
         membershipId: editAppt.membershipId ?? null,
         paymentMethod: editAppt.paymentMethod ?? null,
+        cashAmount: editAppt.cashAmount ?? 0,
+        cardAmount: editAppt.cardAmount ?? 0,
         rentalItemId: editAppt.rentalItemId ?? null,
         rentalQuantity: editAppt.rentalQuantity ?? 0,
         operatorMemberId: editAppt.operatorMemberId ?? null,

@@ -32,7 +32,7 @@ export async function GET(req: Request) {
   } catch (e) {
     const handled = handleAdminError(e);
     if (handled) {
-      return NextResponse.json({ error: handled.error }, { status: handled.status });
+      return NextResponse.json({ error: handled.error, ...(handled.hint ? { hint: handled.hint } : {}) }, { status: handled.status });
     }
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

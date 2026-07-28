@@ -69,7 +69,7 @@ export async function GET() {
     if (known) return known;
     const handled = handleAdminError(e);
     if (handled) {
-      return NextResponse.json({ error: handled.error }, { status: handled.status });
+      return NextResponse.json({ error: handled.error, ...(handled.hint ? { hint: handled.hint } : {}) }, { status: handled.status });
     }
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -93,9 +93,9 @@ export async function POST(req: NextRequest) {
     if (known) return known;
     const handled = handleAdminError(e);
     if (handled) {
-      return NextResponse.json({ error: handled.error }, { status: handled.status });
+      return NextResponse.json({ error: handled.error, ...(handled.hint ? { hint: handled.hint } : {}) }, { status: handled.status });
     }
     console.error(e);
-    return NextResponse.json({ error: "Ошибка синхронизации" }, { status: 500 });
+    return NextResponse.json({ error: "Ошибка синхронизации", hint: "Обновите страницу и повторите действие. Если ошибка повторяется — перелогиньтесь или обратитесь к администратору." }, { status: 500 });
   }
 }

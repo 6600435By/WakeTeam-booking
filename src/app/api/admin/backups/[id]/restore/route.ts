@@ -130,7 +130,7 @@ export async function POST(req: Request, context: RouteContext) {
   } catch (e) {
     const handled = handleAdminError(e);
     if (handled) {
-      return NextResponse.json({ error: handled.error }, { status: handled.status });
+      return NextResponse.json({ error: handled.error, ...(handled.hint ? { hint: handled.hint } : {}) }, { status: handled.status });
     }
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: "Некорректные данные" }, { status: 400 });
@@ -145,6 +145,6 @@ export async function POST(req: Request, context: RouteContext) {
       );
     }
     console.error(e);
-    return NextResponse.json({ error: "Не удалось запустить восстановление" }, { status: 500 });
+    return NextResponse.json({ error: "Не удалось запустить восстановление", hint: "Обновите страницу и повторите действие. Если ошибка повторяется — перелогиньтесь или обратитесь к администратору." }, { status: 500 });
   }
 }

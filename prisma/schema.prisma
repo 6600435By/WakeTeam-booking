@@ -278,6 +278,8 @@ model Appointment {
   durationMinutes Int
   price           Float
   paymentMethod   String?
+  cashAmount      Float    @default(0)
+  cardAmount      Float    @default(0)
   status          String   @default("booked")
   cancelReason    String?
   source          String   @default("widget")

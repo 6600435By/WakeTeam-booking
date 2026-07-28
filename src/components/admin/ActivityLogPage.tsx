@@ -1,5 +1,7 @@
 "use client";
 
+import { formatAdminError } from "@/lib/admin/admin-api-error";
+
 import { useCallback, useEffect, useState } from "react";
 import { formatDateKey, formatDateMinsk, formatTimeMinsk } from "@/lib/time";
 
@@ -105,7 +107,7 @@ export function ActivityLogPage() {
 
         const r = await fetch(`/api/admin/activity-log?${q}`);
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error ?? "Ошибка загрузки");
+        if (!r.ok) throw new Error(formatAdminError(d, "Ошибка загрузки"));
 
         if (append) {
           setItems((prev) => [...prev, ...(d.items ?? [])]);

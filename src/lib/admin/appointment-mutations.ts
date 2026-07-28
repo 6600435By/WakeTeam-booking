@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/db";
 import {
+  applyAppointmentPaymentAmounts,
+  legacyAmountsFromPaymentMethod,
+} from "@/lib/admin/appointment-payment";
+import {
   applyMembershipDeductionIfNeeded,
   reconcileMembershipOnStatusChange,
   setAppointmentMembership,
@@ -14,7 +18,9 @@ import { formatDateKey } from "@/lib/time";
 export type AdminAppointmentFinalizeInput = {
   membershipId?: string | null;
   desiredStatus?: string;
-  paymentMethod?: "cash" | "card" | "corporate" | null;
+  paymentMethod?: "cash" | "card" | "corporate" | "split" | null;
+  cashAmount?: number;
+  cardAmount?: number;
   price?: number;
   rentalItemId?: string | null;
   rentalQuantity?: number;
@@ -25,7 +31,9 @@ async function applyAdminAppointmentSideEffects(
   input: AdminAppointmentFinalizeInput,
 ): Promise<void> {
   const hasRental = Boolean(input.rentalItemId);
-  const hasPayment = input.paymentMethod != null;
+  const hasAmounts =
+    input.cashAmount !== undefined || input.cardAmount !== undefined;
+  const hasPayment = input.paymentMethod != null || hasAmounts;
   const hasMembership = Boolean(input.membershipId);
   const hasStatusChange =
     Boolean(input.desiredStatus) && input.desiredStatus !== "booked";
@@ -45,17 +53,41 @@ async function applyAdminAppointmentSideEffects(
         },
         { priceOverride: input.price ?? undefined },
       );
-    } else if (hasPayment) {
-      await tx.appointment.update({
-        where: { id: appointmentId },
-        data: {
-          paymentMethod: input.paymentMethod,
-        },
-      });
     }
 
     if (input.membershipId) {
       await setAppointmentMembership(appointmentId, input.membershipId, tx);
+    }
+
+    if (hasPayment) {
+      const amounts = hasAmounts
+        ? {
+            cashAmount: input.cashAmount ?? 0,
+            cardAmount: input.cardAmount ?? 0,
+          }
+        : legacyAmountsFromPaymentMethod(
+            input.paymentMethod,
+            input.price ?? 0,
+          );
+      const appt = await tx.appointment.findUniqueOrThrow({
+        where: { id: appointmentId },
+        select: {
+          membershipId: true,
+          rentalAmount: true,
+          durationMinutes: true,
+          startAt: true,
+          serviceId: true,
+        },
+      });
+      await applyAppointmentPaymentAmounts(tx, appointmentId, amounts, {
+        membershipId: appt.membershipId,
+        rentalAmount: appt.rentalAmount,
+        durationMinutes: appt.durationMinutes,
+        startAt: appt.startAt,
+        serviceId: appt.serviceId,
+        dueOverride: input.price,
+        validate: hasAmounts,
+      });
     }
 
     if (input.desiredStatus && input.desiredStatus !== "booked") {
@@ -85,6 +117,8 @@ export type AdminAppointmentPatchInput = {
   rentalItemId?: string | null;
   rentalQuantity?: number;
   price?: number;
+  cashAmount?: number;
+  cardAmount?: number;
   updateFields: Parameters<typeof updateAppointment>[1];
 };
 
@@ -167,6 +201,53 @@ export async function patchAdminAppointment(
         nextStatus,
         tx,
       );
+    }
+
+    if (input.cashAmount !== undefined || input.cardAmount !== undefined) {
+      const appt = await tx.appointment.findUniqueOrThrow({
+        where: { id: appointmentId },
+        select: {
+          membershipId: true,
+          rentalAmount: true,
+          durationMinutes: true,
+          startAt: true,
+          serviceId: true,
+        },
+      });
+      await applyAppointmentPaymentAmounts(
+        tx,
+        appointmentId,
+        {
+          cashAmount: input.cashAmount ?? 0,
+          cardAmount: input.cardAmount ?? 0,
+        },
+        {
+          membershipId: appt.membershipId,
+          rentalAmount: appt.rentalAmount,
+          durationMinutes: appt.durationMinutes,
+          startAt: appt.startAt,
+          serviceId: appt.serviceId,
+          dueOverride: input.price,
+          validate: true,
+        },
+      );
+    } else if (input.updateFields.paymentMethod !== undefined) {
+      const price =
+        input.price ??
+        input.updateFields.price ??
+        (
+          await tx.appointment.findUniqueOrThrow({
+            where: { id: appointmentId },
+            select: { price: true },
+          })
+        ).price;
+      const amounts = legacyAmountsFromPaymentMethod(
+        input.updateFields.paymentMethod,
+        price,
+      );
+      await applyAppointmentPaymentAmounts(tx, appointmentId, amounts, {
+        validate: false,
+      });
     }
   });
 }

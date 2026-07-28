@@ -1,5 +1,7 @@
 "use client";
 
+import { formatAdminError } from "@/lib/admin/admin-api-error";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { formatDurationMinutes, formatMoney } from "@/lib/payroll/shift-summary";
@@ -152,7 +154,7 @@ export function ShiftPayrollPanel({
       if (memberFilter) q.set("memberIds", memberFilter);
       const r = await fetch(`/api/admin/payroll-stats?${q}`);
       const d = (await r.json()) as PayrollStatsResponse & { error?: string };
-      if (!r.ok) throw new Error(d.error ?? "Ошибка загрузки");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка загрузки"));
       setData(d);
       const drafts: Record<string, string> = {};
       for (const line of d.monthlyLines ?? []) {

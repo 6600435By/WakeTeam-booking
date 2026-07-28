@@ -1,5 +1,7 @@
 "use client";
 
+import { formatAdminError } from "@/lib/admin/admin-api-error";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   parseUserApiError,
@@ -95,7 +97,7 @@ export function UsersAdminPage() {
     fetch("/api/admin/users")
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error ?? "Не удалось загрузить");
+        if (!r.ok) throw new Error(formatAdminError(d, "Не удалось загрузить"));
         setUsers(d.users ?? []);
         setBranches(d.branches ?? []);
         setCanManageUsers(d.canManageUsers ?? false);
@@ -229,7 +231,7 @@ export function UsersAdminPage() {
     const res = await fetch(`/api/admin/users/${user.id}`, { method: "DELETE" });
     const data = await res.json();
     if (!res.ok) {
-      setError(typeof data.error === "string" ? data.error : "Ошибка удаления");
+      setError(formatAdminError(data, "Ошибка удаления"));
       return;
     }
     setMsg("Сотрудник удалён");

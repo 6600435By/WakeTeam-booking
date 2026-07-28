@@ -4,10 +4,10 @@ import {
   assertJournalCreateAccess,
   assertServiceJournalAccess,
   assertStaffJournalAccess,
-  handleAdminError,
   requireAdminContext,
   resolveJournalBranchFilter,
 } from "@/lib/admin-access";
+import { adminCatchResponse } from "@/lib/admin/admin-api-error";
 import { finalizeAdminAppointmentCreate } from "@/lib/admin/appointment-mutations";
 import { appointmentSaveErrorResponse } from "@/lib/admin/appointment-save-errors";
 import { logAppointmentCreate } from "@/lib/audit/appointment-audit";
@@ -39,7 +39,9 @@ const createSchema = z.object({
   comment: z.string().optional(),
   status: z.string().optional(),
   membershipId: z.string().nullable().optional(),
-  paymentMethod: z.enum(["cash", "card", "corporate"]).nullable().optional(),
+  paymentMethod: z.enum(["cash", "card", "corporate", "split"]).nullable().optional(),
+  cashAmount: z.number().nonnegative().optional(),
+  cardAmount: z.number().nonnegative().optional(),
   price: z.number().nonnegative().optional(),
   priceManual: z.boolean().optional(),
   rentalItemId: z.string().nullable().optional(),
@@ -87,11 +89,10 @@ export async function GET(req: NextRequest) {
     });
     return NextResponse.json({ appointments });
   } catch (e) {
-    const handled = handleAdminError(e);
-    if (handled) {
-      return NextResponse.json({ error: handled.error }, { status: handled.status });
-    }
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return adminCatchResponse(
+      e,
+      "Проверьте даты и филиал. Обновите страницу и повторите.",
+    );
   }
 }
 
@@ -111,7 +112,7 @@ export async function POST(req: NextRequest) {
     }
     assertJournalCreateAccess(ctx, staff.branchId);
 
-    const { membershipId, paymentMethod, status: desiredStatus, rentalItemId, rentalQuantity, operatorMemberId, price, ...bookingBody } = body;
+    const { membershipId, paymentMethod, cashAmount, cardAmount, status: desiredStatus, rentalItemId, rentalQuantity, operatorMemberId, price, ...bookingBody } = body;
 
     const service = await prisma.service.findUnique({
       where: { id: body.serviceId },
@@ -152,6 +153,9 @@ export async function POST(req: NextRequest) {
         membershipId,
         desiredStatus,
         paymentMethod,
+        cashAmount,
+        cardAmount,
+        price,
         rentalItemId,
         rentalQuantity,
       });
@@ -198,17 +202,9 @@ export async function POST(req: NextRequest) {
     if (mapped) {
       return NextResponse.json(mapped.body, { status: mapped.status });
     }
-    const handled = handleAdminError(e);
-    if (handled) {
-      return NextResponse.json({ error: handled.error }, { status: handled.status });
-    }
-    console.error(e);
-    return NextResponse.json(
-      {
-        error: "Ошибка сервера",
-        hint: "Проверьте услугу, реверс, время и телефон клиента. Если ошибка повторяется — обновите страницу или перелогиньтесь.",
-      },
-      { status: 500 },
+    return adminCatchResponse(
+      e,
+      "Проверьте услугу, реверс, время, телефон и суммы оплаты. Если ошибка повторяется — обновите страницу или перелогиньтесь.",
     );
   }
 }

@@ -699,18 +699,38 @@ export function canAssignRole(
   return false;
 }
 
-export function handleAdminError(e: unknown) {
+export function handleAdminError(e: unknown): {
+  status: number;
+  error: string;
+  hint?: string;
+} | null {
   if (e instanceof AdminAccessError) {
     if (e.message === "UNAUTHORIZED") {
-      return { status: 401, error: "Unauthorized" };
+      return {
+        status: 401,
+        error: "Нужна авторизация",
+        hint: "Войдите в админку снова и повторите действие.",
+      };
     }
     if (e.message === "NOT_FOUND") {
-      return { status: 404, error: "Not found" };
+      return {
+        status: 404,
+        error: "Объект не найден",
+        hint: "Обновите список и попробуйте снова.",
+      };
     }
-    return { status: e.status, error: "Нет доступа" };
+    return {
+      status: e.status,
+      error: "Нет доступа",
+      hint: "Проверьте роль и выбранный филиал. Если нужны права — обратитесь к администратору.",
+    };
   }
   if (e instanceof Error && e.message === "UNAUTHORIZED") {
-    return { status: 401, error: "Unauthorized" };
+    return {
+      status: 401,
+      error: "Нужна авторизация",
+      hint: "Войдите в админку снова и повторите действие.",
+    };
   }
   return null;
 }

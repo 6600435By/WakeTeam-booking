@@ -1,5 +1,7 @@
 "use client";
 
+import { formatAdminError } from "@/lib/admin/admin-api-error";
+
 import { useMemo, useState } from "react";
 import { DatePickerField } from "@/components/admin/DatePickerField";
 import { WeekdayPicker } from "@/components/admin/ServicePriceRulesEditor";
@@ -180,7 +182,7 @@ export function ShiftBulkFillModal({
         }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка"));
 
       const parts: string[] = [];
       if (d.created) parts.push(`создано ${d.created}`);

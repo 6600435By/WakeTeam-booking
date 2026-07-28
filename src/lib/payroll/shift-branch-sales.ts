@@ -21,16 +21,26 @@ export async function computeBranchShiftSales(
       status: { in: [...COUNTED_STATUSES] },
       startAt: { gte: windowStart, lt: windowEnd },
     },
-    select: { price: true, paymentMethod: true },
+    select: {
+      price: true,
+      paymentMethod: true,
+      cashAmount: true,
+      cardAmount: true,
+    },
   });
 
   let cash = 0;
   let cashless = 0;
   for (const a of appointments) {
+    const hasAmounts = a.cashAmount > 0 || a.cardAmount > 0;
+    if (hasAmounts) {
+      cash += a.cashAmount;
+      cashless += a.cardAmount;
+      continue;
+    }
+    // Legacy rows before migration / zero amounts
     if (a.paymentMethod === "cash") {
       cash += a.price;
-    } else if (a.paymentMethod === "card" || a.paymentMethod === "corporate") {
-      cashless += a.price;
     } else {
       cashless += a.price;
     }

@@ -1,6 +1,7 @@
 "use client";
 
 import { adminFetch } from "@/lib/admin-fetch";
+import { formatAdminError } from "@/lib/admin/admin-api-error";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DatePickerField } from "@/components/admin/DatePickerField";
 import { StatisticsChart } from "./StatisticsChart";
@@ -153,7 +154,7 @@ export function StatisticsPage() {
     try {
       const res = await adminFetch(`/api/admin/statistics?${q}`);
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error ?? "Ошибка загрузки");
+      if (!res.ok) throw new Error(formatAdminError(d, "Ошибка загрузки"));
       setSummary(d.summary);
       setSeries(d.series ?? []);
       setAppointments(d.appointments ?? []);

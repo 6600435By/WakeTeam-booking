@@ -236,10 +236,10 @@ export async function GET(req: NextRequest) {
   } catch (e) {
     const handled = handleAdminError(e);
     if (handled) {
-      return NextResponse.json({ error: handled.error }, { status: handled.status });
+      return NextResponse.json({ error: handled.error, ...(handled.hint ? { hint: handled.hint } : {}) }, { status: handled.status });
     }
     console.error(e);
-    return NextResponse.json({ error: "Ошибка" }, { status: 500 });
+    return NextResponse.json({ error: "Не удалось выполнить действие", hint: "Обновите страницу и повторите действие. Если ошибка повторяется — перелогиньтесь или обратитесь к администратору." }, { status: 500 });
   }
 }
 
@@ -431,9 +431,9 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     const handled = handleAdminError(e);
     if (handled) {
-      return NextResponse.json({ error: handled.error }, { status: handled.status });
+      return NextResponse.json({ error: handled.error, ...(handled.hint ? { hint: handled.hint } : {}) }, { status: handled.status });
     }
     console.error(e);
-    return NextResponse.json({ error: "Ошибка" }, { status: 500 });
+    return NextResponse.json({ error: "Не удалось выполнить действие", hint: "Обновите страницу и повторите действие. Если ошибка повторяется — перелогиньтесь или обратитесь к администратору." }, { status: 500 });
   }
 }

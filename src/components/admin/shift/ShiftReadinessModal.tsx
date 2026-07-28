@@ -1,5 +1,7 @@
 "use client";
 
+import { formatAdminError } from "@/lib/admin/admin-api-error";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -151,7 +153,7 @@ export function ShiftReadinessModal({
       const q = new URLSearchParams({ branchId, date });
       const r = await fetch(`/api/admin/shift-readiness?${q}`);
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка загрузки");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка загрузки"));
       setData(d);
       // Don't clobber in-progress branch hours edits on poll refresh.
       if (!editBranchHoursRef.current) {
@@ -239,7 +241,7 @@ export function ShiftReadinessModal({
         body: JSON.stringify(body),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка сохранения");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка сохранения"));
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка");
@@ -259,7 +261,7 @@ export function ShiftReadinessModal({
     try {
       const r = await fetch(`/api/admin/shift-schedule/${shiftId}`, { method: "DELETE" });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка удаления");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка удаления"));
       setEditShiftId(null);
       await load();
     } catch (e) {
@@ -285,7 +287,7 @@ export function ShiftReadinessModal({
         }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка"));
       setEditBranchHours(false);
       await load();
       await loadServices();
@@ -313,7 +315,7 @@ export function ShiftReadinessModal({
         }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка"));
       setEditResourceId(null);
       await load();
     } catch (e) {
@@ -370,7 +372,7 @@ export function ShiftReadinessModal({
         }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка"));
       setAddOpen(false);
       setAddMemberId("");
       setAddStaffIds([]);
@@ -402,7 +404,7 @@ export function ShiftReadinessModal({
         }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка"));
       if (d.service) {
         setServices((prev) =>
           prev.map((s) => (s.id === d.service.id ? { ...s, ...d.service } : s)),
@@ -430,7 +432,7 @@ export function ShiftReadinessModal({
         body: JSON.stringify(payload),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка"));
       onShiftOpened?.(d);
       onClose();
     } catch (e) {

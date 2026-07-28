@@ -1,5 +1,7 @@
 "use client";
 
+import { formatAdminError } from "@/lib/admin/admin-api-error";
+
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ClipboardCheck, X } from "lucide-react";
@@ -193,7 +195,7 @@ export function ShiftAdminPage({
       const suffix = q.size ? `?${q}` : "";
       const r = await fetch(`/api/admin/work-shifts${suffix}`);
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка"));
       setData(d.today ?? null);
       setBranchToday(d.branchToday ?? null);
     } catch (e) {
@@ -343,7 +345,7 @@ export function ShiftAdminPage({
     });
     const d = await r.json();
     if (!r.ok) {
-      setError(d.error ?? "Ошибка");
+      setError(formatAdminError(d, "Ошибка"));
       return;
     }
     setData(d);
@@ -397,7 +399,7 @@ export function ShiftAdminPage({
     });
     const d = await r.json();
     if (!r.ok) {
-      setError(d.error ?? "Ошибка");
+      setError(formatAdminError(d, "Ошибка"));
       return;
     }
     setShowHandoff(false);
@@ -416,7 +418,7 @@ export function ShiftAdminPage({
     });
     const d = await r.json();
     if (!r.ok) {
-      setError(d.error ?? "Ошибка");
+      setError(formatAdminError(d, "Ошибка"));
       return;
     }
     setData(d);
@@ -439,7 +441,7 @@ export function ShiftAdminPage({
     });
     const d = await r.json();
     if (!r.ok) {
-      setError(d.error ?? "Ошибка");
+      setError(formatAdminError(d, "Ошибка"));
       return;
     }
     setData(d);
@@ -493,7 +495,7 @@ export function ShiftAdminPage({
         }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка"));
       closeWorkModal();
       loadTasks();
     } catch (e) {
@@ -528,7 +530,7 @@ export function ShiftAdminPage({
         }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка"));
       closeWorkModal();
       setData(d);
       loadTasks();

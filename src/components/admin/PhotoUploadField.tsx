@@ -1,5 +1,7 @@
 "use client";
 
+import { formatAdminError } from "@/lib/admin/admin-api-error";
+
 import { useEffect, useRef, useState } from "react";
 import { PhotoCropModal } from "./PhotoCropModal";
 import { validateImageUpload, formatMaxUploadSize } from "@/lib/upload-image";
@@ -93,7 +95,7 @@ export function PhotoUploadField({
       form.append("kind", kind);
       const res = await fetch("/api/admin/upload", { method: "POST", body: form });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Ошибка загрузки");
+      if (!res.ok) throw new Error(formatAdminError(data, "Ошибка загрузки"));
       onChange(data.url);
       closeCropper();
     } catch (e) {

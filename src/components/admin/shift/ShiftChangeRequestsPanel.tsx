@@ -1,5 +1,7 @@
 "use client";
 
+import { formatAdminError } from "@/lib/admin/admin-api-error";
+
 import { useCallback, useEffect, useState } from "react";
 import { DatePickerField } from "@/components/admin/DatePickerField";
 import {
@@ -79,7 +81,7 @@ export function ShiftChangeRequestsPanel({
       const q = branchId ? `?branchId=${branchId}` : "";
       const r = await fetch(`/api/admin/shift-change-requests${q}`);
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка"));
       setRequests(d.requests ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка");
@@ -134,7 +136,7 @@ export function ShiftChangeRequestsPanel({
     });
     const d = await r.json();
     if (!r.ok) {
-      setError(d.error ?? "Ошибка");
+      setError(formatAdminError(d, "Ошибка"));
       return;
     }
     setFormOpen(false);
@@ -164,7 +166,7 @@ export function ShiftChangeRequestsPanel({
     });
     const d = await r.json();
     if (!r.ok) {
-      setError(d.error ?? "Ошибка");
+      setError(formatAdminError(d, "Ошибка"));
       return;
     }
     load();

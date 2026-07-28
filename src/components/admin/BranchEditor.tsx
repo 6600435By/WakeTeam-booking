@@ -1,5 +1,7 @@
 "use client";
 
+import { formatAdminError } from "@/lib/admin/admin-api-error";
+
 import { useCallback, useEffect, useState } from "react";
 import { PhotoUploadField } from "./PhotoUploadField";
 import { isLocalUploadPhotoUrl } from "@/lib/photo-url";
@@ -101,7 +103,7 @@ export function BranchEditor({ branchId }: Props) {
     fetch(`/api/admin/branches/${branchId}`)
       .then((r) => r.json())
       .then(async (d) => {
-        if (!d.branch) throw new Error(d.error ?? "Не удалось загрузить");
+        if (!d.branch) throw new Error(formatAdminError(d, "Не удалось загрузить"));
         const legacyServices = (d.branch.services as ServiceRow[]).filter(
           isLegacyTariffService,
         );
@@ -202,7 +204,7 @@ export function BranchEditor({ branchId }: Props) {
     } else {
       const data = await res.json().catch(() => ({}));
       setBranchMsg(
-        typeof data.error === "string" ? data.error : "Ошибка сохранения фото",
+        formatAdminError(data, "Ошибка сохранения фото"),
       );
     }
   }
@@ -453,9 +455,7 @@ export function BranchEditor({ branchId }: Props) {
       setStaffDeleteMsg((m) => ({
         ...m,
         [staff.id]:
-          typeof data.error === "string"
-            ? data.error
-            : "Не удалось удалить ресурс",
+          formatAdminError(data, "Не удалось удалить ресурс"),
       }));
       return;
     }
@@ -486,9 +486,7 @@ export function BranchEditor({ branchId }: Props) {
       setServiceDeleteMsg((m) => ({
         ...m,
         [service.id]:
-          typeof data.error === "string"
-            ? data.error
-            : "Не удалось удалить услугу",
+          formatAdminError(data, "Не удалось удалить услугу"),
       }));
       return;
     }
@@ -511,7 +509,7 @@ export function BranchEditor({ branchId }: Props) {
     const data = await res.json();
     setAdding(false);
     if (!res.ok) {
-      setAddMsg(data.error ?? "Не удалось добавить ресурс");
+      setAddMsg(formatAdminError(data, "Не удалось добавить ресурс"));
       return;
     }
     setAddMsg(
@@ -536,7 +534,7 @@ export function BranchEditor({ branchId }: Props) {
     const data = await res.json();
     setAdding(false);
     if (!res.ok) {
-      setAddMsg(typeof data.error === "string" ? data.error : "Не удалось добавить услугу");
+      setAddMsg(formatAdminError(data, "Не удалось добавить услугу"));
       return;
     }
     setAddMsg(kind === "wake" ? "Услуга вейка добавлена" : "Услуга сапов добавлена");
@@ -555,7 +553,7 @@ export function BranchEditor({ branchId }: Props) {
     const data = await res.json();
     setAdding(false);
     if (!res.ok) {
-      setAddMsg(typeof data.error === "string" ? data.error : "Не удалось добавить услугу");
+      setAddMsg(formatAdminError(data, "Не удалось добавить услугу"));
       return;
     }
     setNewServiceName("");

@@ -1,5 +1,7 @@
 "use client";
 
+import { formatAdminError } from "@/lib/admin/admin-api-error";
+
 import { useEffect, useState } from "react";
 import type { BackupListItem, BackupStorageWarning, RestoreStatus } from "@/lib/backups/types";
 import { RestoreChecklist, RestoreProgress } from "./RestoreChecklist";
@@ -58,7 +60,7 @@ export function RestoreBackupWizard({ backup, warning, onClose, onDone }: Props)
         }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка"));
       setRestoreId(d.restoreId);
       setStep(4);
       const statusRes = await fetch(`/api/admin/backups/restore/${d.restoreId}`);

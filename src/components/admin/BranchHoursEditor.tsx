@@ -1,5 +1,7 @@
 "use client";
 
+import { formatAdminError } from "@/lib/admin/admin-api-error";
+
 import { useCallback, useEffect, useState } from "react";
 import { DatePickerField } from "@/components/admin/DatePickerField";
 import { formatDateKeyRu } from "@/lib/time";
@@ -38,7 +40,7 @@ export function BranchHoursEditor({ branchId }: Props) {
     try {
       const r = await fetch(`/api/admin/branches/${branchId}/hours`);
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка загрузки");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка загрузки"));
       setSchedules(d.weekdaySchedules ?? []);
       setHolidays(d.holidays ?? []);
     } catch (e) {
@@ -69,7 +71,7 @@ export function BranchHoursEditor({ branchId }: Props) {
         body: JSON.stringify({ weekdaySchedules: schedules, syncStaff: true }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка сохранения");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка сохранения"));
       setSchedules(d.weekdaySchedules ?? schedules);
       setMsg("Сохранено. График применён ко всем реверсам, сапам и ресурсам.");
     } catch (e) {
@@ -99,7 +101,7 @@ export function BranchHoursEditor({ branchId }: Props) {
         }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка"));
       setHolidays(d.holidays ?? []);
       setHolidayDate("");
       setHolidayLabel("");
@@ -122,7 +124,7 @@ export function BranchHoursEditor({ branchId }: Props) {
         body: JSON.stringify({ deleteHolidayDate: date }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка"));
       setHolidays(d.holidays ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка");

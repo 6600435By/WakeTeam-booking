@@ -43,12 +43,12 @@ export async function GET(req: NextRequest, context: RouteContext) {
   } catch (e) {
     const handled = handleAdminError(e);
     if (handled) {
-      return NextResponse.json({ error: handled.error }, { status: handled.status });
+      return NextResponse.json({ error: handled.error, ...(handled.hint ? { hint: handled.hint } : {}) }, { status: handled.status });
     }
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: "Укажите part=db или part=files" }, { status: 400 });
     }
     console.error(e);
-    return NextResponse.json({ error: "Ошибка скачивания" }, { status: 500 });
+    return NextResponse.json({ error: "Ошибка скачивания", hint: "Обновите страницу и повторите действие. Если ошибка повторяется — перелогиньтесь или обратитесь к администратору." }, { status: 500 });
   }
 }

@@ -1061,6 +1061,8 @@ export async function updateAppointment(
     phone?: string;
     price?: number;
     paymentMethod?: string | null;
+    cashAmount?: number;
+    cardAmount?: number;
     operatorMemberId?: string | null;
   },
   opts?: {
@@ -1193,6 +1195,8 @@ export async function updateAppointment(
         ...(data.paymentMethod !== undefined
           ? { paymentMethod: data.paymentMethod }
           : {}),
+        ...(data.cashAmount !== undefined ? { cashAmount: data.cashAmount } : {}),
+        ...(data.cardAmount !== undefined ? { cardAmount: data.cardAmount } : {}),
         ...(data.operatorMemberId !== undefined
           ? { operatorMemberId: data.operatorMemberId }
           : {}),

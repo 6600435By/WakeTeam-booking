@@ -1,5 +1,7 @@
 "use client";
 
+import { formatAdminError } from "@/lib/admin/admin-api-error";
+
 import { useCallback, useEffect, useState } from "react";
 import { ShiftReportCard, type ShiftData } from "./ShiftReportCard";
 import { DatePickerField } from "@/components/admin/DatePickerField";
@@ -55,7 +57,7 @@ export function MyShiftsPanel({ onGoToShift }: Props) {
       const q = new URLSearchParams({ from, to, mine: "1" });
       const r = await fetch(`/api/admin/work-shifts?${q}`);
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка"));
       const list = (d.shifts ?? []) as ShiftData[];
       setShifts(list);
       setSelectedId((prev) => prev ?? list[0]?.shift.id ?? null);
@@ -87,7 +89,7 @@ export function MyShiftsPanel({ onGoToShift }: Props) {
     });
     const d = await r.json();
     if (!r.ok) {
-      setError(d.error ?? "Ошибка");
+      setError(formatAdminError(d, "Ошибка"));
       return;
     }
     setSubmitComment("");
@@ -110,7 +112,7 @@ export function MyShiftsPanel({ onGoToShift }: Props) {
     });
     const d = await r.json();
     if (!r.ok) {
-      setError(d.error ?? "Ошибка");
+      setError(formatAdminError(d, "Ошибка"));
       return;
     }
     setWorkOpen(false);

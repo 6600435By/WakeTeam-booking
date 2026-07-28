@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  formatAdminError,
+  humanizeZodIssue,
+  zodToAdminError,
+  type AdminApiErrorBody,
+} from "@/lib/admin/admin-api-error";
 
 /** User-facing messages for appointment create/update failures in the journal. */
 
@@ -14,7 +20,7 @@ const BOOKING_CODE_MESSAGES: Record<
   MEMBERSHIP_INSUFFICIENT_MINUTES: {
     error: "Недостаточно минут на абонементе",
     status: 409,
-    hint: "Выберите другой абонемент или способ оплаты.",
+    hint: "Разделите запись, уменьшите длительность сегмента, выберите другой абонемент или оплатите остаток наличными/картой.",
   },
   MEMBERSHIP_ROLLBACK_FAILED: {
     error: "Не удалось откатить списание абонемента",
@@ -51,47 +57,24 @@ const BOOKING_CODE_MESSAGES: Record<
     status: 400,
     hint: "Укажите количество от 1 и не больше свободных мест.",
   },
+  PAYMENT_AMOUNTS_MISMATCH: {
+    error: "Сумма наличных и карты не равна сумме к оплате",
+    status: 400,
+    hint: "Исправьте поля «Наличные» и «Карта», чтобы их сумма совпала с суммой к оплате.",
+  },
+  SPLIT_TOO_SHORT: {
+    error: "Слишком короткая запись для разделения",
+    status: 400,
+    hint: "Нужно минимум 2 минуты. Увеличьте длительность или выберите другую запись.",
+  },
+  SPLIT_SLOT_UNAVAILABLE: {
+    error: "Не удалось разделить запись",
+    status: 409,
+    hint: "Второй сегмент пересекается с другой записью. Освободите слот или измените время.",
+  },
 };
 
-const FIELD_LABELS: Record<string, string> = {
-  phone: "Телефон",
-  firstName: "Имя",
-  lastName: "Фамилия",
-  email: "Email",
-  serviceId: "Услуга",
-  staffId: "Реверс",
-  startAt: "Время начала",
-  durationMinutes: "Длительность",
-  status: "Статус",
-  comment: "Комментарий",
-  membershipId: "Абонемент",
-  paymentMethod: "Способ оплаты",
-  price: "Цена",
-  rentalItemId: "Прокат",
-  rentalQuantity: "Кол-во проката",
-  operatorMemberId: "Оператор",
-};
-
-function humanizeZodIssue(field: string, message: string): string {
-  const label = FIELD_LABELS[field] ?? field;
-  if (/required|обязатель/i.test(message) || message === "Required") {
-    return `${label}: обязательное поле`;
-  }
-  if (/String must contain at least|too_small|min/i.test(message)) {
-    if (field === "phone") return "Укажите корректный телефон (не менее 6 символов)";
-    if (field === "firstName") return "Укажите имя клиента";
-    return `${label}: значение слишком короткое`;
-  }
-  if (/invalid|Invalid/i.test(message)) {
-    return `${label}: некорректное значение`;
-  }
-  return `${label}: ${message}`;
-}
-
-export type AppointmentSaveErrorBody = {
-  error: string;
-  hint?: string;
-};
+export type AppointmentSaveErrorBody = AdminApiErrorBody;
 
 /** Map thrown booking codes / Zod errors to a JSON body for admin appointment routes. */
 export function appointmentSaveErrorResponse(
@@ -100,10 +83,17 @@ export function appointmentSaveErrorResponse(
   if (e instanceof Error) {
     const mapped = BOOKING_CODE_MESSAGES[e.message];
     if (mapped) {
+      let hint = mapped.hint;
+      if (e.message === "PAYMENT_AMOUNTS_MISMATCH") {
+        const extra = e as Error & { due?: number; sum?: number };
+        if (typeof extra.due === "number" && typeof extra.sum === "number") {
+          hint = `К оплате ${extra.due.toFixed(2)}, сейчас ${extra.sum.toFixed(2)}. Исправьте наличные и карту.`;
+        }
+      }
       return {
         body: {
           error: mapped.error,
-          ...(mapped.hint ? { hint: mapped.hint } : {}),
+          ...(hint ? { hint } : {}),
         },
         status: mapped.status,
       };
@@ -111,65 +101,19 @@ export function appointmentSaveErrorResponse(
   }
 
   if (e instanceof z.ZodError) {
-    const flat = e.flatten();
-    const fieldErrors = flat.fieldErrors as Record<string, string[] | undefined>;
-    const parts: string[] = [];
-    for (const [key, msgs] of Object.entries(fieldErrors)) {
-      const msg = Array.isArray(msgs) ? msgs[0] : undefined;
-      if (msg) parts.push(humanizeZodIssue(key, msg));
-    }
-    for (const msg of flat.formErrors ?? []) {
-      if (msg) parts.push(msg);
-    }
-    return {
-      body: {
-        error: parts[0] ?? "Проверьте заполнение полей",
-        hint:
-          parts.length > 1
-            ? parts.slice(1).join(". ")
-            : "Исправьте отмеченные поля и сохраните снова.",
-      },
-      status: 400,
-    };
+    const mapped = zodToAdminError(e);
+    return { body: { error: mapped.error, hint: mapped.hint }, status: mapped.status };
   }
 
   return null;
 }
 
-/** Build a single user-facing message from API `{ error, hint? }` (or legacy shapes). */
-export function formatAppointmentSaveError(data: unknown, fallback = "Ошибка сохранения"): string {
-  if (!data || typeof data !== "object") return fallback;
-  const payload = data as { error?: unknown; hint?: unknown };
-
-  let message = "";
-  if (typeof payload.error === "string") {
-    message = payload.error;
-  } else if (payload.error && typeof payload.error === "object") {
-    const flat = payload.error as {
-      formErrors?: string[];
-      fieldErrors?: Record<string, string[] | undefined>;
-    };
-    const fieldErrors = (flat.fieldErrors ?? {}) as Record<
-      string,
-      string[] | undefined
-    >;
-    const parts: string[] = [];
-    for (const [key, msgs] of Object.entries(fieldErrors)) {
-      const msg = Array.isArray(msgs) ? msgs[0] : undefined;
-      if (msg) parts.push(humanizeZodIssue(key, msg));
-    }
-    for (const msg of flat.formErrors ?? []) {
-      if (msg) parts.push(msg);
-    }
-    message = parts[0] ?? "Проверьте заполнение полей";
-    if (parts.length > 1) {
-      return `${message}. ${parts.slice(1).join(". ")}`;
-    }
-  }
-
-  if (!message) return fallback;
-  if (typeof payload.hint === "string" && payload.hint.trim()) {
-    return `${message}. ${payload.hint.trim()}`;
-  }
-  return message;
+/** @deprecated prefer formatAdminError — kept for existing imports */
+export function formatAppointmentSaveError(
+  data: unknown,
+  fallback = "Ошибка сохранения",
+): string {
+  return formatAdminError(data, fallback);
 }
+
+export { humanizeZodIssue };

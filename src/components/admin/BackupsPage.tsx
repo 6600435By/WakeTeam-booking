@@ -1,5 +1,7 @@
 "use client";
 
+import { formatAdminError } from "@/lib/admin/admin-api-error";
+
 import { useCallback, useEffect, useState } from "react";
 import type {
   BackupListItem,
@@ -30,7 +32,7 @@ export function BackupsPage() {
     try {
       const r = await fetch("/api/admin/backups");
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка загрузки");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка загрузки"));
       setItems(d.items ?? []);
       setWarning(d.warning ?? null);
       setSeasonActive(Boolean(d.seasonActive));
@@ -51,7 +53,7 @@ export function BackupsPage() {
   async function downloadBackup(id: string, part: "db" | "files") {
     const r = await fetch(`/api/admin/backups/${id}/download?part=${part}`);
     const d = await r.json();
-    if (!r.ok) throw new Error(d.error ?? "Ошибка скачивания");
+    if (!r.ok) throw new Error(formatAdminError(d, "Ошибка скачивания"));
     window.open(d.url, "_blank");
   }
 

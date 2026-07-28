@@ -1,5 +1,7 @@
 "use client";
 
+import { formatAdminError } from "@/lib/admin/admin-api-error";
+
 import { useState } from "react";
 
 export type RentalItemRow = {
@@ -67,7 +69,7 @@ export function RentalItemsEditor({ branchId, items, onSaved }: Props) {
         body: JSON.stringify({ items: payload }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Ошибка сохранения");
+      if (!res.ok) throw new Error(formatAdminError(data, "Ошибка сохранения"));
       const saved: RentalItemRow[] = (data.items ?? []).map(
         (i: RentalItemRow) => ({
           id: i.id,

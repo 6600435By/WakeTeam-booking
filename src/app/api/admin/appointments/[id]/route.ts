@@ -1,20 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { patchAdminAppointment } from "@/lib/admin/appointment-mutations";
-import { appointmentSaveErrorResponse } from "@/lib/admin/appointment-save-errors";
-import {
-  logAppointmentCancel,
-  logAppointmentUpdate,
-} from "@/lib/audit/appointment-audit";
 import {
   assertAppointmentAccess,
   assertJournalEditAccess,
   assertServiceAccess,
   assertStaffAccess,
   canEditJournalInBranch,
-  handleAdminError,
   requireAdminContext,
 } from "@/lib/admin-access";
+import { adminCatchResponse } from "@/lib/admin/admin-api-error";
+import { patchAdminAppointment } from "@/lib/admin/appointment-mutations";
+import { appointmentSaveErrorResponse } from "@/lib/admin/appointment-save-errors";
+import {
+  logAppointmentCancel,
+  logAppointmentUpdate,
+} from "@/lib/audit/appointment-audit";
 import { prisma } from "@/lib/db";
 import { reconcileMembershipOnDelete } from "@/lib/memberships/deduct";
 import { reconcileDailyRentalCharges } from "@/lib/rental-pricing";
@@ -37,7 +37,9 @@ const patchSchema = z.object({
   firstName: z.string().optional(),
   lastName: z.string().optional(),
   phone: z.string().optional(),
-  paymentMethod: z.enum(["cash", "card", "corporate"]).nullable().optional(),
+  paymentMethod: z.enum(["cash", "card", "corporate", "split"]).nullable().optional(),
+  cashAmount: z.number().nonnegative().optional(),
+  cardAmount: z.number().nonnegative().optional(),
   price: z.number().nonnegative().optional(),
   priceManual: z.boolean().optional(),
   rentalItemId: z.string().nullable().optional(),
@@ -73,11 +75,10 @@ export async function GET(
     }
     return NextResponse.json({ appointment });
   } catch (e) {
-    const handled = handleAdminError(e);
-    if (handled) {
-      return NextResponse.json({ error: handled.error }, { status: handled.status });
-    }
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return adminCatchResponse(
+      e,
+      "Обновите страницу и откройте запись снова.",
+    );
   }
 }
 
@@ -110,7 +111,15 @@ export async function PATCH(
     if (body.serviceId) await assertServiceAccess(ctx, body.serviceId);
 
     const oldDateKey = formatDateKey(existing.startAt);
-    const { membershipId, rentalItemId, rentalQuantity, operatorMemberId, ...rest } = body;
+    const {
+      membershipId,
+      rentalItemId,
+      rentalQuantity,
+      operatorMemberId,
+      cashAmount,
+      cardAmount,
+      ...rest
+    } = body;
 
     const nextServiceId = body.serviceId ?? existing.serviceId;
     const nextServiceKind = body.serviceId
@@ -152,7 +161,13 @@ export async function PATCH(
       nextServiceKind,
     );
     if (operatorError) {
-      return NextResponse.json({ error: operatorError }, { status: 400 });
+      return NextResponse.json(
+        {
+          error: operatorError,
+          hint: "Укажите оператора на смене перед завершением записи вейка.",
+        },
+        { status: 400 },
+      );
     }
 
     try {
@@ -183,6 +198,8 @@ export async function PATCH(
           rentalItemId,
           rentalQuantity,
           price: body.price,
+          cashAmount,
+          cardAmount,
           updateFields,
         },
       );
@@ -241,17 +258,9 @@ export async function PATCH(
     if (mapped) {
       return NextResponse.json(mapped.body, { status: mapped.status });
     }
-    const handled = handleAdminError(e);
-    if (handled) {
-      return NextResponse.json({ error: handled.error }, { status: handled.status });
-    }
-    console.error(e);
-    return NextResponse.json(
-      {
-        error: "Ошибка сервера",
-        hint: "Проверьте услугу, реверс, время и телефон клиента. Если ошибка повторяется — обновите страницу или перелогиньтесь.",
-      },
-      { status: 500 },
+    return adminCatchResponse(
+      e,
+      "Проверьте услугу, реверс, время, телефон и суммы оплаты. Если ошибка повторяется — обновите страницу или перелогиньтесь.",
     );
   }
 }
@@ -306,16 +315,9 @@ export async function DELETE(
     logAppointmentCancel(ctx, existingForDelete, body.reason);
     return NextResponse.json({ ok: true, appointment });
   } catch (e) {
-    if (e instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "Укажите причину удаления" },
-        { status: 400 },
-      );
-    }
-    const handled = handleAdminError(e);
-    if (handled) {
-      return NextResponse.json({ error: handled.error }, { status: handled.status });
-    }
-    return NextResponse.json({ error: "Ошибка" }, { status: 500 });
+    return adminCatchResponse(
+      e,
+      "Укажите причину удаления и повторите. Если ошибка повторяется — обновите страницу.",
+    );
   }
 }

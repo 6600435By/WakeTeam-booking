@@ -18,16 +18,20 @@ import {
 import { normalizeAdminDuration } from "@/lib/admin-duration";
 import { isSearchablePhone } from "@/lib/phone";
 import { hydratePriceRules, priceRuleDtoFromRow } from "@/lib/price-rules";
-import { resolveAppointmentPrice, type ServicePriceRuleDto } from "@/lib/service-pricing";
+import { resolveServicePrice, type ServicePriceRuleDto } from "@/lib/service-pricing";
 import { pricingWeekdayForDate } from "@/lib/branch-hours-constants";
 import { serviceSupportsRental } from "@/lib/rental-pricing";
-import { PAYMENT_METHOD_OPTIONS, type PaymentMethod } from "@/lib/payment-method";
+import {
+  amountsMatchDue,
+  roundMoney,
+} from "@/lib/payment-amounts";
 import {
   deleteGroupAppointments,
   saveAppointmentEdit,
   type GroupApptRef,
 } from "@/lib/admin/appointment-group-client";
-import { formatAppointmentSaveError } from "@/lib/admin/appointment-save-errors";
+import { formatAdminError } from "@/lib/admin/admin-api-error";
+import { AdminErrorBanner, adminErrorFromUnknown } from "@/components/admin/AdminErrorBanner";
 import { adminFetch } from "@/lib/admin-fetch";
 import {
   filterMembershipsByServiceKind,
@@ -104,6 +108,8 @@ type Props = {
     comment?: string;
     membershipId?: string | null;
     paymentMethod?: string | null;
+    cashAmount?: number;
+    cardAmount?: number;
     rentalItemId?: string | null;
     rentalQuantity?: number;
     operatorMemberId?: string | null;
@@ -116,7 +122,7 @@ const inputClass =
 
 const labelClass = "mb-0.5 block text-[11px] text-slate-500";
 
-function paymentMethodBtnClass(active: boolean) {
+function tenderBtnClass(active: boolean) {
   return [
     "rounded-md border px-2 py-1.5 text-xs font-medium transition-colors",
     active
@@ -155,7 +161,10 @@ export function AppointmentModal({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState<CancelReason | "">("");
   const [membershipId, setMembershipId] = useState<string>("");
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | "">("");
+  const [cashAmount, setCashAmount] = useState(0);
+  const [cardAmount, setCardAmount] = useState(0);
+  const [amountsTouched, setAmountsTouched] = useState(false);
+  const [splitting, setSplitting] = useState(false);
   const [membershipOptions, setMembershipOptions] = useState<MembershipOption[]>([]);
   const [membershipsLoading, setMembershipsLoading] = useState(false);
   const [manualMembershipCode, setManualMembershipCode] = useState("");
@@ -247,7 +256,31 @@ export function AppointmentModal({
     setDeleteOpen(false);
     setCancelReason("");
     setMembershipId(initial?.membershipId ?? "");
-    setPaymentMethod((initial?.paymentMethod as PaymentMethod | undefined) ?? "");
+    const initialCash = initial?.cashAmount ?? 0;
+    const initialCard = initial?.cardAmount ?? 0;
+    if (initialCash > 0 || initialCard > 0) {
+      setCashAmount(initialCash);
+      setCardAmount(initialCard);
+      setAmountsTouched(true);
+    } else if (initial?.paymentMethod === "cash" && (totalPrice ?? 0) > 0) {
+      setCashAmount(totalPrice ?? 0);
+      setCardAmount(0);
+      setAmountsTouched(true);
+    } else if (
+      (initial?.paymentMethod === "card" ||
+        initial?.paymentMethod === "corporate" ||
+        initial?.paymentMethod === "split") &&
+      (totalPrice ?? 0) > 0
+    ) {
+      setCashAmount(0);
+      setCardAmount(totalPrice ?? 0);
+      setAmountsTouched(true);
+    } else {
+      setCashAmount(0);
+      setCardAmount(0);
+      setAmountsTouched(false);
+    }
+    setSplitting(false);
     setRentalItemId(initial?.rentalItemId ?? "");
     setRentalQuantity(initial?.rentalQuantity && initial.rentalQuantity > 0 ? initial.rentalQuantity : 1);
     setRentalHint("");
@@ -279,6 +312,8 @@ export function AppointmentModal({
     initial?.comment,
     initial?.membershipId,
     initial?.paymentMethod,
+    initial?.cashAmount,
+    initial?.cardAmount,
     initial?.rentalItemId,
     initial?.rentalQuantity,
     initial?.operatorMemberId,
@@ -311,16 +346,12 @@ export function AppointmentModal({
       : parsedDuration;
     const iso = fromDatetimeLocalValue(`${date}T${time}`);
     if (!iso) return;
-    const membershipRate = membershipId
-      ? membershipOptions.find((m) => m.id === membershipId)?.pricePerMinute
-      : null;
-    const servicePrice = resolveAppointmentPrice(
-      service,
-      new Date(iso),
-      duration,
-      membershipRate,
-      { pricingWeekday: pricingWeekdayForDate(date, holidayDates) },
-    );
+    // Membership covers service minutes — money due is rental only (regular tariff for paid minutes is on a separate segment).
+    const servicePrice = membershipId
+      ? 0
+      : resolveServicePrice(service, new Date(iso), duration, {
+          pricingWeekday: pricingWeekdayForDate(date, holidayDates),
+        });
 
     if (!serviceSupportsRental(service.kind) || !rentalItemId) {
       setRentalHint("");
@@ -362,7 +393,6 @@ export function AppointmentModal({
     durationMinutes,
     services,
     membershipId,
-    membershipOptions,
     branchId,
     rentalItemId,
     rentalQuantity,
@@ -370,6 +400,14 @@ export function AppointmentModal({
     appointmentId,
     holidayDates,
   ]);
+
+  // Keep cash+card in sync with quoted due unless operator edited amounts manually
+  useEffect(() => {
+    if (!open || amountsTouched) return;
+    const due = roundMoney(price);
+    setCashAmount(0);
+    setCardAmount(due);
+  }, [open, price, amountsTouched]);
 
   useEffect(() => {
     if (!branchId || !open) {
@@ -692,7 +730,7 @@ export function AppointmentModal({
       );
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error ?? "Абонемент не найден");
+        throw new Error(formatAdminError(data, "Абонемент не найден"));
       }
       const found: MembershipOption = {
         id: data.membership.id,
@@ -775,11 +813,30 @@ export function AppointmentModal({
       setError(operatorError);
       return;
     }
+    const due = roundMoney(parseFloat(priceInput) || price);
+    const cash = roundMoney(cashAmount);
+    const card = roundMoney(cardAmount);
+    if (!amountsMatchDue(cash, card, due)) {
+      setError(
+        `Сумма наличных и карты (${(cash + card).toFixed(2)}) не равна сумме к оплате (${due.toFixed(2)}). Исправьте поля оплаты.`,
+      );
+      return;
+    }
+    if (
+      membershipId &&
+      selectedMembership &&
+      selectedMembership.effectiveRemainingMinutes < durationMinutes
+    ) {
+      setError(
+        `Недостаточно минут на абонементе (остаток ${selectedMembership.effectiveRemainingMinutes} мин, нужно ${durationMinutes}). Разделите запись или уменьшите длительность / выберите другой абонемент.`,
+      );
+      return;
+    }
     setLoading(true);
     setError("");
     const isoStart = fromDatetimeLocalValue(`${date}T${time}`);
     const duration = commitDurationInput();
-    const priceValue = Math.round((parseFloat(priceInput) || price) * 100) / 100;
+    const priceValue = due;
     const savePayload = {
       serviceId,
       staffId,
@@ -791,7 +848,8 @@ export function AppointmentModal({
       status,
       comment,
       membershipId: membershipId || null,
-      paymentMethod: paymentMethod || null,
+      cashAmount: cash,
+      cardAmount: card,
       rentalItemId: showRental && rentalItemId ? rentalItemId : null,
       rentalQuantity: showRental && rentalItemId ? rentalQuantity : 0,
       price: priceValue,
@@ -813,7 +871,8 @@ export function AppointmentModal({
           status,
           comment,
           membershipId: membershipId || null,
-          paymentMethod: paymentMethod || null,
+          cashAmount: cash,
+          cardAmount: card,
           rentalItemId: showRental && rentalItemId ? rentalItemId : null,
           rentalQuantity: showRental && rentalItemId ? rentalQuantity : 0,
           operatorMemberId: isSupService ? null : operatorMemberId || null,
@@ -834,20 +893,59 @@ export function AppointmentModal({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(formatAppointmentSaveError(data, "Не удалось сохранить запись"));
+        throw Object.assign(new Error(formatAdminError(data, "Не удалось сохранить запись")), {
+          api: data,
+        });
       }
       await Promise.resolve(onSaved());
       onClose();
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Не удалось сохранить запись";
+      const parts = adminErrorFromUnknown(
+        err && typeof err === "object" && "api" in err
+          ? (err as { api: unknown }).api
+          : err,
+        "Не удалось сохранить запись",
+      );
+      const message = parts.hint ? `${parts.error}. ${parts.hint}` : parts.error;
       setError(message);
-      toast.error(message, {
-        description: "Исправьте данные в форме и сохраните снова.",
+      toast.error(parts.error, {
+        description: parts.hint ?? "Исправьте данные в форме и сохраните снова.",
         duration: 8000,
       });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSplit() {
+    if (!appointmentId) return;
+    setSplitting(true);
+    setError("");
+    try {
+      const res = await adminFetch(`/api/admin/appointments/${appointmentId}/split`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw Object.assign(new Error(formatAdminError(data, "Не удалось разделить запись")), {
+          api: data,
+        });
+      }
+      toast.success("Запись разделена на две части", {
+        description: `${data.firstDuration}+${data.secondDuration} мин. Настройте абонемент и оплату на каждом сегменте.`,
+      });
+      await Promise.resolve(onSaved());
+      onClose();
+    } catch (err) {
+      const parts = adminErrorFromUnknown(
+        err && typeof err === "object" && "api" in err
+          ? (err as { api: unknown }).api
+          : err,
+        "Не удалось разделить запись",
+      );
+      setError(parts.hint ? `${parts.error}. ${parts.hint}` : parts.error);
+    } finally {
+      setSplitting(false);
     }
   }
 
@@ -872,7 +970,7 @@ export function AppointmentModal({
         body: JSON.stringify({ reason: cancelReason }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Ошибка удаления");
+      if (!res.ok) throw new Error(formatAdminError(data, "Ошибка удаления"));
       onSaved();
       onClose();
     } catch (err) {
@@ -1258,34 +1356,99 @@ export function AppointmentModal({
               <p className="mt-0.5 text-[10px] text-red-600">{manualMembershipError}</p>
             )}
             {selectedMembership && (
-              <p className="mt-0.5 text-[10px] text-slate-600">
+              <p
+                className={`mt-0.5 text-[10px] ${
+                  selectedMembership.effectiveRemainingMinutes < durationMinutes
+                    ? "font-medium text-amber-700"
+                    : "text-slate-600"
+                }`}
+              >
                 Остаток: {selectedMembership.effectiveRemainingMinutes} мин
-                {selectedMembership.pricePerMinute != null &&
-                  selectedMembership.pricePerMinute > 0 && (
-                    <>
-                      {" "}
-                      · {selectedMembership.pricePerMinute} Br/мин
-                    </>
-                  )}
+                {selectedMembership.effectiveRemainingMinutes < durationMinutes && (
+                  <> — не хватает для {durationMinutes} мин. Разделите запись или оплатите остаток.</>
+                )}
               </p>
             )}
           </div>
+          {appointmentId && (
+            <button
+              type="button"
+              disabled={splitting || loading}
+              onClick={() => void handleSplit()}
+              className="w-full rounded-md border border-slate-300 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {splitting ? "Делим…" : "Разделить запись"}
+            </button>
+          )}
           <div>
-            <label className={labelClass}>Оплата</label>
-            <div className="grid grid-cols-3 gap-1.5">
-              {PAYMENT_METHOD_OPTIONS.map((o) => (
-                <button
-                  key={o.value}
-                  type="button"
-                  onClick={() =>
-                    setPaymentMethod((prev) => (prev === o.value ? "" : o.value))
-                  }
-                  className={paymentMethodBtnClass(paymentMethod === o.value)}
-                >
-                  {o.label}
-                </button>
-              ))}
+            <label className={labelClass}>
+              Оплата · к оплате {roundMoney(parseFloat(priceInput) || price).toFixed(2)} Br
+            </label>
+            <div className="grid grid-cols-2 gap-1.5">
+              <div>
+                <label className={labelClass}>Наличные</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={cashAmount}
+                  onChange={(e) => {
+                    setAmountsTouched(true);
+                    setCashAmount(parseFloat(e.target.value) || 0);
+                  }}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Карта</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={cardAmount}
+                  onChange={(e) => {
+                    setAmountsTouched(true);
+                    setCardAmount(parseFloat(e.target.value) || 0);
+                  }}
+                  className={inputClass}
+                />
+              </div>
             </div>
+            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                className={tenderBtnClass(cashAmount > 0 && cardAmount === 0)}
+                onClick={() => {
+                  setAmountsTouched(true);
+                  const due = roundMoney(parseFloat(priceInput) || price);
+                  setCashAmount(due);
+                  setCardAmount(0);
+                }}
+              >
+                Всё наличными
+              </button>
+              <button
+                type="button"
+                className={tenderBtnClass(cardAmount > 0 && cashAmount === 0)}
+                onClick={() => {
+                  setAmountsTouched(true);
+                  const due = roundMoney(parseFloat(priceInput) || price);
+                  setCashAmount(0);
+                  setCardAmount(due);
+                }}
+              >
+                Всё картой
+              </button>
+            </div>
+            {!amountsMatchDue(
+              cashAmount,
+              cardAmount,
+              roundMoney(parseFloat(priceInput) || price),
+            ) && (
+              <p className="mt-1 text-[10px] text-amber-700">
+                Сумма наличных и карты должна равняться сумме к оплате.
+              </p>
+            )}
           </div>
           <div>
             <label className={labelClass}>Статус</label>
@@ -1309,10 +1472,7 @@ export function AppointmentModal({
             rows={1}
           />
           {error && (
-            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-              <p className="font-medium">Не удалось сохранить</p>
-              <p className="mt-0.5">{error}</p>
-            </div>
+            <AdminErrorBanner title="Не удалось сохранить" error={error} />
           )}
           <div className={`grid gap-2 ${appointmentId ? "grid-cols-2" : "grid-cols-1"}`}>
             {appointmentId && (

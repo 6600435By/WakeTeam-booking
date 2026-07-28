@@ -1,6 +1,7 @@
 "use client";
 
 import { adminFetch } from "@/lib/admin-fetch";
+import { formatAdminError } from "@/lib/admin/admin-api-error";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { DatePickerField } from "@/components/admin/DatePickerField";
@@ -285,7 +286,7 @@ export function ShiftCalendar({
       if (bid) q.set("branchId", bid);
       const r = await adminFetch(`/api/admin/shift-calendar?${q}`);
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка"));
       setData({
         ...d,
         days: (d.days ?? []).map((day: DayData) => ({
@@ -401,7 +402,7 @@ export function ShiftCalendar({
             body: JSON.stringify(payload),
           });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка"));
 
       const savedMemberId = shiftForm.memberId;
       const savedDate = shiftForm.date;
@@ -426,7 +427,7 @@ export function ShiftCalendar({
     const r = await adminFetch(`/api/admin/shift-schedule/${id}`, { method: "DELETE" });
     const d = await r.json();
     if (!r.ok) {
-      setError(d.error ?? "Ошибка");
+      setError(formatAdminError(d, "Ошибка"));
       return;
     }
     setShiftForm(null);
@@ -499,7 +500,7 @@ export function ShiftCalendar({
         },
       );
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Ошибка");
+      if (!r.ok) throw new Error(formatAdminError(d, "Ошибка"));
       setBaselineForm(null);
       await loadCalendar();
     } catch (e) {
@@ -516,7 +517,7 @@ export function ShiftCalendar({
     });
     const d = await r.json();
     if (!r.ok) {
-      setError(d.error ?? "Ошибка");
+      setError(formatAdminError(d, "Ошибка"));
       return;
     }
     setBaselineForm(null);
@@ -559,7 +560,7 @@ export function ShiftCalendar({
           }),
         });
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error ?? "Ошибка");
+        if (!r.ok) throw new Error(formatAdminError(d, "Ошибка"));
       } else {
         const r = await adminFetch("/api/admin/spot-tasks", {
           method: "POST",
@@ -574,7 +575,7 @@ export function ShiftCalendar({
           }),
         });
         const d = await r.json();
-        if (!r.ok) throw new Error(d.error ?? "Ошибка");
+        if (!r.ok) throw new Error(formatAdminError(d, "Ошибка"));
       }
       setTaskForm(null);
       await loadCalendar();
@@ -590,7 +591,7 @@ export function ShiftCalendar({
     const r = await adminFetch(`/api/admin/spot-tasks/${id}`, { method: "DELETE" });
     const d = await r.json();
     if (!r.ok) {
-      setError(d.error ?? "Ошибка");
+      setError(formatAdminError(d, "Ошибка"));
       return;
     }
     setTaskForm(null);

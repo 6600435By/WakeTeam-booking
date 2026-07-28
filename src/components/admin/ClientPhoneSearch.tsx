@@ -1,5 +1,7 @@
 "use client";
 
+import { formatAdminError } from "@/lib/admin/admin-api-error";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Dialog,
@@ -91,7 +93,7 @@ export function ClientPhoneSearch({ branchId, onOpenAppointment, compact = false
         if (clientId) q.set("clientId", clientId);
         const res = await fetch(`/api/admin/clients/lookup?${q}`);
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Ошибка поиска");
+        if (!res.ok) throw new Error(formatAdminError(data, "Ошибка поиска"));
         setResult({
           client: data.client ?? null,
           clients: data.clients ?? [],

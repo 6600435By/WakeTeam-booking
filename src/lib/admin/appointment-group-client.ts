@@ -183,7 +183,9 @@ export async function saveAppointmentEdit(params: {
   status: string;
   comment?: string;
   membershipId?: string | null;
-  paymentMethod?: "cash" | "card" | "corporate" | null;
+  paymentMethod?: "cash" | "card" | "corporate" | "split" | null;
+  cashAmount?: number;
+  cardAmount?: number;
   rentalItemId?: string | null;
   rentalQuantity?: number;
   operatorMemberId?: string | null;
@@ -212,6 +214,8 @@ export async function saveAppointmentEdit(params: {
       comment: params.comment,
       membershipId: params.membershipId ?? null,
       paymentMethod: params.paymentMethod ?? null,
+      cashAmount: params.cashAmount,
+      cardAmount: params.cardAmount,
       rentalItemId: params.rentalItemId ?? null,
       rentalQuantity: params.rentalQuantity ?? 0,
       operatorMemberId: params.operatorMemberId ?? null,
@@ -229,6 +233,11 @@ export async function saveAppointmentEdit(params: {
   const newFirst = new Date(params.isoStart);
   const deltaMs = newFirst.getTime() - oldFirst.getTime();
   const prices = distributeTotalPrice(params.totalPrice, group.length);
+  const hasAmounts =
+    params.cashAmount !== undefined || params.cardAmount !== undefined;
+  const cash = params.cashAmount ?? 0;
+  const card = params.cardAmount ?? 0;
+  const moneyTotal = Math.round((cash + card) * 100) / 100;
 
   await Promise.all(
     group.map((appt, i) =>
@@ -237,7 +246,7 @@ export async function saveAppointmentEdit(params: {
         staffId: params.newStaffId,
         serviceId: params.newServiceId,
         durationMinutes: appt.durationMinutes,
-        price: prices[i],
+        price: hasAmounts ? (i === 0 ? moneyTotal : 0) : prices[i],
         firstName: params.firstName,
         lastName: params.lastName,
         phone: params.phone,
@@ -247,11 +256,17 @@ export async function saveAppointmentEdit(params: {
           ? {
               membershipId: params.membershipId ?? null,
               paymentMethod: params.paymentMethod ?? null,
+              ...(hasAmounts
+                ? { cashAmount: cash, cardAmount: card }
+                : {}),
               rentalItemId: params.rentalItemId ?? null,
               rentalQuantity: params.rentalQuantity ?? 0,
               operatorMemberId: params.operatorMemberId ?? null,
             }
-          : { operatorMemberId: params.operatorMemberId ?? null }),
+          : {
+              ...(hasAmounts ? { cashAmount: 0, cardAmount: 0 } : {}),
+              operatorMemberId: params.operatorMemberId ?? null,
+            }),
       }),
     ),
   );

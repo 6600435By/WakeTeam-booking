@@ -1,6 +1,7 @@
 "use client";
 
 import { adminFetch } from "@/lib/admin-fetch";
+import { formatAdminError } from "@/lib/admin/admin-api-error";
 import { formatDateMinsk } from "@/lib/time";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -194,7 +195,7 @@ export default function MembershipsPage() {
     try {
       const res = await adminFetch("/api/admin/memberships/sync", { method: "POST" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Ошибка");
+      if (!res.ok) throw new Error(formatAdminError(data, "Ошибка"));
       setMessage(
         `Синхронизация: новых ${data.imported ?? 0}, обновлено ${data.updated ?? 0}, пропущено ${data.skipped ?? 0}`,
       );
