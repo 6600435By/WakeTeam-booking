@@ -1,20 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import {
   assertAppointmentAccess,
   assertJournalEditAccess,
   canEditJournalInBranch,
+  requireAdminContext,
 } from "@/lib/admin-access";
 import { adminCatchResponse } from "@/lib/admin/admin-api-error";
 import { appointmentSaveErrorResponse } from "@/lib/admin/appointment-save-errors";
 import { splitAppointmentInHalf } from "@/lib/admin/split-appointment";
-import { requireAdminContext } from "@/lib/admin-access";
 import { prisma } from "@/lib/db";
 
 const JOURNAL_HINT =
   "Проверьте длительность записи и свободные слоты. Если ошибка повторяется — обновите страницу.";
 
+const bodySchema = z
+  .object({
+    groupAppointmentIds: z.array(z.string().min(1)).max(48).optional(),
+  })
+  .optional();
+
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
@@ -46,7 +53,13 @@ export async function POST(
       );
     }
 
-    const result = await splitAppointmentInHalf(id);
+    const raw = await req.json().catch(() => ({}));
+    const body = bodySchema.parse(raw) ?? {};
+    const relatedIds = body.groupAppointmentIds?.length
+      ? Array.from(new Set([id, ...body.groupAppointmentIds]))
+      : undefined;
+
+    const result = await splitAppointmentInHalf(id, relatedIds);
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
     const mapped = appointmentSaveErrorResponse(e);

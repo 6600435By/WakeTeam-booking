@@ -244,6 +244,20 @@ function appointmentsConsecutive(
   return new Date(prev.endAt).getTime() === new Date(next.startAt).getTime();
 }
 
+/** Wake multi-slot cells are short and equal; longer segments (payment split) stay separate. */
+const MULTI_SLOT_CELL_MAX_MINUTES = 15;
+
+function shouldMergeConsecutiveMultiSlot(
+  last: { durationMinutes: number },
+  next: { durationMinutes: number },
+): boolean {
+  return (
+    last.durationMinutes === next.durationMinutes &&
+    last.durationMinutes > 0 &&
+    last.durationMinutes <= MULTI_SLOT_CELL_MAX_MINUTES
+  );
+}
+
 function mergeAppointmentIntoGroup<
   T extends {
     id: string;
@@ -326,7 +340,12 @@ export function groupConsecutiveClientAppointments<
       current.appointments[0].status === appt.status &&
       current.appointments[0].client.phone === appt.client.phone;
 
-    if (sameClientGroup && last && appointmentsConsecutive(last, appt)) {
+    if (
+      sameClientGroup &&
+      last &&
+      appointmentsConsecutive(last, appt) &&
+      shouldMergeConsecutiveMultiSlot(last, appt)
+    ) {
       mergeAppointmentIntoGroup(current!, appt);
     } else {
       current = {

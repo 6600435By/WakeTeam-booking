@@ -13,30 +13,46 @@ export type SplitAppointmentResult = {
 };
 
 /**
- * Split an appointment (or its booking group) into two consecutive equal-duration
+ * Split an appointment (or related group) into two consecutive equal-duration
  * segments sharing a bookingGroupId.
+ *
+ * @param relatedIds — when the journal shows a consecutive multi-slot block,
+ *   pass all visible appointment ids so the full span is split (not only
+ *   bookingGroupId members).
  */
 export async function splitAppointmentInHalf(
   appointmentId: string,
+  relatedIds?: string[],
 ): Promise<SplitAppointmentResult> {
   const source = await prisma.appointment.findUniqueOrThrow({
     where: { id: appointmentId },
   });
 
-  const group = source.bookingGroupId
-    ? await prisma.appointment.findMany({
-        where: {
-          bookingGroupId: source.bookingGroupId,
-          status: { not: "deleted" },
-        },
-        orderBy: { startAt: "asc" },
-      })
-    : await prisma.appointment.findMany({
-        where: { id: source.id, status: { not: "deleted" } },
-      });
+  let group =
+    relatedIds && relatedIds.length > 0
+      ? await prisma.appointment.findMany({
+          where: {
+            id: { in: relatedIds },
+            status: { not: "deleted" },
+            branchId: source.branchId,
+            clientId: source.clientId,
+          },
+          orderBy: { startAt: "asc" },
+        })
+      : source.bookingGroupId
+        ? await prisma.appointment.findMany({
+            where: {
+              bookingGroupId: source.bookingGroupId,
+              status: { not: "deleted" },
+            },
+            orderBy: { startAt: "asc" },
+          })
+        : await prisma.appointment.findMany({
+            where: { id: source.id, status: { not: "deleted" } },
+          });
 
   if (!group.length) {
-    throw new Error("SPLIT_TOO_SHORT");
+    group = [source];
   }
 
   const sorted = [...group].sort(

@@ -118,9 +118,15 @@ type Props = {
 };
 
 const inputClass =
-  "w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-900";
+  "box-border h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-900";
 
 const labelClass = "mb-0.5 block text-[11px] text-slate-500";
+
+const rentalSelectClass =
+  "box-border h-9 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-900";
+
+const rentalQtyClass =
+  "box-border h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-center text-sm text-slate-900 disabled:bg-slate-100";
 
 function tenderBtnClass(active: boolean) {
   return [
@@ -922,8 +928,14 @@ export function AppointmentModal({
     setSplitting(true);
     setError("");
     try {
+      const groupIds =
+        appointmentGroup && appointmentGroup.length > 0
+          ? appointmentGroup.map((a) => a.id)
+          : [appointmentId];
       const res = await adminFetch(`/api/admin/appointments/${appointmentId}/split`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupAppointmentIds: groupIds }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -932,7 +944,7 @@ export function AppointmentModal({
         });
       }
       toast.success("Запись разделена на две части", {
-        description: `${data.firstDuration}+${data.secondDuration} мин. Настройте абонемент и оплату на каждом сегменте.`,
+        description: `${data.firstDuration}+${data.secondDuration} мин — в журнале два блока. На каждом настройте абонемент или оплату.`,
       });
       await Promise.resolve(onSaved());
       onClose();
@@ -1194,13 +1206,13 @@ export function AppointmentModal({
               <p className="mb-1.5 text-[11px] font-medium text-slate-600">
                 Прокат инвентаря
               </p>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
+              <div className="grid grid-cols-[minmax(0,1fr)_4.75rem] gap-2">
+                <div className="min-w-0">
                   <label className={labelClass}>Инвентарь</label>
                   <select
                     value={rentalItemId}
                     onChange={(e) => setRentalItemId(e.target.value)}
-                    className={inputClass}
+                    className={rentalSelectClass}
                   >
                     <option value="">Без инвентаря</option>
                     {rentalItems.map((item) => (
@@ -1216,13 +1228,14 @@ export function AppointmentModal({
                     type="number"
                     min={1}
                     max={99}
+                    inputMode="numeric"
                     value={rentalQuantity}
                     onChange={(e) => {
                       const n = parseInt(e.target.value, 10);
                       setRentalQuantity(Number.isNaN(n) || n < 1 ? 1 : n);
                     }}
                     disabled={!rentalItemId}
-                    className={inputClass}
+                    className={rentalQtyClass}
                   />
                 </div>
               </div>
@@ -1391,10 +1404,17 @@ export function AppointmentModal({
                   type="number"
                   min={0}
                   step={0.01}
+                  inputMode="decimal"
                   value={cashAmount}
                   onChange={(e) => {
                     setAmountsTouched(true);
-                    setCashAmount(parseFloat(e.target.value) || 0);
+                    const due = roundMoney(parseFloat(priceInput) || price);
+                    const raw = parseFloat(e.target.value);
+                    const nextCash = Number.isFinite(raw)
+                      ? roundMoney(Math.min(Math.max(0, raw), due))
+                      : 0;
+                    setCashAmount(nextCash);
+                    setCardAmount(roundMoney(due - nextCash));
                   }}
                   className={inputClass}
                 />
@@ -1405,10 +1425,17 @@ export function AppointmentModal({
                   type="number"
                   min={0}
                   step={0.01}
+                  inputMode="decimal"
                   value={cardAmount}
                   onChange={(e) => {
                     setAmountsTouched(true);
-                    setCardAmount(parseFloat(e.target.value) || 0);
+                    const due = roundMoney(parseFloat(priceInput) || price);
+                    const raw = parseFloat(e.target.value);
+                    const nextCard = Number.isFinite(raw)
+                      ? roundMoney(Math.min(Math.max(0, raw), due))
+                      : 0;
+                    setCardAmount(nextCard);
+                    setCashAmount(roundMoney(due - nextCard));
                   }}
                   className={inputClass}
                 />
@@ -1468,7 +1495,7 @@ export function AppointmentModal({
             placeholder="Комментарий"
             value={comment}
             onChange={(e) => setComment(e.target.value)}
-            className={inputClass}
+            className="box-border w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-900"
             rows={1}
           />
           {error && (
