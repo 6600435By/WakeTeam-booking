@@ -30,13 +30,13 @@ const SHIFT_LINK: NavLink = {
 
 const REVIEW_LINK: NavLink = {
   href: "/admin/shift-review",
-  label: "Проверка смен",
+  label: "Проверка",
   short: "Смены",
 };
 
 const LOGS_LINK: NavLink = {
   href: "/admin/logs",
-  label: "Журнал логов",
+  label: "Логи",
   short: "Логи",
 };
 
@@ -54,7 +54,7 @@ const CALENDAR_LINK: NavLink = {
 
 const HELP_LINK: NavLink = {
   href: "/admin/help",
-  label: "Справка",
+  label: "Спр.",
   short: "?",
 };
 
@@ -143,20 +143,30 @@ export function AdminNav({ admin }: Props) {
   if (isDesktop) {
     return (
       <nav className="mb-3 shrink-0 border-b border-slate-200 pb-2" data-onboarding="admin-nav">
-        <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 shrink-0">
             <span className="text-lg font-bold text-slate-900">WakeTeam Admin</span>
             <p className="truncate text-xs text-slate-500">{caption}</p>
           </div>
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-2 pl-6">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3.5 gap-y-1.5 text-sm">
             {links.map((l) => {
               const active = isLinkActive(pathname, l.href);
               const onboarding = navOnboardingId(l.href);
+              const fullTitle =
+                l.href === "/admin/help"
+                  ? "Справка"
+                  : l.href === "/admin/shift-review"
+                    ? "Проверка смен"
+                    : l.href === "/admin/logs"
+                      ? "Журнал логов"
+                      : undefined;
               return (
                 <Link
                   key={`${l.href}-${l.label}`}
                   href={l.href}
                   data-onboarding={onboarding}
+                  title={fullTitle}
+                  aria-label={fullTitle}
                   className={
                     active
                       ? "font-medium text-lime-700"
@@ -176,9 +186,9 @@ export function AdminNav({ admin }: Props) {
                 Виджет ↗
               </Link>
             )}
-            <div className="ml-auto shrink-0 pr-[0.5cm]">
-              <LogoutButton />
-            </div>
+          </div>
+          <div className="shrink-0 self-center">
+            <LogoutButton />
           </div>
         </div>
       </nav>

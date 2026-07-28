@@ -72,6 +72,11 @@ export function HelpPage({ role }: Props) {
         <a href="#start" className="rounded-full bg-slate-100 px-3 py-1 text-slate-700 hover:bg-slate-200">
           Начало
         </a>
+        {sections.some((s) => s.id === "payment") && (
+          <a href="#payment" className="rounded-full bg-slate-100 px-3 py-1 text-slate-700 hover:bg-slate-200">
+            Оплата
+          </a>
+        )}
         <a href="#scenarios" className="rounded-full bg-slate-100 px-3 py-1 text-slate-700 hover:bg-slate-200">
           Сценарии
         </a>
@@ -98,6 +103,19 @@ export function HelpPage({ role }: Props) {
         </div>
       </section>
 
+      {sections
+        .filter((s) => s.id === "payment")
+        .map((section) => (
+          <section key={section.id} id="payment" className="mb-10 scroll-mt-4">
+            <h2 className="mb-3 text-lg font-semibold text-slate-900">{section.title}</h2>
+            <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+              {section.content.map((block, i) => (
+                <HelpBlockView key={i} block={block} />
+              ))}
+            </div>
+          </section>
+        ))}
+
       <section id="scenarios" className="mb-10 scroll-mt-4">
         <h2 className="mb-3 text-lg font-semibold text-slate-900">Типовые сценарии</h2>
         <div className="space-y-4">
@@ -121,7 +139,9 @@ export function HelpPage({ role }: Props) {
         <h2 className="mb-3 text-lg font-semibold text-slate-900">Разделы приложения</h2>
         <div className="space-y-4">
           {sections
-            .filter((s) => s.id !== "start" && s.id !== "permissions")
+            .filter(
+              (s) => s.id !== "start" && s.id !== "payment" && s.id !== "permissions"
+            )
             .map((section) => (
               <div
                 key={section.id}
