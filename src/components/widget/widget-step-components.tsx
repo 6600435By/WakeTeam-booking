@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { isCompletePhone } from "@/lib/phone";
@@ -91,16 +92,26 @@ export function TariffsBlock({
 export function WidgetActivityCard({
   title,
   priceHint,
+  subtitle,
   onClick,
   theme,
   children,
+  photoUrl,
 }: {
   title: string;
-  priceHint: string;
+  priceHint?: string | null;
+  /** Secondary line under the title (e.g. branch description) when there is no footer */
+  subtitle?: string | null;
   onClick: () => void;
   theme: WidgetSettings["theme"];
   children?: React.ReactNode;
+  photoUrl?: string | null;
 }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const showPhoto = Boolean(photoUrl) && !imageFailed;
+  const hint = priceHint?.trim() || null;
+  const sub = subtitle?.trim() || null;
+
   const cardClass =
     "group w-full overflow-hidden rounded-xl border border-slate-200/90 bg-white text-left shadow-sm ring-1 ring-black/[0.03] transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--widget-primary)]/30 hover:shadow-md active:translate-y-0";
 
@@ -109,17 +120,59 @@ export function WidgetActivityCard({
       <button
         type="button"
         onClick={onClick}
-        className="flex w-full min-h-[4.75rem] flex-col justify-center p-3 sm:min-h-[5rem] sm:p-3.5"
+        className={cn(
+          "relative flex w-full min-h-[4.75rem] flex-col justify-center p-3 sm:min-h-[5rem] sm:p-3.5 overflow-hidden",
+          showPhoto ? "text-white" : "text-slate-900"
+        )}
       >
-        <div className="flex items-center justify-between gap-3">
-          <span className="font-semibold tracking-tight text-slate-900">{title}</span>
-          <WidgetPriceBadge>{priceHint}</WidgetPriceBadge>
+        {showPhoto && (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={photoUrl!}
+              alt=""
+              onError={() => setImageFailed(true)}
+              className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/15" />
+          </>
+        )}
+        <div className="relative z-10 flex w-full items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <span
+              className={cn(
+                "block font-semibold tracking-tight",
+                showPhoto ? "text-white" : "text-slate-900",
+              )}
+            >
+              {title}
+            </span>
+            {sub && !children ? (
+              <span
+                className={cn(
+                  "mt-0.5 block line-clamp-2 text-xs leading-snug",
+                  showPhoto ? "text-white/85" : "text-slate-500",
+                )}
+              >
+                {sub}
+              </span>
+            ) : null}
+          </div>
+          {hint ? (
+            showPhoto ? (
+              <span className="shrink-0 rounded-lg border border-white/15 bg-white/15 px-2.5 py-1 text-xs font-semibold tabular-nums text-white backdrop-blur-md sm:text-sm">
+                {hint}
+              </span>
+            ) : (
+              <WidgetPriceBadge>{hint}</WidgetPriceBadge>
+            )
+          ) : null}
         </div>
-        {!children && (
+        {!children && !sub && hint ? (
           <span className="mt-1.5 invisible min-h-[1.25rem] text-xs" aria-hidden>
             Тарифы
           </span>
-        )}
+        ) : null}
       </button>
       {children ? <div className="border-t border-slate-100 px-3 pb-3 pt-2">{children}</div> : null}
     </div>

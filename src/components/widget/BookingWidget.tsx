@@ -788,13 +788,13 @@ export function BookingWidget({
       {step === 0 && (
         <WidgetStepEnter stepKey="branch" className="mt-3 space-y-2.5">
           {config!.branches.map((b) => (
-            <WidgetPhotoCard
+            <WidgetActivityCard
               key={b.id}
-              kind="branch"
               title={b.name}
               subtitle={b.description ?? b.address}
               photoUrl={b.photoUrl}
               onClick={() => goBranch(b.id)}
+              theme={theme}
             />
           ))}
         </WidgetStepEnter>
@@ -810,6 +810,7 @@ export function BookingWidget({
               priceHint={`от ${svc.priceFrom} Br`}
               onClick={() => pickService(svc)}
               theme={theme}
+              photoUrl={svc.kind === "wake" ? "/images/services/wakeboarding.png" : svc.kind === "sup" ? "/images/services/supboard.png" : null}
             >
               {settings.behavior.showTariffsExpandable &&
                 shouldShowWidgetTariffs(svc) && (

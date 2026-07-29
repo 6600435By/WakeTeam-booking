@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronRight, MapPin, UserRound } from "lucide-react";
+import { ChevronRight, UserRound } from "lucide-react";
 import {
   widgetPhotoAspectStyle,
   WIDGET_PHOTO_LAYOUT,
@@ -72,10 +72,11 @@ export function WidgetPhotoCard({
   strictAspect = false,
 }: Props) {
   const isLarge = previewSize === "large";
-  const KindIcon = kind === "branch" ? MapPin : UserRound;
+  const KindIcon = kind === "staff" ? UserRound : null;
   const textStyles = cardTextStyles(subtitle, isLarge);
   const [imageFailed, setImageFailed] = useState(false);
   const showPhoto = Boolean(photoUrl) && !imageFailed;
+  const lightFallback = kind === "branch" && !showPhoto;
 
   const inner = (
     <div
@@ -94,10 +95,16 @@ export function WidgetPhotoCard({
           onError={() => setImageFailed(true)}
           className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
         />
+      ) : lightFallback ? (
+        <div className="absolute inset-0 bg-white" />
       ) : (
         <div className="absolute inset-0 bg-gradient-to-br from-slate-600 via-slate-700 to-slate-900" />
       )}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/15" />
+      {!lightFallback ? (
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/15" />
+      ) : (
+        <div className="absolute inset-0 border border-slate-200/90" />
+      )}
       <div
         className={cn(
           "absolute inset-0 flex flex-col justify-end overflow-hidden",
@@ -108,24 +115,39 @@ export function WidgetPhotoCard({
           <div className="min-w-0 flex-1 overflow-hidden">
             <span
               className={cn(
-                "block font-semibold leading-tight tracking-tight text-white",
+                "block font-semibold leading-tight tracking-tight",
+                lightFallback ? "text-slate-900" : "text-white",
                 textStyles.title,
               )}
             >
               {title}
             </span>
             {subtitle ? (
-              <span className={textStyles.subtitle}>{subtitle}</span>
+              <span
+                className={cn(
+                  textStyles.subtitle,
+                  lightFallback && "!text-slate-500",
+                )}
+              >
+                {subtitle}
+              </span>
             ) : null}
           </div>
           {onClick ? (
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur-sm transition-colors group-hover:bg-white/25 sm:size-9">
+            <span
+              className={cn(
+                "flex size-8 shrink-0 items-center justify-center rounded-full backdrop-blur-sm transition-colors sm:size-9",
+                lightFallback
+                  ? "bg-slate-100 text-slate-600 group-hover:bg-slate-200"
+                  : "bg-white/15 text-white group-hover:bg-white/25",
+              )}
+            >
               <ChevronRight className="size-4 sm:size-[1.125rem]" strokeWidth={2.25} />
             </span>
           ) : null}
         </div>
       </div>
-      {!showPhoto ? (
+      {!showPhoto && KindIcon ? (
         <div className="pointer-events-none absolute left-3 top-3 flex size-8 items-center justify-center rounded-lg bg-white/10 text-white/80 backdrop-blur-sm sm:size-9">
           <KindIcon className="size-4 sm:size-[1.125rem]" strokeWidth={2} />
         </div>
