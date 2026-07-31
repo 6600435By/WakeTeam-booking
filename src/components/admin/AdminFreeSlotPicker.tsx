@@ -14,17 +14,28 @@ export type AdminSlotPick = {
   startAt: string;
   staffId?: string;
   staffName?: string;
+  serviceId?: string;
 };
 
 type StaffOption = { id: string; name: string };
 
+export type AdminFreeSlotService = {
+  id: string;
+  kind: string;
+  name: string;
+  staffOptions: StaffOption[];
+};
+
 type Props = {
-  serviceId: string;
-  serviceKind: string;
   date: string;
+  /** Single-service mode (legacy). Ignored when `services` is provided. */
+  serviceId?: string;
+  serviceKind?: string;
   durationMinutes?: number;
   staffId?: string;
   staffOptions?: StaffOption[];
+  /** Multi-service mode: load and merge free slots across services. */
+  services?: AdminFreeSlotService[];
   selectedStartAt?: string;
   excludeAppointmentId?: string;
   onPick: (pick: AdminSlotPick) => void;
@@ -32,129 +43,170 @@ type Props = {
   compact?: boolean;
 };
 
-type CombinedWakeSlot = AdminWakeSlot & { staffLabel?: string };
+type CombinedWakeSlot = AdminWakeSlot & {
+  staffLabel?: string;
+  serviceId?: string;
+  serviceLabel?: string;
+};
+
+type CombinedSupSlot = AdminSupSlot & {
+  serviceId?: string;
+  serviceLabel?: string;
+};
+
+async function loadWakeSlotsForService(params: {
+  serviceId: string;
+  serviceName: string;
+  date: string;
+  durationMinutes?: number;
+  staffId?: string;
+  staffOptions: StaffOption[];
+  excludeAppointmentId?: string;
+}): Promise<CombinedWakeSlot[]> {
+  const targets = params.staffId
+    ? params.staffOptions.filter((st) => st.id === params.staffId)
+    : params.staffOptions;
+
+  if (targets.length === 0) return [];
+
+  const results = await Promise.all(
+    targets.map(async (st) => {
+      const result = await fetchAdminSlots({
+        serviceId: params.serviceId,
+        date: params.date,
+        staffId: st.id,
+        durationMinutes: params.durationMinutes,
+        excludeAppointmentId: params.excludeAppointmentId,
+      });
+      return result.kind === "wake"
+        ? result.slots.map((slot) => ({
+            ...slot,
+            staffLabel: st.name,
+            serviceId: params.serviceId,
+            serviceLabel: params.serviceName,
+          }))
+        : [];
+    }),
+  );
+  return results.flat();
+}
 
 export function AdminFreeSlotPicker({
-  serviceId,
-  serviceKind,
   date,
+  serviceId,
+  serviceKind = "wake",
   durationMinutes,
   staffId,
   staffOptions = [],
+  services,
   selectedStartAt,
   excludeAppointmentId,
   onPick,
   className,
   compact = false,
 }: Props) {
-  const isSup = serviceKind === "sup";
+  const serviceTargets = useMemo<AdminFreeSlotService[]>(() => {
+    if (services && services.length > 0) return services;
+    if (!serviceId) return [];
+    return [
+      {
+        id: serviceId,
+        kind: serviceKind,
+        name: "",
+        staffOptions,
+      },
+    ];
+  }, [services, serviceId, serviceKind, staffOptions]);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [data, setData] = useState<AdminSlotsResponse | null>(null);
+  const [wakeSlots, setWakeSlots] = useState<CombinedWakeSlot[]>([]);
+  const [supSlots, setSupSlots] = useState<CombinedSupSlot[]>([]);
 
   const load = useCallback(async () => {
-    if (!serviceId || !date) return;
+    if (!date || serviceTargets.length === 0) return;
 
     setLoading(true);
     setError("");
     try {
-      if (isSup) {
-        const result = await fetchAdminSlots({
-          serviceId,
-          date,
-          durationMinutes,
-          excludeAppointmentId,
-        });
-        setData(result);
-        return;
-      }
+      const wakeParts: CombinedWakeSlot[] = [];
+      const supParts: CombinedSupSlot[] = [];
 
-      const targets =
-        staffId
-          ? staffOptions.filter((st) => st.id === staffId)
-          : staffOptions;
-
-      if (targets.length === 0) {
-        setData({ kind: "wake", slots: [], allowedDurations: [] });
-        return;
-      }
-
-      if (targets.length > 1) {
-        const results = await Promise.all(
-          targets.map(async (st) => {
-            const result = await fetchAdminSlots({
-              serviceId,
+      await Promise.all(
+        serviceTargets.map(async (service) => {
+          if (service.kind === "sup") {
+            const result: AdminSlotsResponse = await fetchAdminSlots({
+              serviceId: service.id,
               date,
-              staffId: st.id,
               durationMinutes,
               excludeAppointmentId,
             });
-            return result.kind === "wake"
-              ? result.slots.map((slot) => ({
+            if (result.kind === "sup") {
+              supParts.push(
+                ...result.slots.map((slot) => ({
                   ...slot,
-                  staffLabel: st.name,
-                }))
-              : [];
-          }),
-        );
-        const merged = results.flat().sort((a, b) =>
-          a.startAt.localeCompare(b.startAt),
-        );
-        setData({
-          kind: "wake",
-          slots: merged,
-          allowedDurations: [],
-        });
-        return;
-      }
+                  serviceId: service.id,
+                  serviceLabel: service.name,
+                })),
+              );
+            }
+            return;
+          }
 
-      const result = await fetchAdminSlots({
-        serviceId,
-        date,
-        staffId: targets[0].id,
-        durationMinutes,
-        excludeAppointmentId,
-      });
-      setData(result);
+          const slots = await loadWakeSlotsForService({
+            serviceId: service.id,
+            serviceName: service.name,
+            date,
+            durationMinutes,
+            staffId: serviceTargets.length === 1 ? staffId : undefined,
+            staffOptions: service.staffOptions,
+            excludeAppointmentId,
+          });
+          wakeParts.push(...slots);
+        }),
+      );
+
+      wakeParts.sort((a, b) => a.startAt.localeCompare(b.startAt));
+      supParts.sort((a, b) => a.startAt.localeCompare(b.startAt));
+      setWakeSlots(wakeParts);
+      setSupSlots(supParts);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка загрузки");
-      setData(null);
+      setWakeSlots([]);
+      setSupSlots([]);
     } finally {
       setLoading(false);
     }
   }, [
-    serviceId,
     date,
     durationMinutes,
-    staffId,
-    staffOptions,
-    isSup,
     excludeAppointmentId,
+    serviceTargets,
+    staffId,
   ]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const wakeSlots = useMemo(() => {
-    if (!data || data.kind !== "wake") return [] as CombinedWakeSlot[];
-    return data.slots as CombinedWakeSlot[];
-  }, [data]);
+  const multiService = serviceTargets.length > 1;
+  const showStaffLabels =
+    multiService ||
+    (!staffId &&
+      serviceTargets.some((service) => service.staffOptions.length > 1));
 
-  const supSlots = useMemo(() => {
-    if (!data || data.kind !== "sup") return [] as AdminSupSlot[];
-    return data.slots;
-  }, [data]);
-
-  const showStaffLabels = !staffId && staffOptions.length > 1;
-
-  if (!serviceId || !date) {
+  if (!date || serviceTargets.length === 0) {
     return (
       <p className="text-sm text-slate-500">Выберите услугу и дату</p>
     );
   }
 
-  if (!isSup && staffOptions.length === 0) {
+  const hasWakeTargets = serviceTargets.some(
+    (service) => service.kind !== "sup" && service.staffOptions.length > 0,
+  );
+  const hasSupTargets = serviceTargets.some((service) => service.kind === "sup");
+
+  if (!hasWakeTargets && !hasSupTargets) {
     return (
       <p className="text-sm text-slate-500">Нет ресурсов для этой услуги</p>
     );
@@ -172,7 +224,7 @@ export function AdminFreeSlotPicker({
         </p>
       )}
 
-      {!loading && !error && isSup && (
+      {!loading && !error && supSlots.length > 0 && (
         <div
           className={cn(
             "grid gap-1.5",
@@ -183,9 +235,14 @@ export function AdminFreeSlotPicker({
             const selected = selectedStartAt === slot.startAt;
             return (
               <button
-                key={slot.startAt}
+                key={`${slot.serviceId ?? "sup"}-${slot.startAt}`}
                 type="button"
-                onClick={() => onPick({ startAt: slot.startAt })}
+                onClick={() =>
+                  onPick({
+                    startAt: slot.startAt,
+                    serviceId: slot.serviceId,
+                  })
+                }
                 className={cn(
                   "touch-manipulation rounded-lg border px-1 py-2 text-center text-xs font-medium",
                   selected
@@ -197,13 +254,23 @@ export function AdminFreeSlotPicker({
                 <span className="block text-[10px] font-normal opacity-75">
                   {slot.availableBoards} дос.
                 </span>
+                {multiService && slot.serviceLabel ? (
+                  <span
+                    className={cn(
+                      "mt-0.5 block truncate text-[10px] font-normal",
+                      selected ? "text-white/80" : "text-slate-500",
+                    )}
+                  >
+                    {slot.serviceLabel}
+                  </span>
+                ) : null}
               </button>
             );
           })}
         </div>
       )}
 
-      {!loading && !error && !isSup && (
+      {!loading && !error && wakeSlots.length > 0 && (
         <div
           className={cn(
             "grid max-h-[min(50vh,320px)] gap-1.5 overflow-y-auto overscroll-contain pr-0.5",
@@ -212,16 +279,21 @@ export function AdminFreeSlotPicker({
         >
           {wakeSlots.map((slot) => {
             const selected = selectedStartAt === slot.startAt;
-            const label = slot.staffLabel ?? slot.staffName;
+            const label = multiService
+              ? [slot.serviceLabel, slot.staffLabel ?? slot.staffName]
+                  .filter(Boolean)
+                  .join(" · ")
+              : (slot.staffLabel ?? slot.staffName);
             return (
               <button
-                key={`${slot.staffId}-${slot.startAt}`}
+                key={`${slot.serviceId ?? "wake"}-${slot.staffId}-${slot.startAt}`}
                 type="button"
                 onClick={() =>
                   onPick({
                     startAt: slot.startAt,
                     staffId: slot.staffId,
                     staffName: slot.staffName,
+                    serviceId: slot.serviceId,
                   })
                 }
                 className={cn(
@@ -232,7 +304,7 @@ export function AdminFreeSlotPicker({
                 )}
               >
                 <span className="block tabular-nums">{formatAdminSlotTime(slot.startAt)}</span>
-                {(showStaffLabels || staffOptions.length > 1) && (
+                {(showStaffLabels || multiService) && label ? (
                   <span
                     className={cn(
                       "mt-0.5 block truncate text-[10px] font-normal",
@@ -241,18 +313,14 @@ export function AdminFreeSlotPicker({
                   >
                     {label}
                   </span>
-                )}
+                ) : null}
               </button>
             );
           })}
         </div>
       )}
 
-      {!loading && !error && isSup && supSlots.length === 0 && (
-        <p className="text-sm text-slate-500">Нет свободного времени на эту дату</p>
-      )}
-
-      {!loading && !error && !isSup && wakeSlots.length === 0 && (
+      {!loading && !error && wakeSlots.length === 0 && supSlots.length === 0 && (
         <p className="text-sm text-slate-500">Нет свободного времени на эту дату</p>
       )}
     </div>

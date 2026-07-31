@@ -17,7 +17,18 @@ import {
   weekdayMinsk,
 } from "@/lib/time";
 
-import { ACTIVE_APPOINTMENT_STATUSES } from "@/lib/appointment-status";
+import {
+  ACTIVE_APPOINTMENT_STATUSES,
+  JOURNAL_HIDDEN_STATUSES,
+} from "@/lib/appointment-status";
+
+/** Admin free-time UI: block anything still visible in the journal. */
+function slotOccupancyStatusWhere(forAdmin?: boolean) {
+  if (forAdmin) {
+    return { notIn: [...JOURNAL_HIDDEN_STATUSES] };
+  }
+  return { in: ACTIVE_APPOINTMENT_STATUSES };
+}
 import { normalizeAdminDuration } from "@/lib/admin-duration";
 import { upsertClientByPhone } from "@/lib/clients/upsert";
 import { effectiveScheduleRule } from "@/lib/staff-schedule-effective";
@@ -196,7 +207,7 @@ export async function getDaySlots(params: {
     where: {
       staffId: staff.id,
       startAt: { gte: dayStart, lte: dayEnd },
-      status: { in: ACTIVE_APPOINTMENT_STATUSES },
+      status: slotOccupancyStatusWhere(params.forAdmin),
       ...(params.excludeAppointmentId
         ? { id: { not: params.excludeAppointmentId } }
         : {}),
@@ -345,7 +356,7 @@ export async function getSupDaySlots(params: {
     where: {
       staffId: { in: boardIds },
       startAt: { gte: dayStart, lte: dayEnd },
-      status: { in: ACTIVE_APPOINTMENT_STATUSES },
+      status: slotOccupancyStatusWhere(params.forAdmin),
       ...(params.excludeAppointmentId
         ? { id: { not: params.excludeAppointmentId } }
         : {}),

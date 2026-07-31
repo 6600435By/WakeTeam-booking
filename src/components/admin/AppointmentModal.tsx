@@ -883,8 +883,8 @@ export function AppointmentModal({
           rentalQuantity: showRental && rentalItemId ? rentalQuantity : 0,
           operatorMemberId: isSupService ? null : operatorMemberId || null,
         });
-        await Promise.resolve(onSaved());
         onClose();
+        void Promise.resolve(onSaved());
         return;
       }
 
@@ -903,8 +903,8 @@ export function AppointmentModal({
           api: data,
         });
       }
-      await Promise.resolve(onSaved());
       onClose();
+      void Promise.resolve(onSaved());
     } catch (err) {
       const parts = adminErrorFromUnknown(
         err && typeof err === "object" && "api" in err
@@ -946,8 +946,8 @@ export function AppointmentModal({
       toast.success("Запись разделена на две части", {
         description: `${data.firstDuration}+${data.secondDuration} мин — в журнале два блока. На каждом настройте абонемент или оплату.`,
       });
-      await Promise.resolve(onSaved());
       onClose();
+      void Promise.resolve(onSaved());
     } catch (err) {
       const parts = adminErrorFromUnknown(
         err && typeof err === "object" && "api" in err

@@ -1,11 +1,15 @@
 import type {
   queryCalendarDay,
   queryCalendarDayDelta,
+  queryCalendarDayBranchSwitch,
   queryAppointmentsList,
 } from "@/lib/admin/calendar-day-data";
 
 type CalendarDayRaw = Awaited<ReturnType<typeof queryCalendarDay>>;
 type CalendarDayDeltaRaw = Awaited<ReturnType<typeof queryCalendarDayDelta>>;
+type CalendarDayBranchSwitchRaw = Awaited<
+  ReturnType<typeof queryCalendarDayBranchSwitch>
+>;
 type AppointmentRaw = CalendarDayRaw["appointments"][number];
 type AppointmentsListRaw = Awaited<ReturnType<typeof queryAppointmentsList>>;
 
@@ -19,6 +23,13 @@ export type SerializedCalendarDay = Omit<CalendarDayRaw, "appointments"> & {
 };
 
 export type SerializedCalendarDayDelta = Omit<CalendarDayDeltaRaw, "appointments"> & {
+  appointments: SerializedAppointment[];
+};
+
+export type SerializedCalendarDayBranchSwitch = Omit<
+  CalendarDayBranchSwitchRaw,
+  "appointments"
+> & {
   appointments: SerializedAppointment[];
 };
 
@@ -40,6 +51,15 @@ export function serializeCalendarDay(data: CalendarDayRaw): SerializedCalendarDa
 export function serializeCalendarDayDelta(
   data: CalendarDayDeltaRaw,
 ): SerializedCalendarDayDelta {
+  return {
+    ...data,
+    appointments: data.appointments.map(serializeAppointment),
+  };
+}
+
+export function serializeCalendarDayBranchSwitch(
+  data: CalendarDayBranchSwitchRaw,
+): SerializedCalendarDayBranchSwitch {
   return {
     ...data,
     appointments: data.appointments.map(serializeAppointment),

@@ -47,9 +47,18 @@ import {
   type JournalGridScale,
 } from "@/lib/journal-grid-scale";
 
-const DRAG_THRESHOLD_PX = 6;
+const MOUSE_DRAG_THRESHOLD_PX = 6;
+const TOUCH_DRAG_THRESHOLD_PX = 14;
+const TOUCH_SCROLL_SLOP_PX = 10;
+const TOUCH_DRAG_DELAY_MS = 220;
+const TOUCH_RESIZE_THRESHOLD_PX = 8;
 const HEADER_HEIGHT_PX = 28;
 const JOURNAL_PAGE_SCROLL_SELECTOR = ".admin-app-scroll";
+const JOURNAL_GRID_SCROLL_SELECTOR = ".admin-journal-grid-scroll";
+
+function isTouchPointer(pointerType: string) {
+  return pointerType === "touch" || pointerType === "pen";
+}
 
 function getJournalPageScrollEl(): HTMLElement | null {
   if (typeof document === "undefined") return null;
@@ -136,6 +145,20 @@ type PointerStart = {
   x: number;
   y: number;
   height: number;
+  pointerType: string;
+  armed: boolean;
+};
+
+type ResizePending = {
+  group: Appointment[];
+  staffId: string;
+  startMinutes: number;
+  durationMinutes: number;
+  cellMinutes: number;
+  height: number;
+  x: number;
+  y: number;
+  pointerType: string;
 };
 
 type Props = {
@@ -270,10 +293,13 @@ export function JournalGrid({
   const [drag, setDrag] = useState<DragState | null>(null);
   const [resize, setResize] = useState<ResizeState | null>(null);
   const [pointerStart, setPointerStart] = useState<PointerStart | null>(null);
+  const [resizePending, setResizePending] = useState<ResizePending | null>(null);
   const columnRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const dragRef = useRef<DragState | null>(null);
   const resizeRef = useRef<ResizeState | null>(null);
   const pointerStartRef = useRef<PointerStart | null>(null);
+  const resizePendingRef = useRef<ResizePending | null>(null);
+  const touchArmTimerRef = useRef<number | null>(null);
   const suppressClickRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
@@ -284,8 +310,21 @@ export function JournalGrid({
   dragRef.current = drag;
   resizeRef.current = resize;
   pointerStartRef.current = pointerStart;
+  resizePendingRef.current = resizePending;
 
-  const isTracking = drag !== null || resize !== null || pointerStart !== null;
+  const isTracking =
+    drag !== null ||
+    resize !== null ||
+    pointerStart !== null ||
+    resizePending !== null;
+  const gestureActive = drag !== null || resize !== null;
+
+  const clearTouchArmTimer = useCallback(() => {
+    if (touchArmTimerRef.current !== null) {
+      window.clearTimeout(touchArmTimerRef.current);
+      touchArmTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if (!branchId) {
@@ -384,6 +423,46 @@ export function JournalGrid({
       return startMinutes >= 0 && durationMinutes > 0;
     },
     [staff],
+  );
+
+  const beginDragFromPending = useCallback(
+    (pending: PointerStart) => {
+      clearTouchArmTimer();
+      const startMin = minutesFromIso(date, pending.appt.startAt);
+      const initialMinutes = startMin ?? bounds.start;
+      setDrag({
+        appt: pending.appt,
+        group: pending.group,
+        staffId: pending.appt.staff.id,
+        startMinutes: initialMinutes,
+        height: pending.height,
+        valid: canDrop(
+          pending.appt.staff.id,
+          initialMinutes,
+          groupTotalMinutes(pending.group),
+        ),
+      });
+      setPointerStart(null);
+    },
+    [bounds.start, canDrop, clearTouchArmTimer, date],
+  );
+
+  const beginResizeFromPending = useCallback(
+    (pending: ResizePending) => {
+      clearTouchArmTimer();
+      setResize({
+        group: pending.group,
+        staffId: pending.staffId,
+        startMinutes: pending.startMinutes,
+        durationMinutes: pending.durationMinutes,
+        cellMinutes: pending.cellMinutes,
+        height: pending.height,
+      });
+      setResizePending(null);
+      setPointerStart(null);
+      setDrag(null);
+    },
+    [clearTouchArmTimer],
   );
 
   const resolveDropTarget = useCallback(
@@ -521,12 +600,21 @@ export function JournalGrid({
   moveGroupBlockRef.current = moveGroupBlock;
   const resizeGroupBlockRef = useRef(resizeGroupBlock);
   resizeGroupBlockRef.current = resizeGroupBlock;
+  const beginDragFromPendingRef = useRef(beginDragFromPending);
+  beginDragFromPendingRef.current = beginDragFromPending;
+  const beginResizeFromPendingRef = useRef(beginResizeFromPending);
+  beginResizeFromPendingRef.current = beginResizeFromPending;
 
   useEffect(() => {
     if (!isTracking) return;
 
     function onPointerMove(e: PointerEvent) {
-      if (dragRef.current || resizeRef.current || pointerStartRef.current) {
+      if (
+        dragRef.current ||
+        resizeRef.current ||
+        pointerStartRef.current?.armed ||
+        resizePendingRef.current
+      ) {
         e.preventDefault();
       }
 
@@ -554,31 +642,52 @@ export function JournalGrid({
         return;
       }
 
+      const resizePend = resizePendingRef.current;
+      if (resizePend && !resizeRef.current) {
+        const dx = e.clientX - resizePend.x;
+        const dy = e.clientY - resizePend.y;
+        const dist = Math.hypot(dx, dy);
+        if (isTouchPointer(resizePend.pointerType)) {
+          if (Math.abs(dx) > TOUCH_SCROLL_SLOP_PX && Math.abs(dx) > Math.abs(dy)) {
+            clearTouchArmTimer();
+            setResizePending(null);
+            return;
+          }
+          if (dist >= TOUCH_RESIZE_THRESHOLD_PX && Math.abs(dy) >= Math.abs(dx)) {
+            beginResizeFromPendingRef.current(resizePend);
+          }
+          return;
+        }
+        if (dist >= MOUSE_DRAG_THRESHOLD_PX) {
+          beginResizeFromPendingRef.current(resizePend);
+        }
+        return;
+      }
+
       const pending = pointerStartRef.current;
       const current = dragRef.current;
 
       if (pending && !current) {
-        const dist = Math.hypot(
-          e.clientX - pending.x,
-          e.clientY - pending.y,
-        );
-        if (dist < DRAG_THRESHOLD_PX) return;
+        const dx = e.clientX - pending.x;
+        const dy = e.clientY - pending.y;
+        const dist = Math.hypot(dx, dy);
+        const touch = isTouchPointer(pending.pointerType);
+        const threshold = touch ? TOUCH_DRAG_THRESHOLD_PX : MOUSE_DRAG_THRESHOLD_PX;
 
-        const startMin = minutesFromIso(date, pending.appt.startAt);
-        const initialMinutes = startMin ?? bounds.start;
-        setDrag({
-          appt: pending.appt,
-          group: pending.group,
-          staffId: pending.appt.staff.id,
-          startMinutes: initialMinutes,
-          height: pending.height,
-          valid: canDrop(
-            pending.appt.staff.id,
-            initialMinutes,
-            groupTotalMinutes(pending.group),
-          ),
-        });
-        setPointerStart(null);
+        if (touch && !pending.armed) {
+          if (Math.abs(dy) > TOUCH_SCROLL_SLOP_PX && Math.abs(dy) > Math.abs(dx)) {
+            clearTouchArmTimer();
+            setPointerStart(null);
+            return;
+          }
+          if (dist >= threshold && Math.abs(dx) >= Math.abs(dy)) {
+            beginDragFromPendingRef.current(pending);
+          }
+          return;
+        }
+
+        if (dist < threshold) return;
+        beginDragFromPendingRef.current(pending);
         return;
       }
 
@@ -612,7 +721,9 @@ export function JournalGrid({
       const current = dragRef.current;
       const resizing = resizeRef.current;
       const pending = pointerStartRef.current;
+      const resizePend = resizePendingRef.current;
 
+      clearTouchArmTimer();
       window.getSelection()?.removeAllRanges();
 
       if (resizing) {
@@ -624,6 +735,7 @@ export function JournalGrid({
         const changed = durationMinutes !== groupTotalMinutes(group);
         setResize(null);
         setPointerStart(null);
+        setResizePending(null);
         if (changed) {
           void resizeGroupBlockRef.current(group, durationMinutes);
         }
@@ -639,6 +751,7 @@ export function JournalGrid({
         const { group, staffId, startMinutes, valid } = current;
         setDrag(null);
         setPointerStart(null);
+        setResizePending(null);
 
         if (valid) {
           const originMin = minutesFromIso(date, group[0].startAt);
@@ -650,6 +763,12 @@ export function JournalGrid({
         }
         return;
       }
+
+      if (resizePend) {
+        setResizePending(null);
+        return;
+      }
+
       if (pending) {
         suppressClickRef.current = true;
         window.setTimeout(() => {
@@ -660,22 +779,41 @@ export function JournalGrid({
       }
     }
 
+    function onScrollCancelPending() {
+      if (dragRef.current || resizeRef.current) return;
+      if (!pointerStartRef.current && !resizePendingRef.current) return;
+      clearTouchArmTimer();
+      setPointerStart(null);
+      setResizePending(null);
+    }
+
     window.addEventListener("pointermove", onPointerMove, { passive: false });
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerUp);
+    const pageScroll = getJournalPageScrollEl();
+    const gridScroll =
+      scrollContainerRef.current ??
+      document.querySelector(JOURNAL_GRID_SCROLL_SELECTOR);
+    pageScroll?.addEventListener("scroll", onScrollCancelPending, { passive: true });
+    gridScroll?.addEventListener("scroll", onScrollCancelPending, { passive: true });
     return () => {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onPointerUp);
+      pageScroll?.removeEventListener("scroll", onScrollCancelPending);
+      gridScroll?.removeEventListener("scroll", onScrollCancelPending);
+      clearTouchArmTimer();
     };
   }, [
     isTracking,
-    bounds.start,
     canDrop,
+    clearTouchArmTimer,
     date,
+    gridStep,
     onAppointmentClick,
     resolveDropTarget,
     resolveDurationFromPointer,
+    slotHeightPx,
   ]);
 
   useEffect(() => {
@@ -1034,9 +1172,13 @@ export function JournalGrid({
                       resize?.group.some((g) =>
                         block.appointments.some((b) => b.id === g.id),
                       ) ?? false;
-                    const isPending = pointerStart?.group.some((g) =>
-                      block.appointments.some((b) => b.id === g.id),
-                    );
+                    const isPending =
+                      pointerStart?.group.some((g) =>
+                        block.appointments.some((b) => b.id === g.id),
+                      ) ||
+                      resizePending?.group.some((g) =>
+                        block.appointments.some((b) => b.id === g.id),
+                      );
                     const overlapSegments = getAppointmentOverlapSegments(
                       date,
                       block.startAt,
@@ -1065,19 +1207,46 @@ export function JournalGrid({
                           if ((e.target as HTMLElement).closest("[data-resize-handle]")) {
                             return;
                           }
-                          e.preventDefault();
                           e.stopPropagation();
-                          setPointerStart({
+                          const touch = isTouchPointer(e.pointerType);
+                          if (!touch) {
+                            e.preventDefault();
+                          }
+                          clearTouchArmTimer();
+                          setResizePending(null);
+                          setDrag(null);
+                          setResize(null);
+                          const next: PointerStart = {
                             appt: a,
                             group: block.appointments,
                             x: e.clientX,
                             y: e.clientY,
                             height: layout.height,
-                          });
+                            pointerType: e.pointerType,
+                            armed: !touch,
+                          };
+                          setPointerStart(next);
+                          if (touch) {
+                            touchArmTimerRef.current = window.setTimeout(() => {
+                              touchArmTimerRef.current = null;
+                              setPointerStart((prev) => {
+                                if (!prev || prev.appt.id !== a.id) return prev;
+                                const next = { ...prev, armed: true };
+                                pointerStartRef.current = next;
+                                return next;
+                              });
+                            }, TOUCH_DRAG_DELAY_MS);
+                          }
                         }}
                         onDragStart={(e) => e.preventDefault()}
                         draggable={false}
-                        className={`absolute left-1 right-1 touch-none select-none overflow-hidden rounded px-1.5 py-1 text-[11px] leading-tight shadow-sm ${
+                        className={`absolute left-1 right-1 select-none overflow-hidden rounded px-1.5 py-1 text-[11px] leading-tight shadow-sm ${
+                          gestureActive ||
+                          (isPending &&
+                            (pointerStart?.armed || Boolean(resizePending)))
+                            ? "touch-none"
+                            : "touch-pan-y"
+                        } ${
                           isDragging
                             ? "z-20 cursor-grabbing opacity-25"
                             : isResizing
@@ -1125,12 +1294,11 @@ export function JournalGrid({
                         </div>
                         <div
                           data-resize-handle
-                          className="group/resize absolute inset-x-0 bottom-0 z-[2] flex h-1.5 max-h-[22%] items-end cursor-ns-resize hover:bg-sky-500/10"
+                          className="group/resize absolute inset-x-0 bottom-0 z-[2] flex h-3 max-h-[28%] touch-none items-end cursor-ns-resize hover:bg-sky-500/10"
                           title="Потяните для изменения длительности"
                           onPointerDown={(e) => {
                             if (e.button !== 0) return;
                             if (isMutatingRef.current) return;
-                            e.preventDefault();
                             e.stopPropagation();
                             const startMin = minutesFromIso(date, block.startAt);
                             if (startMin === null) return;
@@ -1138,16 +1306,34 @@ export function JournalGrid({
                               block.appointments,
                               gridStep,
                             );
-                            setResize({
+                            const touch = isTouchPointer(e.pointerType);
+                            if (!touch) {
+                              e.preventDefault();
+                            }
+                            clearTouchArmTimer();
+                            setPointerStart(null);
+                            setDrag(null);
+                            const pendingResize: ResizePending = {
                               group: block.appointments,
                               staffId: s.id,
                               startMinutes: startMin,
                               durationMinutes: block.durationMinutes,
                               cellMinutes,
                               height: layout.height,
-                            });
-                            setPointerStart(null);
-                            setDrag(null);
+                              x: e.clientX,
+                              y: e.clientY,
+                              pointerType: e.pointerType,
+                            };
+                            if (!touch) {
+                              beginResizeFromPending(pendingResize);
+                              return;
+                            }
+                            setResizePending(pendingResize);
+                            touchArmTimerRef.current = window.setTimeout(() => {
+                              touchArmTimerRef.current = null;
+                              const current = resizePendingRef.current;
+                              if (current) beginResizeFromPending(current);
+                            }, TOUCH_DRAG_DELAY_MS);
                           }}
                         >
                           <div className="h-px w-full bg-black/20 group-hover/resize:bg-sky-500/40" />

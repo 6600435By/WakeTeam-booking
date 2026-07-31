@@ -122,24 +122,13 @@ export async function POST(req: NextRequest) {
   try {
     const ctx = await requireAdminContext();
     const body = createSchema.parse(await req.json());
-    await assertServiceJournalAccess(ctx, body.serviceId);
-    await assertStaffJournalAccess(ctx, body.staffId);
-
-    const staff = await prisma.staff.findUnique({
-      where: { id: body.staffId },
-      select: { branchId: true },
-    });
-    if (!staff) {
-      return NextResponse.json({ error: "Реверс не найден" }, { status: 404 });
-    }
+    const [service, staff] = await Promise.all([
+      assertServiceJournalAccess(ctx, body.serviceId),
+      assertStaffJournalAccess(ctx, body.staffId),
+    ]);
     assertJournalCreateAccess(ctx, staff.branchId);
 
     const { membershipId, paymentMethod, cashAmount, cardAmount, status: desiredStatus, rentalItemId, rentalQuantity, operatorMemberId, price, ...bookingBody } = body;
-
-    const service = await prisma.service.findUnique({
-      where: { id: body.serviceId },
-      select: { kind: true },
-    });
 
     const result = await createBooking(
       {
@@ -152,7 +141,7 @@ export async function POST(req: NextRequest) {
     );
 
     const startAt = new Date(bookingBody.startAt);
-    const resolvedOperatorId = serviceRequiresOperator(service?.kind)
+    const resolvedOperatorId = serviceRequiresOperator(service.kind)
       ? operatorMemberId !== undefined
         ? operatorMemberId
         : await resolveDefaultOperatorMemberId(staff.branchId, body.staffId, startAt)
@@ -162,7 +151,7 @@ export async function POST(req: NextRequest) {
         where: { id: result.id },
         data: { operatorMemberId: resolvedOperatorId },
       });
-      await ensureOperatorOnShift({
+      void ensureOperatorOnShift({
         organizationId: ctx.organizationId,
         branchId: staff.branchId,
         memberId: resolvedOperatorId,

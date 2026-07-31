@@ -624,7 +624,12 @@ export async function assertStaffJournalAccess(ctx: AdminContext, staffId: strin
 export async function assertServiceJournalAccess(ctx: AdminContext, serviceId: string) {
   const service = await prisma.service.findUnique({
     where: { id: serviceId },
-    select: { id: true, branchId: true, branch: { select: { organizationId: true } } },
+    select: {
+      id: true,
+      kind: true,
+      branchId: true,
+      branch: { select: { organizationId: true } },
+    },
   });
   if (!service || service.branch.organizationId !== ctx.organizationId) {
     throw new AdminAccessError("NOT_FOUND", 404);

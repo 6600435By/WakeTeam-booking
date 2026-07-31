@@ -213,7 +213,7 @@ export async function PATCH(
 
     if (finalOperatorMemberId) {
       const nextStartAt = body.startAt ? new Date(body.startAt) : existing.startAt;
-      await ensureOperatorOnShift({
+      void ensureOperatorOnShift({
         organizationId: ctx.organizationId,
         branchId: existing.branchId,
         memberId: finalOperatorMemberId,

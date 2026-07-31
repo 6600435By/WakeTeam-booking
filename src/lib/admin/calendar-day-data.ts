@@ -154,6 +154,31 @@ export async function queryCalendarDayAppointments(
   });
 }
 
+async function queryJournalServicesForBranch(
+  ctx: AdminContext,
+  branchId: string | undefined,
+) {
+  const services = await prisma.service.findMany({
+    where: {
+      isActive: true,
+      ...(branchId
+        ? { branchId }
+        : { branch: { organizationId: ctx.organizationId } }),
+    },
+    orderBy: [{ branchId: "asc" }, { sortOrder: "asc" }],
+    select: {
+      id: true,
+      name: true,
+      kind: true,
+      resourceLabel: true,
+      isActive: true,
+      branchId: true,
+      staff: { select: { staffId: true } },
+    },
+  });
+  return services.filter((s) => !isLegacyTariffServiceName(s.name));
+}
+
 /** Lightweight day switch: staff schedules + appointments (no branches/services). */
 export async function queryCalendarDayDelta(
   ctx: AdminContext,
@@ -169,6 +194,31 @@ export async function queryCalendarDayDelta(
   return {
     staff,
     appointments,
+    date,
+    admin: journalAdminMeta(ctx, branchId),
+  };
+}
+
+/**
+ * Branch switch while the journal shell is already loaded:
+ * staff + appointments + services (skip stable branches list).
+ */
+export async function queryCalendarDayBranchSwitch(
+  ctx: AdminContext,
+  date: string,
+  requestedBranchId?: string | null,
+) {
+  const branchId = resolveJournalBranchFilter(ctx, requestedBranchId);
+  const [staff, appointments, services] = await Promise.all([
+    queryStaffForDay(ctx, date, branchId),
+    queryCalendarDayAppointments(ctx, date, requestedBranchId),
+    queryJournalServicesForBranch(ctx, branchId),
+  ]);
+
+  return {
+    staff,
+    appointments,
+    services,
     date,
     admin: journalAdminMeta(ctx, branchId),
   };
@@ -192,33 +242,14 @@ export async function queryCalendarDay(
       orderBy: { sortOrder: "asc" },
       select: { id: true, name: true },
     }),
-    prisma.service.findMany({
-      where: {
-        isActive: true,
-        ...(branchId
-          ? { branchId }
-          : { branch: { organizationId: ctx.organizationId } }),
-      },
-      orderBy: [{ branchId: "asc" }, { sortOrder: "asc" }],
-      select: {
-        id: true,
-        name: true,
-        kind: true,
-        resourceLabel: true,
-        isActive: true,
-        branchId: true,
-        staff: { select: { staffId: true } },
-      },
-    }),
+    queryJournalServicesForBranch(ctx, branchId),
   ]);
-
-  const catalogServices = services.filter((s) => !isLegacyTariffServiceName(s.name));
 
   return {
     staff,
     appointments,
     branches,
-    services: catalogServices,
+    services,
     date,
     admin: journalAdminMeta(ctx, branchId),
   };

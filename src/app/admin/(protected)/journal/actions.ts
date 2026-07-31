@@ -8,19 +8,23 @@ import {
   queryAppointmentsList,
   queryCalendarDay,
   queryCalendarDayAppointments,
+  queryCalendarDayBranchSwitch,
   queryCalendarDayDelta,
 } from "@/lib/admin/calendar-day-data";
 import {
   serializeAppointmentsList,
   serializeCalendarDay,
+  serializeCalendarDayBranchSwitch,
   serializeCalendarDayDelta,
   type SerializedAppointment,
   type SerializedCalendarDay,
+  type SerializedCalendarDayBranchSwitch,
   type SerializedCalendarDayDelta,
 } from "@/lib/admin/calendar-day-serialize";
 
 export type CalendarDayPayload = SerializedCalendarDay;
 export type CalendarDayDeltaPayload = SerializedCalendarDayDelta;
+export type CalendarDayBranchSwitchPayload = SerializedCalendarDayBranchSwitch;
 
 function mapJournalActionError(e: unknown, fallback: string): string {
   if (e instanceof AdminAccessError) {
@@ -72,6 +76,36 @@ export async function loadCalendarDayDeltaAction(
     return { ok: true, data: serializeCalendarDayDelta(data) };
   } catch (e) {
     return { ok: false, error: mapJournalActionError(e, "Не удалось обновить день") };
+  }
+}
+
+/** Branch switch with shell already loaded — skip branches list refetch. */
+export async function loadCalendarDayBranchSwitchAction(
+  date: string,
+  branchId?: string,
+): Promise<
+  | { ok: true; data: CalendarDayBranchSwitchPayload }
+  | { ok: false; error: string }
+> {
+  try {
+    const ctx = await getAdminContext();
+    if (!ctx) {
+      return { ok: false, error: "Сессия истекла. Войдите снова." };
+    }
+    if ((ctx.isSuperAdmin || ctx.isBranchManager) && !branchId) {
+      return { ok: false, error: "Выберите филиал" };
+    }
+    const data = await queryCalendarDayBranchSwitch(
+      ctx,
+      date,
+      branchId || undefined,
+    );
+    return { ok: true, data: serializeCalendarDayBranchSwitch(data) };
+  } catch (e) {
+    return {
+      ok: false,
+      error: mapJournalActionError(e, "Не удалось переключить филиал"),
+    };
   }
 }
 

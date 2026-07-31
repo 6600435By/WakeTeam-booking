@@ -47,6 +47,7 @@ import {
   loadAppointmentsListAction,
   loadCalendarDayAction,
   loadCalendarDayAppointmentsAction,
+  loadCalendarDayBranchSwitchAction,
   loadCalendarDayDeltaAction,
   type CalendarDayPayload,
 } from "@/app/admin/(protected)/journal/actions";
@@ -267,13 +268,17 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
 
   function applyBranchId(id: string) {
     setBranchId(id);
-    if (isSuperAdmin) superBranch?.setBranchId(id);
+    setFreeSlotsOpen(false);
+    // Keep global branch context in sync (banner / other admin chrome).
+    superBranch?.setBranchId(id);
   }
 
   useEffect(() => {
+    // Super-admin global bar drives journal; managers keep an independent journal picker.
     if (!isSuperAdmin || !superBranch?.branchId) return;
     if (superBranch.branchId !== branchId) {
       setBranchId(superBranch.branchId);
+      setFreeSlotsOpen(false);
     }
   }, [isSuperAdmin, superBranch?.branchId, branchId]);
   const skipInitialLoadRef = useRef(Boolean(initial));
@@ -287,6 +292,15 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   const [compactView, setCompactView] = useState<CompactJournalView>("list");
   const loadSeqRef = useRef(0);
   const shellBranchRef = useRef(boot.branchId);
+  const servicesByBranchRef = useRef<Map<string, BranchService[]>>(
+    (() => {
+      const map = new Map<string, BranchService[]>();
+      if (boot.branchId && boot.services.length > 0) {
+        map.set(boot.branchId, boot.services);
+      }
+      return map;
+    })(),
+  );
   const hasShellRef = useRef(Boolean(initial && (initial.services?.length ?? 0) > 0));
   const appointmentsSnapshotRef = useRef<Appointment[] | null>(null);
   const viewport = useAdminViewport();
@@ -344,9 +358,31 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
       .map((row) => ({ id: row.id, name: row.name }));
   }, [selectedService, staff]);
 
-  useEffect(() => {
-    if (resourceKind === "all") setFreeSlotsOpen(false);
-  }, [resourceKind]);
+  const freeSlotServices = useMemo(() => {
+    if (selectedService) {
+      return [
+        {
+          id: selectedService.id,
+          kind: selectedService.kind ?? "wake",
+          name: selectedService.name,
+          staffOptions: selectedServiceStaff,
+        },
+      ];
+    }
+    return branchServices.map((service) => {
+      const linked = new Set(service.staff.map((row) => row.staffId));
+      return {
+        id: service.id,
+        kind: service.kind ?? "wake",
+        name: service.name,
+        staffOptions: staff
+          .filter((row) => linked.has(row.id))
+          .map((row) => ({ id: row.id, name: row.name })),
+      };
+    });
+  }, [branchServices, selectedService, selectedServiceStaff, staff]);
+
+  const canOpenFreeSlots = freeSlotServices.length > 0;
 
   useEffect(() => {
     if (!branchId) {
@@ -392,22 +428,35 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
     setJournalReadOnlyOutsideScope(admin.journalReadOnlyOutsideScope ?? false);
   }, []);
 
+  const rememberServices = useCallback((id: string, next: BranchService[]) => {
+    servicesByBranchRef.current.set(id, next);
+  }, []);
+
   const load = useCallback(
     async (opts?: { silent?: boolean; full?: boolean }) => {
       if (!branchId) return;
 
       const silent = opts?.silent ?? false;
       const branchChanged = shellBranchRef.current !== branchId;
-      const useFull = Boolean(opts?.full || branchChanged || !hasShellRef.current);
+      const coldStart = !hasShellRef.current;
+      const useFull = Boolean(opts?.full || coldStart);
+      const cachedServices = servicesByBranchRef.current.get(branchId);
       const reqId = ++loadSeqRef.current;
 
       if (!silent) {
         setLoading(true);
-        if (branchChanged || useFull) {
+        // Keep previous grid visible until the new payload arrives (atomic swap).
+        // Only clear on cold start / forced full reload.
+        if (useFull && !branchChanged) {
           setAppointments([]);
         }
       }
       setError("");
+
+      // Apply cached service catalog immediately so filters update while day data loads.
+      if (branchChanged && cachedServices) {
+        setServices(cachedServices);
+      }
 
       try {
         if (useFull) {
@@ -424,10 +473,12 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
           }
 
           const d = result.data;
+          const nextServices = (d.services ?? []) as BranchService[];
           setStaff((d.staff ?? []) as StaffRow[]);
           setAppointments((d.appointments ?? []) as Appointment[]);
           setBranches(d.branches ?? []);
-          setServices((d.services ?? []) as BranchService[]);
+          setServices(nextServices);
+          rememberServices(branchId, nextServices);
           applyAdminFlags(d.admin);
           shellBranchRef.current = branchId;
           hasShellRef.current = true;
@@ -435,6 +486,35 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
           if (d.admin && !d.admin.isSuperAdmin && !d.admin.isBranchManager && d.admin.branchId) {
             setBranchId(d.admin.branchId);
           }
+        } else if (branchChanged && cachedServices) {
+          // Revisit: services already known — fetch only staff + appointments.
+          const result = await loadCalendarDayDeltaAction(date, branchId);
+          if (reqId !== loadSeqRef.current) return;
+          if (!result.ok) {
+            setError(result.error);
+            return;
+          }
+          const d = result.data;
+          setStaff((d.staff ?? []) as StaffRow[]);
+          setAppointments((d.appointments ?? []) as Appointment[]);
+          applyAdminFlags(d.admin);
+          shellBranchRef.current = branchId;
+        } else if (branchChanged) {
+          // First visit to this branch in-session: staff + appointments + services.
+          const result = await loadCalendarDayBranchSwitchAction(date, branchId);
+          if (reqId !== loadSeqRef.current) return;
+          if (!result.ok) {
+            setError(result.error);
+            return;
+          }
+          const d = result.data;
+          const nextServices = (d.services ?? []) as BranchService[];
+          setStaff((d.staff ?? []) as StaffRow[]);
+          setAppointments((d.appointments ?? []) as Appointment[]);
+          setServices(nextServices);
+          rememberServices(branchId, nextServices);
+          applyAdminFlags(d.admin);
+          shellBranchRef.current = branchId;
         } else {
           const result = await loadCalendarDayDeltaAction(date, branchId);
           if (reqId !== loadSeqRef.current) return;
@@ -452,7 +532,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
       } catch {
         if (reqId !== loadSeqRef.current) return;
         setError("Ошибка при загрузке журнала");
-        if (!silent) {
+        if (!silent && useFull) {
           setStaff([]);
           setAppointments([]);
         }
@@ -462,7 +542,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
         }
       }
     },
-    [date, branchId, applyAdminFlags],
+    [date, branchId, applyAdminFlags, rememberServices],
   );
 
   const loadList = useCallback(async () => {
@@ -627,10 +707,11 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
     startAt: string;
     staffId?: string;
     staffName?: string;
+    serviceId?: string;
   }) {
     openNew({
       branchId: branchId || branches[0]?.id,
-      serviceId: selectedService?.id,
+      serviceId: pick.serviceId ?? selectedService?.id,
       staffId: pick.staffId,
       staffName: pick.staffName,
       startAt: pick.startAt,
@@ -827,7 +908,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
             {canCreateAppointments && compactView === "list" && (
             <button
               type="button"
-              disabled={!selectedService}
+              disabled={!canOpenFreeSlots}
               onClick={() => setFreeSlotsOpen((open) => !open)}
               className="mt-2 flex h-11 w-full touch-manipulation items-center justify-center rounded-lg border border-lime-600 bg-lime-50 px-3 text-sm font-semibold text-lime-800 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
             >
@@ -836,7 +917,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
             )}
           </div>
 
-          {freeSlotsOpen && selectedService ? (
+          {freeSlotsOpen && canOpenFreeSlots ? (
             <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
               <p className="text-sm font-medium text-slate-900">Свободное время</p>
               <p className="mt-0.5 text-xs text-slate-500">
@@ -845,10 +926,8 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
               <AdminFreeSlotPicker
                 className="mt-3"
                 compact
-                serviceId={selectedService.id}
-                serviceKind={selectedService.kind ?? "wake"}
                 date={date}
-                staffOptions={selectedServiceStaff}
+                services={freeSlotServices}
                 onPick={handleFreeSlotPick}
               />
             </div>
@@ -961,11 +1040,6 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
 
       {isCompactJournal && compactView === "list" && (
         <p className="mt-1 text-xs text-slate-400">Нажмите на запись для редактирования.</p>
-      )}
-      {isCompactJournal && compactView === "grid" && (
-        <p className="mt-1 text-xs text-slate-400">
-          Сетка как на компьютере — листайте вбок по реверсам, нажмите на слот или запись.
-        </p>
       )}
 
       {!loading && branches.length === 0 && (
