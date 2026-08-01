@@ -43,7 +43,7 @@ export function ShiftOpenBanner() {
     } catch {
       /* ignore */
     }
-  }, [superBranch?.branchId]);
+  }, [superBranch]);
 
   useEffect(() => {
     void check();
