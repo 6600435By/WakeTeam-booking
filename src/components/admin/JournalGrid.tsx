@@ -48,10 +48,12 @@ import {
 } from "@/lib/journal-grid-scale";
 
 const MOUSE_DRAG_THRESHOLD_PX = 6;
-const TOUCH_DRAG_THRESHOLD_PX = 14;
-const TOUCH_SCROLL_SLOP_PX = 10;
-const TOUCH_DRAG_DELAY_MS = 220;
-const TOUCH_RESIZE_THRESHOLD_PX = 8;
+const TOUCH_DRAG_THRESHOLD_PX = 16;
+/** Cancel long-press arm if the finger moves more than this (scroll / tap jitter). */
+const TOUCH_SCROLL_SLOP_PX = 8;
+/** Long-press before touch drag/resize can start — must be clearly intentional. */
+const TOUCH_DRAG_DELAY_MS = 480;
+const TOUCH_RESIZE_THRESHOLD_PX = 12;
 const HEADER_HEIGHT_PX = 28;
 const JOURNAL_PAGE_SCROLL_SELECTOR = ".admin-app-scroll";
 const JOURNAL_GRID_SCROLL_SELECTOR = ".admin-journal-grid-scroll";
@@ -159,6 +161,7 @@ type ResizePending = {
   x: number;
   y: number;
   pointerType: string;
+  armed: boolean;
 };
 
 type Props = {
@@ -648,9 +651,12 @@ export function JournalGrid({
         const dy = e.clientY - resizePend.y;
         const dist = Math.hypot(dx, dy);
         if (isTouchPointer(resizePend.pointerType)) {
-          if (Math.abs(dx) > TOUCH_SCROLL_SLOP_PX && Math.abs(dx) > Math.abs(dy)) {
-            clearTouchArmTimer();
-            setResizePending(null);
+          // Before long-press completes: any movement cancels (let the page scroll).
+          if (!resizePend.armed) {
+            if (dist > TOUCH_SCROLL_SLOP_PX) {
+              clearTouchArmTimer();
+              setResizePending(null);
+            }
             return;
           }
           if (dist >= TOUCH_RESIZE_THRESHOLD_PX && Math.abs(dy) >= Math.abs(dx)) {
@@ -675,13 +681,11 @@ export function JournalGrid({
         const threshold = touch ? TOUCH_DRAG_THRESHOLD_PX : MOUSE_DRAG_THRESHOLD_PX;
 
         if (touch && !pending.armed) {
-          if (Math.abs(dy) > TOUCH_SCROLL_SLOP_PX && Math.abs(dy) > Math.abs(dx)) {
+          // Critical: never start drag before long-press arm — horizontal
+          // swipes were accidentally moving appointments.
+          if (dist > TOUCH_SCROLL_SLOP_PX) {
             clearTouchArmTimer();
             setPointerStart(null);
-            return;
-          }
-          if (dist >= threshold && Math.abs(dx) >= Math.abs(dy)) {
-            beginDragFromPendingRef.current(pending);
           }
           return;
         }
@@ -995,19 +999,19 @@ export function JournalGrid({
       )}
 
       {!fillViewport && (
-        <>
-      <p className="mb-2 text-xs text-slate-400">
-        Удерживайте запись и перетащите в нужный слот — можно накладывать на другие записи.
-        Потяните нижний край записи, чтобы изменить длительность.
-        Оранжевая заливка — пересечение по времени. Клик без движения — редактирование.
-      </p>
-
-      <p className="mb-2 hidden text-xs text-slate-400 md:block">
-        {expandColumns
-          ? "Прокручивайте сетку для просмотра всего дня"
-          : "Листайте вправо для просмотра всех ресурсов"}
-      </p>
-        </>
+        <div className="mb-2 hidden space-y-1 text-xs text-slate-400 md:block">
+          <p>
+            Удерживайте запись и перетащите в нужный слот — можно накладывать на
+            другие записи. Потяните нижний край записи, чтобы изменить длительность.
+            Оранжевая заливка — пересечение по времени. Клик без движения —
+            редактирование.
+          </p>
+          <p>
+            {expandColumns
+              ? "Прокручивайте сетку для просмотра всего дня"
+              : "Листайте вправо для просмотра всех ресурсов"}
+          </p>
+        </div>
       )}
 
       <div className="admin-journal-grid-root w-full max-w-full">
@@ -1323,6 +1327,7 @@ export function JournalGrid({
                               x: e.clientX,
                               y: e.clientY,
                               pointerType: e.pointerType,
+                              armed: !touch,
                             };
                             if (!touch) {
                               beginResizeFromPending(pendingResize);
@@ -1331,8 +1336,12 @@ export function JournalGrid({
                             setResizePending(pendingResize);
                             touchArmTimerRef.current = window.setTimeout(() => {
                               touchArmTimerRef.current = null;
-                              const current = resizePendingRef.current;
-                              if (current) beginResizeFromPending(current);
+                              setResizePending((prev) => {
+                                if (!prev) return prev;
+                                const next = { ...prev, armed: true };
+                                resizePendingRef.current = next;
+                                return next;
+                              });
                             }, TOUCH_DRAG_DELAY_MS);
                           }}
                         >
