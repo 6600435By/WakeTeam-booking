@@ -783,6 +783,70 @@ export function AppointmentModal({
     }
   }
 
+  // Keep quick sheet inside the visual viewport (above iOS keyboard).
+  useEffect(() => {
+    if (!open || !isQuick) return;
+
+    let popup: HTMLElement | null = null;
+    let raf = 0;
+    let cleaned = false;
+    const vv = window.visualViewport;
+
+    const apply = () => {
+      if (!popup) return;
+      if (!vv) {
+        popup.style.maxHeight = "";
+        popup.style.top = "";
+        popup.style.bottom = "auto";
+        return;
+      }
+      const top = Math.max(0, Math.round(vv.offsetTop));
+      const height = Math.max(280, Math.floor(vv.height - 8));
+      popup.style.top = `${top}px`;
+      popup.style.maxHeight = `${height}px`;
+      popup.style.bottom = "auto";
+    };
+
+    const bind = () => {
+      if (cleaned) return;
+      popup = document.querySelector(
+        "[data-quick-appointment-dialog]",
+      ) as HTMLElement | null;
+      if (!popup) {
+        raf = window.requestAnimationFrame(bind);
+        return;
+      }
+      apply();
+      vv?.addEventListener("resize", apply);
+      vv?.addEventListener("scroll", apply);
+    };
+
+    bind();
+    return () => {
+      cleaned = true;
+      window.cancelAnimationFrame(raf);
+      vv?.removeEventListener("resize", apply);
+      vv?.removeEventListener("scroll", apply);
+      if (popup) {
+        popup.style.maxHeight = "";
+        popup.style.top = "";
+        popup.style.bottom = "";
+      }
+    };
+  }, [open, isQuick]);
+
+  useEffect(() => {
+    if (!open || !isQuick) return;
+    const t = window.setTimeout(() => {
+      const phoneInput = document.getElementById(
+        "quick-client-phone",
+      ) as HTMLInputElement | null;
+      phoneInput?.focus({ preventScroll: true });
+      phoneInput?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }, 50);
+    return () => window.clearTimeout(t);
+  }, [open, isQuick]);
+
   if (!open) return null;
 
   function buildCopyPrefill(): WidgetPrefill | null {
@@ -1041,10 +1105,14 @@ export function AppointmentModal({
     }
   }
 
+  const slotSummaryMinutes = (() => {
+    const parsed = parseInt(durationInput, 10);
+    return Number.isNaN(parsed) || parsed <= 0 ? durationMinutes : parsed;
+  })();
   const slotSummary = [
     staffName || "Ресурс",
     date && time ? `${date} ${time}` : null,
-    `${durationMinutes} мин`,
+    `${slotSummaryMinutes} мин`,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -1059,107 +1127,149 @@ export function AppointmentModal({
       >
         <DialogContent
           showCloseButton
-          className="max-h-[min(92dvh,92svh)] w-full max-w-md overflow-y-auto overscroll-contain p-4 font-sans sm:max-w-md"
+          data-quick-appointment-dialog
+          className="w-full max-w-md gap-3 overflow-hidden p-4 font-sans sm:max-w-md max-sm:top-0 max-sm:right-0 max-sm:bottom-auto max-sm:left-0 max-sm:mt-0 max-sm:flex max-sm:max-h-[min(92dvh,100svh)] max-sm:translate-x-0 max-sm:translate-y-0 max-sm:flex-col max-sm:rounded-t-none max-sm:rounded-b-2xl"
         >
-          <DialogHeader className="pr-8 text-left">
+          <DialogHeader className="shrink-0 pr-8 text-left">
             <DialogTitle className="text-base font-bold text-slate-900">
               Быстрая запись
             </DialogTitle>
           </DialogHeader>
           <form
             onSubmit={(e) => void handleSubmit(e)}
-            className="space-y-2"
+            className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden"
             autoComplete="off"
           >
-            <p className="rounded-md bg-slate-50 px-2.5 py-2 text-sm text-slate-700">
-              {slotSummary}
-            </p>
-            <div>
-              <label className={labelClass} htmlFor="quick-client-phone">
-                Телефон
-              </label>
-              <input
-                id="quick-client-phone"
-                placeholder="+375 …"
-                name="quick-client-phone"
-                type="tel"
-                inputMode="tel"
-                autoComplete="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className={inputClass}
-                required
-              />
-              {clientLookupStatus === "loading" && (
-                <p className="mt-0.5 text-[10px] text-slate-400">Поиск…</p>
-              )}
-              {clientLookupStatus === "found" && (
-                <p className="mt-0.5 text-[10px] text-lime-700">Клиент найден</p>
-              )}
-              {clientLookupStatus === "new" && (
-                <p className="mt-0.5 text-[10px] text-slate-500">Новый клиент</p>
-              )}
-              {clientSuggestions.length > 1 && (
-                <ul className="mt-1 max-h-28 overflow-y-auto rounded border border-slate-200 bg-white text-xs">
-                  {clientSuggestions.map((c) => (
-                    <li key={c.id}>
-                      <button
-                        type="button"
-                        className="w-full px-2 py-1.5 text-left hover:bg-slate-50"
-                        onClick={() => applyClientSuggestion(c)}
-                      >
-                        {[c.firstName, c.lastName].filter(Boolean).join(" ") || "Без имени"}{" "}
-                        <span className="text-slate-400">{c.phone}</span>
-                      </button>
-                    </li>
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain">
+              <p className="rounded-md bg-slate-50 px-2.5 py-2 text-sm text-slate-700">
+                {slotSummary}
+              </p>
+              <div>
+                <label className={labelClass} htmlFor="quick-booking-duration">
+                  Длительность, мин
+                </label>
+                <input
+                  id="quick-booking-duration"
+                  name="quick-booking-duration"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autoComplete="new-password"
+                  data-lpignore="true"
+                  data-1p-ignore
+                  value={durationInput}
+                  readOnly
+                  onFocus={unlockReadOnlyInput}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    if (raw === "" || /^\d+$/.test(raw)) {
+                      setDurationInput(raw);
+                    }
+                  }}
+                  onBlur={() => {
+                    if (durationInput === "") {
+                      commitDurationInput(String(durationMinutes));
+                    } else {
+                      commitDurationInput();
+                    }
+                  }}
+                  className={inputClass}
+                  required
+                />
+              </div>
+              <div>
+                <label className={labelClass} htmlFor="quick-client-phone">
+                  Телефон
+                </label>
+                <input
+                  id="quick-client-phone"
+                  placeholder="+375 …"
+                  name="quick-client-phone"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className={inputClass}
+                  required
+                />
+                {clientLookupStatus === "loading" && (
+                  <p className="mt-0.5 text-[10px] text-slate-400">Поиск…</p>
+                )}
+                {clientLookupStatus === "found" && (
+                  <p className="mt-0.5 text-[10px] text-lime-700">Клиент найден</p>
+                )}
+                {clientLookupStatus === "new" && (
+                  <p className="mt-0.5 text-[10px] text-slate-500">Новый клиент</p>
+                )}
+                {clientSuggestions.length > 1 && (
+                  <ul className="mt-1 max-h-28 overflow-y-auto rounded border border-slate-200 bg-white text-xs">
+                    {clientSuggestions.map((c) => (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          className="w-full px-2 py-1.5 text-left hover:bg-slate-50"
+                          onClick={() => applyClientSuggestion(c)}
+                        >
+                          {[c.firstName, c.lastName].filter(Boolean).join(" ") ||
+                            "Без имени"}{" "}
+                          <span className="text-slate-400">{c.phone}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div>
+                <label className={labelClass} htmlFor="quick-client-first-name">
+                  Имя
+                </label>
+                <input
+                  ref={firstNameInputRef}
+                  id="quick-client-first-name"
+                  name="quick-client-first-name"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  onFocus={(e) => {
+                    e.currentTarget.scrollIntoView({
+                      block: "center",
+                      behavior: "smooth",
+                    });
+                  }}
+                  className={inputClass}
+                  required
+                />
+              </div>
+              <div>
+                <label className={labelClass} htmlFor="quick-status">
+                  Статус
+                </label>
+                <select
+                  id="quick-status"
+                  value={status}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setStatus(next);
+                    if (next === "completed") setFormMode("full");
+                  }}
+                  className={inputClass}
+                >
+                  {APPOINTMENT_STATUS_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
                   ))}
-                </ul>
+                </select>
+              </div>
+              {error && (
+                <AdminErrorBanner title="Не удалось сохранить" error={error} />
               )}
             </div>
-            <div>
-              <label className={labelClass} htmlFor="quick-client-first-name">
-                Имя
-              </label>
-              <input
-                ref={firstNameInputRef}
-                id="quick-client-first-name"
-                name="quick-client-first-name"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                className={inputClass}
-                required
-                autoFocus
-              />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="quick-status">
-                Статус
-              </label>
-              <select
-                id="quick-status"
-                value={status}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setStatus(next);
-                  if (next === "completed") setFormMode("full");
-                }}
-                className={inputClass}
-              >
-                {APPOINTMENT_STATUS_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {error && (
-              <AdminErrorBanner title="Не удалось сохранить" error={error} />
-            )}
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-slate-100 pt-2 pb-[max(0.25rem,env(safe-area-inset-bottom))]">
               <button
                 type="submit"
                 disabled={loading}
-                className="rounded-md bg-lime-600 py-2 text-sm font-medium text-white hover:bg-lime-700 disabled:opacity-50"
+                className="rounded-md bg-lime-600 py-2.5 text-sm font-medium text-white hover:bg-lime-700 disabled:opacity-50"
               >
                 {loading ? "…" : "Сохранить"}
               </button>
@@ -1167,7 +1277,7 @@ export function AppointmentModal({
                 type="button"
                 disabled={loading}
                 onClick={() => void handleSubmit(undefined, { andNext: true })}
-                className="rounded-md border border-lime-600 py-2 text-sm font-medium text-lime-700 hover:bg-lime-50 disabled:opacity-50"
+                className="rounded-md border border-lime-600 py-2.5 text-sm font-medium text-lime-700 hover:bg-lime-50 disabled:opacity-50"
               >
                 {loading ? "…" : "Сохранить и ещё"}
               </button>

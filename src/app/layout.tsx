@@ -23,6 +23,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  // Keep bottom sheets / modals above the soft keyboard on mobile.
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({
