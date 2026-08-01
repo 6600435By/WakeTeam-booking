@@ -11,6 +11,7 @@ import {
 import { DatePickerField } from "@/components/admin/DatePickerField";
 import { APPOINTMENT_STATUS_OPTIONS, CANCEL_REASON_OPTIONS, type CancelReason, serviceRequiresOperator, validateOperatorForCompletedStatus } from "@/lib/appointment-status";
 import {
+  addMinutes,
   fromDatetimeLocalValue,
   todayDatetimeLocalValue,
   toDatetimeLocalValue,
@@ -94,6 +95,8 @@ type Props = {
   appointmentId?: string;
   appointmentGroup?: GroupApptRef[];
   totalPrice?: number;
+  /** Short create form from journal grid slot click */
+  quick?: boolean;
   initial?: {
     branchId?: string;
     serviceId?: string;
@@ -145,6 +148,7 @@ export function AppointmentModal({
   appointmentId,
   appointmentGroup,
   totalPrice,
+  quick = false,
   initial,
 }: Props) {
   const [branchId, setBranchId] = useState("");
@@ -196,6 +200,10 @@ export function AppointmentModal({
   const [operatorOptions, setOperatorOptions] = useState<OperatorOption[]>([]);
   const [operatorsLoading, setOperatorsLoading] = useState(false);
   const operatorTouchedRef = useRef(false);
+  const [formMode, setFormMode] = useState<"quick" | "full">(quick ? "quick" : "full");
+  const firstNameInputRef = useRef<HTMLInputElement>(null);
+  const isQuick = formMode === "quick" && !appointmentId;
+  const needsFullData = !isQuick;
 
   function setQuotedPrice(value: number) {
     if (!Number.isFinite(value)) return;
@@ -206,13 +214,18 @@ export function AppointmentModal({
 
   useEffect(() => {
     if (!open) return;
+    setFormMode(quick && !appointmentId ? "quick" : "full");
+  }, [open, quick, appointmentId]);
+
+  useEffect(() => {
+    if (!open || !needsFullData) return;
     adminFetch("/api/admin/widget-settings")
       .then((r) => r.json())
       .then((d) => {
         if (d.slug) setWidgetSlug(d.slug);
       })
       .catch(() => {});
-  }, [open]);
+  }, [open, needsFullData]);
 
   useEffect(() => {
     if (!open) return;
@@ -329,7 +342,7 @@ export function AppointmentModal({
   ]);
 
   useEffect(() => {
-    if (!open || priceTouchedRef.current) return;
+    if (!open || !needsFullData || priceTouchedRef.current) return;
     if (!serviceId || !date || !time) return;
     const pricingKey = [
       serviceId,
@@ -405,19 +418,20 @@ export function AppointmentModal({
     phone,
     appointmentId,
     holidayDates,
+    needsFullData,
   ]);
 
   // Keep cash+card in sync with quoted due unless operator edited amounts manually
   useEffect(() => {
-    if (!open || amountsTouched) return;
+    if (!open || !needsFullData || amountsTouched) return;
     const due = roundMoney(price);
     setCashAmount(0);
     setCardAmount(due);
-  }, [open, price, amountsTouched]);
+  }, [open, price, amountsTouched, needsFullData]);
 
   useEffect(() => {
-    if (!branchId || !open) {
-      setHolidayDates([]);
+    if (!branchId || !open || !needsFullData) {
+      if (!needsFullData) setHolidayDates([]);
       return;
     }
     adminFetch(`/api/admin/branches/${branchId}/hours`)
@@ -426,15 +440,15 @@ export function AppointmentModal({
         setHolidayDates((d.holidays ?? []).map((h: { date: string }) => h.date));
       })
       .catch(() => setHolidayDates([]));
-  }, [branchId, open]);
+  }, [branchId, open, needsFullData]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !needsFullData) return;
     adminFetch("/api/admin/memberships/sync?ifStale=1", { method: "POST" }).catch(() => {});
-  }, [open]);
+  }, [open, needsFullData]);
 
   useEffect(() => {
-    if (!branchId || !open) return;
+    if (!branchId || !open || !needsFullData) return;
     setServicesLoading(true);
     adminFetch(`/api/admin/services?branchId=${branchId}`)
       .then((r) => r.json())
@@ -473,10 +487,10 @@ export function AppointmentModal({
         setServices(mapped);
       })
       .finally(() => setServicesLoading(false));
-  }, [branchId, open]);
+  }, [branchId, open, needsFullData]);
 
   useEffect(() => {
-    if (!branchId || !open) return;
+    if (!branchId || !open || !needsFullData) return;
     setOperatorsLoading(true);
     const q = new URLSearchParams({ branchId });
     if (date) q.set("date", date);
@@ -507,10 +521,10 @@ export function AppointmentModal({
       })
       .catch(() => {})
       .finally(() => setOperatorsLoading(false));
-  }, [branchId, open, date]);
+  }, [branchId, open, date, needsFullData]);
 
   useEffect(() => {
-    if (!open || operatorTouchedRef.current) return;
+    if (!open || !needsFullData || operatorTouchedRef.current) return;
     if (!branchId || !staffId || !date || !time) return;
     const svc = services.find((s) => s.id === serviceId);
     if (!serviceRequiresOperator(svc?.kind)) {
@@ -534,10 +548,10 @@ export function AppointmentModal({
     return () => {
       cancelled = true;
     };
-  }, [open, branchId, staffId, date, time, serviceId, services]);
+  }, [open, branchId, staffId, date, time, serviceId, services, needsFullData]);
 
   useEffect(() => {
-    if (!branchId || !open) return;
+    if (!branchId || !open || !needsFullData) return;
     adminFetch(`/api/admin/branches/${branchId}/rental-items`)
       .then((r) => r.json())
       .then((d) => {
@@ -552,7 +566,7 @@ export function AppointmentModal({
         );
       })
       .catch(() => setRentalItems([]));
-  }, [branchId, open]);
+  }, [branchId, open, needsFullData]);
 
   useEffect(() => {
     if (!open) return;
@@ -631,7 +645,7 @@ export function AppointmentModal({
   ]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !needsFullData) return;
     const trimmed = phone.replace(/\s/g, "");
     if (!isSearchablePhone(trimmed)) {
       setMembershipOptions([]);
@@ -679,7 +693,7 @@ export function AppointmentModal({
     }, 400);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- phone and service drive lookup
-  }, [open, phone, initial?.membershipId, serviceId, services]);
+  }, [open, phone, initial?.membershipId, serviceId, services, needsFullData]);
 
   useEffect(() => {
     const serviceKind = services.find((s) => s.id === serviceId)?.kind ?? "wake";
@@ -804,31 +818,45 @@ export function AppointmentModal({
     return normalized;
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit(e?: React.FormEvent, opts?: { andNext?: boolean }) {
+    e?.preventDefault();
     if (!date || !time) {
       setError("Укажите дату и время");
       return;
     }
-    const operatorError = validateOperatorForCompletedStatus(
-      status,
-      operatorMemberId || null,
-      selectedService?.kind,
-    );
-    if (operatorError) {
-      setError(operatorError);
+    if (!serviceId || !staffId) {
+      setError("Не выбран ресурс или услуга");
       return;
     }
-    const due = roundMoney(parseFloat(priceInput) || price);
-    const cash = roundMoney(cashAmount);
-    const card = roundMoney(cardAmount);
-    if (!amountsMatchDue(cash, card, due)) {
+    if (!firstName.trim() || !phone.trim()) {
+      setError("Укажите имя и телефон");
+      return;
+    }
+    // Payment / operator / membership minutes are required only when completing.
+    const requiresSettlement = status === "completed";
+    if (requiresSettlement) {
+      const operatorError = validateOperatorForCompletedStatus(
+        status,
+        operatorMemberId || null,
+        selectedService?.kind,
+      );
+      if (operatorError) {
+        setError(operatorError);
+        return;
+      }
+    }
+    const due = isQuick ? 0 : roundMoney(parseFloat(priceInput) || price);
+    const cash = requiresSettlement && !isQuick ? roundMoney(cashAmount) : 0;
+    const card = requiresSettlement && !isQuick ? roundMoney(cardAmount) : 0;
+    if (requiresSettlement && !isQuick && !amountsMatchDue(cash, card, due)) {
       setError(
         `Сумма наличных и карты (${(cash + card).toFixed(2)}) не равна сумме к оплате (${due.toFixed(2)}). Исправьте поля оплаты.`,
       );
       return;
     }
     if (
+      requiresSettlement &&
+      !isQuick &&
       membershipId &&
       selectedMembership &&
       selectedMembership.effectiveRemainingMinutes < durationMinutes
@@ -848,19 +876,19 @@ export function AppointmentModal({
       staffId,
       startAt: isoStart,
       durationMinutes: duration,
-      firstName,
-      lastName,
-      phone,
-      status,
-      comment,
-      membershipId: membershipId || null,
-      cashAmount: cash,
-      cardAmount: card,
-      rentalItemId: showRental && rentalItemId ? rentalItemId : null,
-      rentalQuantity: showRental && rentalItemId ? rentalQuantity : 0,
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      phone: phone.trim(),
+      status: isQuick ? status || "booked" : status,
+      comment: isQuick ? "" : comment,
+      membershipId: isQuick ? null : membershipId || null,
+      // Omit tender amounts unless completing — server rejects 0+0 when price > 0
+      ...(requiresSettlement ? { cashAmount: cash, cardAmount: card } : {}),
+      rentalItemId: isQuick ? null : showRental && rentalItemId ? rentalItemId : null,
+      rentalQuantity: isQuick ? 0 : showRental && rentalItemId ? rentalQuantity : 0,
       price: priceValue,
-      priceManual: priceTouchedRef.current,
-      operatorMemberId: isSupService ? null : operatorMemberId || null,
+      priceManual: isQuick ? false : priceTouchedRef.current,
+      operatorMemberId: isQuick || isSupService ? null : operatorMemberId || null,
     };
     try {
       if (appointmentId && appointmentGroup && appointmentGroup.length > 1) {
@@ -877,12 +905,12 @@ export function AppointmentModal({
           status,
           comment,
           membershipId: membershipId || null,
-          cashAmount: cash,
-          cardAmount: card,
+          ...(requiresSettlement ? { cashAmount: cash, cardAmount: card } : {}),
           rentalItemId: showRental && rentalItemId ? rentalItemId : null,
           rentalQuantity: showRental && rentalItemId ? rentalQuantity : 0,
           operatorMemberId: isSupService ? null : operatorMemberId || null,
         });
+        setLoading(false);
         onClose();
         void Promise.resolve(onSaved());
         return;
@@ -897,12 +925,34 @@ export function AppointmentModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(savePayload),
       });
-      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
         throw Object.assign(new Error(formatAdminError(data, "Не удалось сохранить запись")), {
           api: data,
         });
       }
+
+      // Close immediately — journal refresh is fire-and-forget.
+      if (opts?.andNext && isQuick) {
+        const nextStart = addMinutes(new Date(isoStart), duration);
+        const local = toDatetimeLocalValue(nextStart.toISOString());
+        const [d, t] = local.split("T");
+        setDate(d);
+        setTime(t);
+        setFirstName("");
+        setLastName("");
+        setPhone("");
+        setStatus("booked");
+        setClientLookupStatus("idle");
+        setClientSuggestions([]);
+        setError("");
+        setLoading(false);
+        void Promise.resolve(onSaved());
+        requestAnimationFrame(() => firstNameInputRef.current?.focus());
+        return;
+      }
+
+      setLoading(false);
       onClose();
       void Promise.resolve(onSaved());
     } catch (err) {
@@ -918,7 +968,6 @@ export function AppointmentModal({
         description: parts.hint ?? "Исправьте данные в форме и сохраните снова.",
         duration: 8000,
       });
-    } finally {
       setLoading(false);
     }
   }
@@ -992,6 +1041,143 @@ export function AppointmentModal({
     }
   }
 
+  const slotSummary = [
+    staffName || "Ресурс",
+    date && time ? `${date} ${time}` : null,
+    `${durationMinutes} мин`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  if (isQuick) {
+    return (
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) onClose();
+        }}
+      >
+        <DialogContent
+          showCloseButton
+          className="max-h-[min(92dvh,92svh)] w-full max-w-md overflow-y-auto overscroll-contain p-4 font-sans sm:max-w-md"
+        >
+          <DialogHeader className="pr-8 text-left">
+            <DialogTitle className="text-base font-bold text-slate-900">
+              Быстрая запись
+            </DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => void handleSubmit(e)}
+            className="space-y-2"
+            autoComplete="off"
+          >
+            <p className="rounded-md bg-slate-50 px-2.5 py-2 text-sm text-slate-700">
+              {slotSummary}
+            </p>
+            <div>
+              <label className={labelClass} htmlFor="quick-client-phone">
+                Телефон
+              </label>
+              <input
+                id="quick-client-phone"
+                placeholder="+375 …"
+                name="quick-client-phone"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className={inputClass}
+                required
+              />
+              {clientLookupStatus === "loading" && (
+                <p className="mt-0.5 text-[10px] text-slate-400">Поиск…</p>
+              )}
+              {clientLookupStatus === "found" && (
+                <p className="mt-0.5 text-[10px] text-lime-700">Клиент найден</p>
+              )}
+              {clientLookupStatus === "new" && (
+                <p className="mt-0.5 text-[10px] text-slate-500">Новый клиент</p>
+              )}
+              {clientSuggestions.length > 1 && (
+                <ul className="mt-1 max-h-28 overflow-y-auto rounded border border-slate-200 bg-white text-xs">
+                  {clientSuggestions.map((c) => (
+                    <li key={c.id}>
+                      <button
+                        type="button"
+                        className="w-full px-2 py-1.5 text-left hover:bg-slate-50"
+                        onClick={() => applyClientSuggestion(c)}
+                      >
+                        {[c.firstName, c.lastName].filter(Boolean).join(" ") || "Без имени"}{" "}
+                        <span className="text-slate-400">{c.phone}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div>
+              <label className={labelClass} htmlFor="quick-client-first-name">
+                Имя
+              </label>
+              <input
+                ref={firstNameInputRef}
+                id="quick-client-first-name"
+                name="quick-client-first-name"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className={inputClass}
+                required
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className={labelClass} htmlFor="quick-status">
+                Статус
+              </label>
+              <select
+                id="quick-status"
+                value={status}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setStatus(next);
+                  if (next === "completed") setFormMode("full");
+                }}
+                className={inputClass}
+              >
+                {APPOINTMENT_STATUS_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {error && (
+              <AdminErrorBanner title="Не удалось сохранить" error={error} />
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="submit"
+                disabled={loading}
+                className="rounded-md bg-lime-600 py-2 text-sm font-medium text-white hover:bg-lime-700 disabled:opacity-50"
+              >
+                {loading ? "…" : "Сохранить"}
+              </button>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => void handleSubmit(undefined, { andNext: true })}
+                className="rounded-md border border-lime-600 py-2 text-sm font-medium text-lime-700 hover:bg-lime-50 disabled:opacity-50"
+              >
+                {loading ? "…" : "Сохранить и ещё"}
+              </button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
     <>
       <Dialog
@@ -1009,7 +1195,7 @@ export function AppointmentModal({
               {appointmentId ? "Редактировать запись" : "Новая запись"}
             </DialogTitle>
           </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-2" autoComplete="off">
+        <form onSubmit={(e) => void handleSubmit(e)} className="space-y-2" autoComplete="off">
           <div>
             <label className={labelClass}>Филиал</label>
             <select
@@ -1197,7 +1383,7 @@ export function AppointmentModal({
                   }
                 }}
                 className={inputClass}
-                required
+                required={status === "completed"}
               />
             </div>
           </div>
@@ -1467,11 +1653,12 @@ export function AppointmentModal({
                 Всё картой
               </button>
             </div>
-            {!amountsMatchDue(
-              cashAmount,
-              cardAmount,
-              roundMoney(parseFloat(priceInput) || price),
-            ) && (
+            {status === "completed" &&
+              !amountsMatchDue(
+                cashAmount,
+                cardAmount,
+                roundMoney(parseFloat(priceInput) || price),
+              ) && (
               <p className="mt-1 text-[10px] text-amber-700">
                 Сумма наличных и карты должна равняться сумме к оплате.
               </p>

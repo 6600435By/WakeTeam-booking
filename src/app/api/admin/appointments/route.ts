@@ -130,27 +130,25 @@ export async function POST(req: NextRequest) {
 
     const { membershipId, paymentMethod, cashAmount, cardAmount, status: desiredStatus, rentalItemId, rentalQuantity, operatorMemberId, price, ...bookingBody } = body;
 
+    const startAt = new Date(bookingBody.startAt);
+    const resolvedOperatorId = !serviceRequiresOperator(service.kind)
+      ? null
+      : operatorMemberId !== undefined
+        ? operatorMemberId
+        : await resolveDefaultOperatorMemberId(staff.branchId, body.staffId, startAt);
+
     const result = await createBooking(
       {
         organizationId: ctx.organizationId,
         ...bookingBody,
         price,
         source: "admin",
+        operatorMemberId: resolvedOperatorId,
       },
       { skipSlotCheck: true, allowOverlap: true },
     );
 
-    const startAt = new Date(bookingBody.startAt);
-    const resolvedOperatorId = serviceRequiresOperator(service.kind)
-      ? operatorMemberId !== undefined
-        ? operatorMemberId
-        : await resolveDefaultOperatorMemberId(staff.branchId, body.staffId, startAt)
-      : null;
     if (resolvedOperatorId) {
-      await prisma.appointment.update({
-        where: { id: result.id },
-        data: { operatorMemberId: resolvedOperatorId },
-      });
       void ensureOperatorOnShift({
         organizationId: ctx.organizationId,
         branchId: staff.branchId,
@@ -159,24 +157,34 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    try {
-      await finalizeAdminAppointmentCreate(result.id, {
-        membershipId,
-        desiredStatus,
-        paymentMethod,
-        cashAmount,
-        cardAmount,
-        price,
-        rentalItemId,
-        rentalQuantity,
-      });
-    } catch (err) {
-      await prisma.appointment.delete({ where: { id: result.id } });
-      const mapped = appointmentSaveErrorResponse(err);
-      if (mapped) {
-        return NextResponse.json(mapped.body, { status: mapped.status });
+    const needsFinalize =
+      Boolean(membershipId) ||
+      Boolean(rentalItemId) ||
+      paymentMethod != null ||
+      cashAmount !== undefined ||
+      cardAmount !== undefined ||
+      (Boolean(desiredStatus) && desiredStatus !== "booked");
+
+    if (needsFinalize) {
+      try {
+        await finalizeAdminAppointmentCreate(result.id, {
+          membershipId,
+          desiredStatus,
+          paymentMethod,
+          cashAmount,
+          cardAmount,
+          price,
+          rentalItemId,
+          rentalQuantity,
+        });
+      } catch (err) {
+        await prisma.appointment.delete({ where: { id: result.id } });
+        const mapped = appointmentSaveErrorResponse(err);
+        if (mapped) {
+          return NextResponse.json(mapped.body, { status: mapped.status });
+        }
+        throw err;
       }
-      throw err;
     }
 
     void prisma.appointment

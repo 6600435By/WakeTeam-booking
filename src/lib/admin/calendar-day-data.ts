@@ -228,20 +228,23 @@ export async function queryCalendarDay(
   ctx: AdminContext,
   date: string,
   requestedBranchId?: string | null,
+  opts?: { branches?: { id: string; name: string }[] },
 ) {
   const branchId = resolveJournalBranchFilter(ctx, requestedBranchId);
 
   const [staff, appointments, branches, services] = await Promise.all([
     queryStaffForDay(ctx, date, branchId),
     queryCalendarDayAppointments(ctx, date, requestedBranchId),
-    prisma.branch.findMany({
-      where:
-        ctx.isSuperAdmin || ctx.isBranchManager
-          ? { organizationId: ctx.organizationId, isActive: true }
-          : branchListWhere(ctx),
-      orderBy: { sortOrder: "asc" },
-      select: { id: true, name: true },
-    }),
+    opts?.branches
+      ? Promise.resolve(opts.branches)
+      : prisma.branch.findMany({
+          where:
+            ctx.isSuperAdmin || ctx.isBranchManager
+              ? { organizationId: ctx.organizationId, isActive: true }
+              : branchListWhere(ctx),
+          orderBy: { sortOrder: "asc" },
+          select: { id: true, name: true },
+        }),
     queryJournalServicesForBranch(ctx, branchId),
   ]);
 

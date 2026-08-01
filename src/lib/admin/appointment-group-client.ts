@@ -148,20 +148,21 @@ export async function resizeGroupAppointments(
   }
 
   if (targetCount > sorted.length) {
-    let nextStart = addMinutes(
+    const baseStart = addMinutes(
       new Date(sorted[sorted.length - 1].startAt),
       sorted[sorted.length - 1].durationMinutes,
     );
-    const added: GroupApptRef[] = [];
-    for (let i = sorted.length; i < targetCount; i++) {
-      const created = await adminCreate({
-        ...createTemplate,
-        startAt: nextStart.toISOString(),
-        durationMinutes: cell,
-      });
-      added.push(created);
-      nextStart = addMinutes(nextStart, cell);
-    }
+    const toAdd = targetCount - sorted.length;
+    const added = await Promise.all(
+      Array.from({ length: toAdd }, (_, i) => {
+        const startAt = addMinutes(baseStart, cell * i);
+        return adminCreate({
+          ...createTemplate,
+          startAt: startAt.toISOString(),
+          durationMinutes: cell,
+        });
+      }),
+    );
     return [...sorted, ...added];
   }
 

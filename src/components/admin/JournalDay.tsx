@@ -253,6 +253,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   const [loading, setLoading] = useState(boot.loading);
   const [error, setError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
+  const [modalQuick, setModalQuick] = useState(false);
   const [editAppt, setEditAppt] = useState<Appointment | null>(null);
   const [editGroup, setEditGroup] = useState<Appointment[] | null>(null);
   const [modalInitial, setModalInitial] = useState<ModalInitial>({});
@@ -291,6 +292,8 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
   const [freeSlotsOpen, setFreeSlotsOpen] = useState(false);
   const [compactView, setCompactView] = useState<CompactJournalView>("list");
   const loadSeqRef = useRef(0);
+  /** Mobile: open appointment on double-tap to avoid accidental opens while scrolling */
+  const lastApptTapRef = useRef<{ id: string; t: number } | null>(null);
   const shellBranchRef = useRef(boot.branchId);
   const servicesByBranchRef = useRef<Map<string, BranchService[]>>(
     (() => {
@@ -703,28 +706,44 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
     [listRecords, resourceKind, staffServiceLinks],
   );
 
+  function resolveServiceIdForStaff(staffId?: string, preferred?: string) {
+    if (preferred) return preferred;
+    if (selectedService?.id) return selectedService.id;
+    if (!staffId) return branchServices[0]?.id;
+    const linked = branchServices.find((s) =>
+      s.staff.some((row) => row.staffId === staffId),
+    );
+    return linked?.id ?? branchServices[0]?.id;
+  }
+
   function handleFreeSlotPick(pick: {
     startAt: string;
     staffId?: string;
     staffName?: string;
     serviceId?: string;
   }) {
-    openNew({
-      branchId: branchId || branches[0]?.id,
-      serviceId: pick.serviceId ?? selectedService?.id,
-      staffId: pick.staffId,
-      staffName: pick.staffName,
-      startAt: pick.startAt,
-    });
+    openNew(
+      {
+        branchId: branchId || branches[0]?.id,
+        serviceId: resolveServiceIdForStaff(pick.staffId, pick.serviceId),
+        staffId: pick.staffId,
+        staffName: pick.staffName,
+        startAt: pick.startAt,
+      },
+      { quick: true },
+    );
   }
 
-  function openNew(initial: ModalInitial = {}) {
+  function openNew(initial: ModalInitial = {}, opts?: { quick?: boolean }) {
     if (!canCreateAppointments) return;
+    const fromSlot = Boolean(initial.staffId && initial.startAt);
     setEditAppt(null);
     setEditGroup(null);
+    setModalQuick(Boolean(opts?.quick ?? fromSlot));
     setModalInitial({
       branchId: branchId || branches[0]?.id,
       ...initial,
+      serviceId: resolveServiceIdForStaff(initial.staffId, initial.serviceId),
     });
     setModalOpen(true);
   }
@@ -738,7 +757,25 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
     setEditAppt(appt);
     setEditGroup(resolved.length > 1 ? resolved : null);
     setModalInitial({});
+    setModalQuick(false);
     setModalOpen(true);
+  }
+
+  /** On compact (mobile) UI require a second tap within 350ms on the same card. */
+  function openEditFromMobileTap(appt: Appointment, group?: Appointment[]) {
+    if (!canEditAppointments) return;
+    if (!isCompactJournal) {
+      openEdit(appt, group);
+      return;
+    }
+    const now = Date.now();
+    const prev = lastApptTapRef.current;
+    if (prev && prev.id === appt.id && now - prev.t < 350) {
+      lastApptTapRef.current = null;
+      openEdit(appt, group);
+      return;
+    }
+    lastApptTapRef.current = { id: appt.id, t: now };
   }
 
   function openEditFromSearch(appt: ClientLookupAppointment) {
@@ -747,6 +784,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
     setEditAppt(full);
     setEditGroup(null);
     setModalInitial({});
+    setModalQuick(false);
     setModalOpen(true);
   }
 
@@ -1141,7 +1179,9 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
                   <button
                     key={a.id}
                     type="button"
-                    onClick={canEditAppointments ? () => openEdit(a) : undefined}
+                    onClick={
+                      canEditAppointments ? () => openEditFromMobileTap(a) : undefined
+                    }
                     className="w-full touch-manipulation rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-left shadow-sm active:bg-slate-50"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -1199,7 +1239,13 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
               onScheduleSaved={() => {
                 void reloadJournal({ silent: true });
               }}
-              onAppointmentClick={canEditAppointments ? openEdit : () => {}}
+              onAppointmentClick={
+                canEditAppointments
+                  ? isCompactJournal
+                    ? openEditFromMobileTap
+                    : openEdit
+                  : () => {}
+              }
               onOptimisticMove={applyOptimisticMove}
               onOptimisticResize={applyOptimisticResize}
               onOptimisticRollback={rollbackOptimistic}
@@ -1325,7 +1371,9 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
                   <Wrapper
                     key={a.id}
                     type={hidden ? undefined : "button"}
-                    onClick={hidden ? undefined : () => openEdit(a)}
+                    onClick={
+                      hidden ? undefined : () => openEditFromMobileTap(a)
+                    }
                     className={`w-full rounded-lg border px-4 py-3 text-left text-sm ${
                       hidden
                         ? "border-red-100 bg-red-50/40 text-slate-600"
@@ -1431,10 +1479,14 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
       )}
 
       <AppointmentModal
-        key={editAppt?.id ?? `new-${modalInitial.startAt ?? ""}-${modalInitial.staffId ?? ""}`}
+        key={
+          editAppt?.id ??
+          `new-${modalQuick ? "q" : "f"}-${modalInitial.startAt ?? ""}-${modalInitial.staffId ?? ""}`
+        }
         open={modalOpen}
         onClose={() => {
           setModalOpen(false);
+          setModalQuick(false);
           setEditAppt(null);
           setEditGroup(null);
           setModalInitial({});
@@ -1444,6 +1496,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
         appointmentId={editAppt?.id}
         appointmentGroup={modalProps.appointmentGroup}
         totalPrice={modalProps.totalPrice}
+        quick={modalQuick && !editAppt}
         initial={modalProps}
       />
     </div>

@@ -91,15 +91,33 @@ export async function PATCH(
     const { id } = await params;
     const existing = await prisma.appointment.findUniqueOrThrow({
       where: { id },
-      include: {
-        client: true,
-        service: true,
-        staff: true,
-        operatorMember: {
-          include: {
-            user: { select: { name: true, lastName: true, login: true, email: true } },
+      select: {
+        id: true,
+        publicNumber: true,
+        status: true,
+        membershipId: true,
+        rentalItemId: true,
+        rentalQuantity: true,
+        startAt: true,
+        endAt: true,
+        price: true,
+        clientId: true,
+        branchId: true,
+        organizationId: true,
+        staffId: true,
+        serviceId: true,
+        durationMinutes: true,
+        operatorMemberId: true,
+        client: {
+          select: {
+            phone: true,
+            firstName: true,
+            lastName: true,
+            email: true,
           },
         },
+        service: { select: { kind: true, name: true } },
+        staff: { select: { name: true } },
       },
     });
     assertJournalEditAccess(ctx, existing.branchId);
@@ -107,8 +125,10 @@ export async function PATCH(
       return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
     }
     const body = patchSchema.parse(await req.json());
-    if (body.staffId) await assertStaffAccess(ctx, body.staffId);
-    if (body.serviceId) await assertServiceAccess(ctx, body.serviceId);
+    await Promise.all([
+      body.staffId ? assertStaffAccess(ctx, body.staffId) : Promise.resolve(),
+      body.serviceId ? assertServiceAccess(ctx, body.serviceId) : Promise.resolve(),
+    ]);
 
     const oldDateKey = formatDateKey(existing.startAt);
     const {

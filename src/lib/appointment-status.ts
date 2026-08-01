@@ -51,7 +51,8 @@ const defs: StatusDef[] = [
     dot: "bg-emerald-500",
     badge: "bg-emerald-100 text-emerald-900 ring-emerald-200",
     column: "bg-emerald-50 border-emerald-200",
-    blocksSlot: false,
+    // Still occupies [startAt, endAt) for widget/admin free slots
+    blocksSlot: true,
   },
   {
     value: "awaiting_prepayment",
@@ -114,7 +115,8 @@ const defs: StatusDef[] = [
     dot: "bg-stone-400",
     badge: "bg-stone-100 text-stone-700 ring-stone-200",
     column: "bg-stone-50 border-stone-200",
-    blocksSlot: false,
+    // Visible in journal → occupies slot until cancelled/deleted
+    blocksSlot: true,
   },
 ];
 
@@ -166,8 +168,13 @@ export const APPOINTMENT_STATUS_OPTIONS = defs.filter((d) =>
   ["booked", "in_service", "completed", "no_show"].includes(d.value),
 );
 
-/** Не показывать в сетке журнала — слот свободен */
+/** Не показывать в сетке журнала — слот свободен для виджета и админа */
 export const JOURNAL_HIDDEN_STATUSES = ["deleted", "cancelled"] as const;
+
+/** Prisma where: любая запись, видимая в журнале, занимает интервал */
+export function slotOccupancyStatusWhere() {
+  return { notIn: [...JOURNAL_HIDDEN_STATUSES] };
+}
 
 export type CancelReason = "client" | "admin" | "weather";
 

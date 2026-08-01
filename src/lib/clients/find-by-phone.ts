@@ -3,7 +3,6 @@ import {
   isCompletePhone,
   isSearchablePhone,
   nationalPhoneDigits,
-  normalizePhone,
   phoneMatchesSearch,
   phoneStoredVariants,
 } from "@/lib/phone";
@@ -32,23 +31,35 @@ export async function findClientByPhone(
 ): Promise<ClientLookupRow | null> {
   if (!isCompletePhone(phoneRaw)) return null;
 
-  for (const variant of phoneStoredVariants(phoneRaw)) {
-    const found = await prisma.client.findUnique({
-      where: {
-        organizationId_phone: {
-          organizationId,
-          phone: variant,
-        },
-      },
-      select: clientSelect,
-    });
+  const variants = phoneStoredVariants(phoneRaw);
+  if (variants.length > 0) {
+    const hits = await Promise.all(
+      variants.map((variant) =>
+        prisma.client.findUnique({
+          where: {
+            organizationId_phone: {
+              organizationId,
+              phone: variant,
+            },
+          },
+          select: clientSelect,
+        }),
+      ),
+    );
+    const found = hits.find((row) => row != null);
     if (found) return found;
   }
 
+  // Indexed suffix match — never scan the whole organization.
   const national = nationalPhoneDigits(phoneRaw);
+  if (national.length < 9) return null;
   const candidates = await prisma.client.findMany({
-    where: { organizationId },
+    where: {
+      organizationId,
+      phone: { endsWith: national },
+    },
     select: clientSelect,
+    take: 10,
   });
   return candidates.find((c) => nationalPhoneDigits(c.phone) === national) ?? null;
 }
@@ -65,10 +76,18 @@ export async function findClientsByPhoneSearch(
     return one ? [one] : [];
   }
 
+  const digits = phoneRaw.replace(/\D/g, "");
+  const suffix = digits.slice(-Math.min(digits.length, 9));
+  if (suffix.length < 7) return [];
+
   const candidates = await prisma.client.findMany({
-    where: { organizationId },
+    where: {
+      organizationId,
+      phone: { endsWith: suffix },
+    },
     select: clientSelect,
     orderBy: { createdAt: "desc" },
+    take: 50,
   });
   return candidates.filter((c) => phoneMatchesSearch(phoneRaw, c.phone));
 }

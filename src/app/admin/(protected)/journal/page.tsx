@@ -33,7 +33,9 @@ export default async function JournalPage() {
         cookieStore.get(SUPER_ADMIN_BRANCH_COOKIE)?.value ?? undefined;
       const branches = await queryJournalBranchesList(ctx);
       const branchId = resolveInitialBranchId(ctx, branches, preferred);
-      const data = await queryCalendarDay(ctx, date, branchId || undefined);
+      const data = await queryCalendarDay(ctx, date, branchId || undefined, {
+        branches,
+      });
 
       initial = {
         ...serializeCalendarDay(data),

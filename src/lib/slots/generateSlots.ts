@@ -17,18 +17,7 @@ import {
   weekdayMinsk,
 } from "@/lib/time";
 
-import {
-  ACTIVE_APPOINTMENT_STATUSES,
-  JOURNAL_HIDDEN_STATUSES,
-} from "@/lib/appointment-status";
-
-/** Admin free-time UI: block anything still visible in the journal. */
-function slotOccupancyStatusWhere(forAdmin?: boolean) {
-  if (forAdmin) {
-    return { notIn: [...JOURNAL_HIDDEN_STATUSES] };
-  }
-  return { in: ACTIVE_APPOINTMENT_STATUSES };
-}
+import { slotOccupancyStatusWhere } from "@/lib/appointment-status";
 import { normalizeAdminDuration } from "@/lib/admin-duration";
 import { upsertClientByPhone } from "@/lib/clients/upsert";
 import { effectiveScheduleRule } from "@/lib/staff-schedule-effective";
@@ -102,7 +91,7 @@ async function assertStaffIntervalFree(params: {
     where: {
       staffId: params.staffId,
       startAt: { gte: dayStart, lte: dayEnd },
-      status: { in: ACTIVE_APPOINTMENT_STATUSES },
+      status: slotOccupancyStatusWhere(),
       ...(params.excludeAppointmentId
         ? { id: { not: params.excludeAppointmentId } }
         : {}),
@@ -207,7 +196,7 @@ export async function getDaySlots(params: {
     where: {
       staffId: staff.id,
       startAt: { gte: dayStart, lte: dayEnd },
-      status: slotOccupancyStatusWhere(params.forAdmin),
+      status: slotOccupancyStatusWhere(),
       ...(params.excludeAppointmentId
         ? { id: { not: params.excludeAppointmentId } }
         : {}),
@@ -356,7 +345,7 @@ export async function getSupDaySlots(params: {
     where: {
       staffId: { in: boardIds },
       startAt: { gte: dayStart, lte: dayEnd },
-      status: slotOccupancyStatusWhere(params.forAdmin),
+      status: slotOccupancyStatusWhere(),
       ...(params.excludeAppointmentId
         ? { id: { not: params.excludeAppointmentId } }
         : {}),
@@ -490,10 +479,13 @@ export async function getAvailableSlots(params: {
 }
 
 export async function nextPublicNumber(): Promise<number> {
-  const result = await prisma.appointment.aggregate({
-    _max: { publicNumber: true },
+  // Unique index on publicNumber — DESC LIMIT 1 is cheaper than aggregate MAX.
+  const latest = await prisma.appointment.findFirst({
+    where: { publicNumber: { not: null } },
+    orderBy: { publicNumber: "desc" },
+    select: { publicNumber: true },
   });
-  return (result._max.publicNumber ?? 8_330_000) + 1;
+  return (latest?.publicNumber ?? 8_330_000) + 1;
 }
 
 export { normalizePhone } from "@/lib/phone";
@@ -518,14 +510,22 @@ export type CreateBookingInput = {
   comment?: string;
   source: "widget" | "admin";
   price?: number;
+  /** Admin create: set on insert to avoid a second UPDATE */
+  operatorMemberId?: string | null;
 };
 
-async function loadServiceWithRules(serviceId: string) {
+async function loadServiceWithRules(
+  serviceId: string,
+  opts?: { includePriceRules?: boolean },
+) {
+  const includePriceRules = opts?.includePriceRules !== false;
   return prisma.service.findUniqueOrThrow({
     where: { id: serviceId },
     include: {
       branch: true,
-      priceRules: { orderBy: { sortOrder: "asc" } },
+      priceRules: includePriceRules
+        ? { orderBy: { sortOrder: "asc" as const } }
+        : { take: 0 },
     },
   });
 }
@@ -571,11 +571,25 @@ function serviceWithRulesDto(service: {
   };
 }
 
+function isPublicNumberUniqueConflict(e: unknown): boolean {
+  if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== "P2002") {
+    return false;
+  }
+  const target = e.meta?.target;
+  if (Array.isArray(target)) {
+    return target.some((t) => String(t).includes("publicNumber"));
+  }
+  return String(target ?? "").includes("publicNumber");
+}
+
 export async function createBooking(
   input: CreateBookingInput,
   opts?: { skipSlotCheck?: boolean; allowOverlap?: boolean },
 ): Promise<{ id: string; publicNumber: number; price: number; count?: number }> {
-  const service = await loadServiceWithRules(input.serviceId);
+  const needPriceRules = input.price == null;
+  const service = await loadServiceWithRules(input.serviceId, {
+    includePriceRules: needPriceRules,
+  });
   assertServiceBookableForBooking(service, input);
 
   if (input.slots?.length) {
@@ -591,8 +605,6 @@ export async function createBooking(
 
   if (!input.staffId) throw new Error("STAFF_REQUIRED");
   if (!input.startAt) throw new Error("INVALID_SLOT");
-
-  const startAtStr = input.startAt;
 
   const allowed = parseDurations(service.allowedDurations);
   const duration =
@@ -628,46 +640,58 @@ export async function createBooking(
     if (!ok) throw new Error("SLOT_UNAVAILABLE");
   }
 
-  const client = await upsertClientByPhone({
-    organizationId: input.organizationId,
-    phone: input.phone,
-    firstName: input.firstName,
-    lastName: input.lastName,
-    email: input.email,
-  });
+  const [client, priced] = await Promise.all([
+    upsertClientByPhone({
+      organizationId: input.organizationId,
+      phone: input.phone,
+      firstName: input.firstName,
+      lastName: input.lastName,
+      email: input.email,
+    }),
+    input.price != null
+      ? Promise.resolve(input.price)
+      : pricingWeekdayForBranch(service.branchId, dateStr).then((pricingWeekday) =>
+          resolveServicePrice(serviceWithRulesDto(service), startAt, duration, {
+            pricingWeekday,
+          }),
+        ),
+  ]);
+  const price = priced;
 
-  const price =
-    input.price ??
-    resolveServicePrice(serviceWithRulesDto(service), startAt, duration, {
-      pricingWeekday: await pricingWeekdayForBranch(service.branchId, dateStr),
-    });
-  const publicNumber = await nextPublicNumber();
-
-  try {
-    const appt = await prisma.appointment.create({
-      data: {
-        publicNumber,
-        organizationId: input.organizationId,
-        branchId: service.branchId,
-        clientId: client.id,
-        staffId: input.staffId,
-        serviceId: service.id,
-        startAt,
-        endAt,
-        durationMinutes: duration,
-        price,
-        status: "booked",
-        source: input.source,
-        comment: input.comment,
-      },
-    });
-    return { id: appt.id, publicNumber, price };
-  } catch (e) {
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-      throw new Error("SLOT_UNAVAILABLE");
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const publicNumber = await nextPublicNumber();
+    try {
+      const appt = await prisma.appointment.create({
+        data: {
+          publicNumber,
+          organizationId: input.organizationId,
+          branchId: service.branchId,
+          clientId: client.id,
+          staffId: input.staffId,
+          serviceId: service.id,
+          startAt,
+          endAt,
+          durationMinutes: duration,
+          price,
+          status: "booked",
+          source: input.source,
+          comment: input.comment,
+          ...(input.operatorMemberId !== undefined
+            ? { operatorMemberId: input.operatorMemberId }
+            : {}),
+        },
+        select: { id: true, publicNumber: true },
+      });
+      return { id: appt.id, publicNumber: appt.publicNumber ?? publicNumber, price };
+    } catch (e) {
+      if (isPublicNumberUniqueConflict(e)) continue;
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+        throw new Error("SLOT_UNAVAILABLE");
+      }
+      throw e;
     }
-    throw e;
   }
+  throw new Error("SLOT_UNAVAILABLE");
 }
 
 async function isWakeCellFree(params: {
@@ -698,7 +722,7 @@ async function isWakeCellFree(params: {
     where: {
       staffId: params.staffId,
       startAt: { gte: dayStart, lte: dayEnd },
-      status: { in: ACTIVE_APPOINTMENT_STATUSES },
+      status: slotOccupancyStatusWhere(),
     },
     select: { staffId: true, startAt: true, endAt: true },
   });
@@ -754,7 +778,7 @@ async function createSupBooking(
       where: {
         staffId: { in: boards.map((b) => b.id) },
         startAt: { gte: dayStart, lte: dayEnd },
-        status: { in: ACTIVE_APPOINTMENT_STATUSES },
+        status: slotOccupancyStatusWhere(),
       },
       select: { staffId: true, startAt: true, endAt: true },
     });
@@ -903,7 +927,7 @@ async function createBatchBooking(
         where: {
           staffId: { in: boards.map((b) => b.id) },
           startAt: { gte: dayStart, lte: dayEnd },
-          status: { in: ACTIVE_APPOINTMENT_STATUSES },
+          status: slotOccupancyStatusWhere(),
         },
         select: { staffId: true, startAt: true, endAt: true },
       });
@@ -1212,7 +1236,7 @@ export async function updateAppointment(
           ? { operatorMemberId: data.operatorMemberId }
           : {}),
       },
-      include: { client: true, service: true, staff: true },
+      select: { id: true },
     });
   } catch (e) {
     if (
