@@ -783,7 +783,9 @@ export function AppointmentModal({
     }
   }
 
-  // Keep quick sheet inside the visual viewport (above iOS keyboard).
+  // Mobile only: pin quick sheet inside the visual viewport (above keyboard).
+  // Desktop keeps the default centered dialog — applying top/maxHeight there
+  // clips the form and hides duration/phone fields.
   useEffect(() => {
     if (!open || !isQuick) return;
 
@@ -791,13 +793,19 @@ export function AppointmentModal({
     let raf = 0;
     let cleaned = false;
     const vv = window.visualViewport;
+    const mobileMq = window.matchMedia("(max-width: 639px)");
+
+    const clearInline = () => {
+      if (!popup) return;
+      popup.style.maxHeight = "";
+      popup.style.top = "";
+      popup.style.bottom = "";
+    };
 
     const apply = () => {
       if (!popup) return;
-      if (!vv) {
-        popup.style.maxHeight = "";
-        popup.style.top = "";
-        popup.style.bottom = "auto";
+      if (!mobileMq.matches || !vv) {
+        clearInline();
         return;
       }
       const top = Math.max(0, Math.round(vv.offsetTop));
@@ -819,6 +827,7 @@ export function AppointmentModal({
       apply();
       vv?.addEventListener("resize", apply);
       vv?.addEventListener("scroll", apply);
+      mobileMq.addEventListener("change", apply);
     };
 
     bind();
@@ -827,16 +836,15 @@ export function AppointmentModal({
       window.cancelAnimationFrame(raf);
       vv?.removeEventListener("resize", apply);
       vv?.removeEventListener("scroll", apply);
-      if (popup) {
-        popup.style.maxHeight = "";
-        popup.style.top = "";
-        popup.style.bottom = "";
-      }
+      mobileMq.removeEventListener("change", apply);
+      clearInline();
     };
   }, [open, isQuick]);
 
   useEffect(() => {
     if (!open || !isQuick) return;
+    // Autofocus phone only on mobile — desktop focus+scroll was jumping the modal.
+    if (!window.matchMedia("(max-width: 639px)").matches) return;
     const t = window.setTimeout(() => {
       const phoneInput = document.getElementById(
         "quick-client-phone",
@@ -1128,7 +1136,7 @@ export function AppointmentModal({
         <DialogContent
           showCloseButton
           data-quick-appointment-dialog
-          className="w-full max-w-md gap-3 overflow-hidden p-4 font-sans sm:max-w-md max-sm:top-0 max-sm:right-0 max-sm:bottom-auto max-sm:left-0 max-sm:mt-0 max-sm:flex max-sm:max-h-[min(92dvh,100svh)] max-sm:translate-x-0 max-sm:translate-y-0 max-sm:flex-col max-sm:rounded-t-none max-sm:rounded-b-2xl"
+          className="w-full max-w-md gap-3 p-4 font-sans sm:max-h-[min(90vh,720px)] sm:max-w-md sm:overflow-y-auto max-sm:top-0 max-sm:right-0 max-sm:bottom-auto max-sm:left-0 max-sm:mt-0 max-sm:flex max-sm:max-h-[min(92dvh,100svh)] max-sm:translate-x-0 max-sm:translate-y-0 max-sm:flex-col max-sm:overflow-hidden max-sm:rounded-t-none max-sm:rounded-b-2xl"
         >
           <DialogHeader className="shrink-0 pr-8 text-left">
             <DialogTitle className="text-base font-bold text-slate-900">
@@ -1137,10 +1145,10 @@ export function AppointmentModal({
           </DialogHeader>
           <form
             onSubmit={(e) => void handleSubmit(e)}
-            className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden"
+            className="flex min-h-0 flex-1 flex-col gap-2 max-sm:overflow-hidden"
             autoComplete="off"
           >
-            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain">
+            <div className="min-h-0 flex-1 space-y-2 max-sm:overflow-y-auto max-sm:overscroll-contain">
               <p className="rounded-md bg-slate-50 px-2.5 py-2 text-sm text-slate-700">
                 {slotSummary}
               </p>
@@ -1231,6 +1239,7 @@ export function AppointmentModal({
                   value={firstName}
                   onChange={(e) => setFirstName(e.target.value)}
                   onFocus={(e) => {
+                    if (!window.matchMedia("(max-width: 639px)").matches) return;
                     e.currentTarget.scrollIntoView({
                       block: "center",
                       behavior: "smooth",
@@ -1265,7 +1274,7 @@ export function AppointmentModal({
                 <AdminErrorBanner title="Не удалось сохранить" error={error} />
               )}
             </div>
-            <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-slate-100 pt-2 pb-[max(0.25rem,env(safe-area-inset-bottom))]">
+            <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-slate-100 pt-2 max-sm:pb-[max(0.25rem,env(safe-area-inset-bottom))]">
               <button
                 type="submit"
                 disabled={loading}
