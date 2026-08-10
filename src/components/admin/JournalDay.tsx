@@ -772,7 +772,9 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
     const prev = lastApptTapRef.current;
     if (prev && prev.id === appt.id && now - prev.t < 350) {
       lastApptTapRef.current = null;
-      openEdit(appt, group);
+      // Открываем модалку с задержкой, чтобы click второго тапа не «провалился»
+      // в поле даты/времени только что открывшейся модалки.
+      window.setTimeout(() => openEdit(appt, group), 200);
       return;
     }
     lastApptTapRef.current = { id: appt.id, t: now };
@@ -1211,7 +1213,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
           <div
             className={cn(
               "admin-journal-sticky-panel relative mt-2 w-full max-w-full",
-              isCompactJournal && "overflow-x-auto pb-16",
+              isCompactJournal && "pb-16",
               fillGridViewport &&
                 "admin-desktop:px-0 admin-tablet:px-0",
             )}

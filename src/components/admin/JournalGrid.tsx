@@ -48,12 +48,10 @@ import {
 } from "@/lib/journal-grid-scale";
 
 const MOUSE_DRAG_THRESHOLD_PX = 6;
-const TOUCH_DRAG_THRESHOLD_PX = 16;
 /** Cancel long-press arm if the finger moves more than this (scroll / tap jitter). */
 const TOUCH_SCROLL_SLOP_PX = 8;
-/** Long-press before touch drag/resize can start — must be clearly intentional. */
+/** Long-press before touch drag/resize starts — must be clearly intentional. */
 const TOUCH_DRAG_DELAY_MS = 480;
-const TOUCH_RESIZE_THRESHOLD_PX = 12;
 const HEADER_HEIGHT_PX = 28;
 const JOURNAL_PAGE_SCROLL_SELECTOR = ".admin-app-scroll";
 const JOURNAL_GRID_SCROLL_SELECTOR = ".admin-journal-grid-scroll";
@@ -651,16 +649,11 @@ export function JournalGrid({
         const dy = e.clientY - resizePend.y;
         const dist = Math.hypot(dx, dy);
         if (isTouchPointer(resizePend.pointerType)) {
-          // Before long-press completes: any movement cancels (let the page scroll).
-          if (!resizePend.armed) {
-            if (dist > TOUCH_SCROLL_SLOP_PX) {
-              clearTouchArmTimer();
-              setResizePending(null);
-            }
-            return;
-          }
-          if (dist >= TOUCH_RESIZE_THRESHOLD_PX && Math.abs(dy) >= Math.abs(dx)) {
-            beginResizeFromPendingRef.current(resizePend);
+          // До срабатывания long-press движение пальца = скролл: отменяем жест.
+          // Сам ресайз запускается таймером long-press, не движением.
+          if (dist > TOUCH_SCROLL_SLOP_PX) {
+            clearTouchArmTimer();
+            setResizePending(null);
           }
           return;
         }
@@ -677,12 +670,10 @@ export function JournalGrid({
         const dx = e.clientX - pending.x;
         const dy = e.clientY - pending.y;
         const dist = Math.hypot(dx, dy);
-        const touch = isTouchPointer(pending.pointerType);
-        const threshold = touch ? TOUCH_DRAG_THRESHOLD_PX : MOUSE_DRAG_THRESHOLD_PX;
 
-        if (touch && !pending.armed) {
-          // Critical: never start drag before long-press arm — horizontal
-          // swipes were accidentally moving appointments.
+        if (isTouchPointer(pending.pointerType)) {
+          // До срабатывания long-press движение пальца = скролл: отменяем
+          // подготовку. Перетаскивание запускается таймером long-press.
           if (dist > TOUCH_SCROLL_SLOP_PX) {
             clearTouchArmTimer();
             setPointerStart(null);
@@ -690,7 +681,7 @@ export function JournalGrid({
           return;
         }
 
-        if (dist < threshold) return;
+        if (dist < MOUSE_DRAG_THRESHOLD_PX) return;
         beginDragFromPendingRef.current(pending);
         return;
       }
@@ -791,9 +782,37 @@ export function JournalGrid({
       setResizePending(null);
     }
 
+    // pointercancel = браузер отобрал жест (скролл, системный свайп,
+    // второй палец). Отменяем всё без применения изменений — иначе запись
+    // «случайно» переносится туда, где оборвался жест.
+    function onPointerCancel() {
+      clearTouchArmTimer();
+      if (dragRef.current || resizeRef.current) {
+        suppressClickRef.current = true;
+        window.setTimeout(() => {
+          suppressClickRef.current = false;
+        }, 400);
+      }
+      setDrag(null);
+      setResize(null);
+      setPointerStart(null);
+      setResizePending(null);
+    }
+
+    // touch-action фиксируется браузером в момент касания, поэтому смена
+    // класса на touch-none после long-press не останавливает скролл.
+    // Единственный надёжный способ — гасить touchmove, пока идёт жест.
+    function onTouchMoveBlockScroll(e: TouchEvent) {
+      if (!dragRef.current && !resizeRef.current) return;
+      if (e.cancelable) e.preventDefault();
+    }
+
+    window.addEventListener("touchmove", onTouchMoveBlockScroll, {
+      passive: false,
+    });
     window.addEventListener("pointermove", onPointerMove, { passive: false });
     window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("pointercancel", onPointerUp);
+    window.addEventListener("pointercancel", onPointerCancel);
     const pageScroll = getJournalPageScrollEl();
     const gridScroll =
       scrollContainerRef.current ??
@@ -801,9 +820,10 @@ export function JournalGrid({
     pageScroll?.addEventListener("scroll", onScrollCancelPending, { passive: true });
     gridScroll?.addEventListener("scroll", onScrollCancelPending, { passive: true });
     return () => {
+      window.removeEventListener("touchmove", onTouchMoveBlockScroll);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerCancel);
       pageScroll?.removeEventListener("scroll", onScrollCancelPending);
       gridScroll?.removeEventListener("scroll", onScrollCancelPending);
       clearTouchArmTimer();
@@ -1021,7 +1041,7 @@ export function JournalGrid({
         >
           <div className={`flex ${expandColumns ? "w-full min-w-0" : "min-w-max"}`}>
             <div
-              className="w-16 shrink-0 border-r border-slate-200 bg-slate-50"
+              className="w-10 shrink-0 border-r border-slate-200 bg-slate-50 sm:w-16"
               style={{ height: HEADER_HEIGHT_PX }}
             />
             {visibleStaff.map((s) => {
@@ -1037,7 +1057,7 @@ export function JournalGrid({
           ref={scrollContainerRef}
           onScroll={(e) => syncHeaderScrollLeft(e.currentTarget.scrollLeft)}
           className={cn(
-            "admin-journal-grid-scroll rounded-b-lg border border-slate-200 bg-white shadow-sm [-webkit-overflow-scrolling:touch]",
+            "admin-journal-grid-scroll overscroll-x-contain rounded-b-lg border border-slate-200 bg-white shadow-sm [-webkit-overflow-scrolling:touch]",
             fillViewport
               ? "overflow-x-auto max-w-full"
               : cn(
@@ -1049,12 +1069,12 @@ export function JournalGrid({
           )}
         >
         <div className={`flex ${expandColumns ? "w-full min-w-0" : "min-w-max"}`}>
-          <div className="sticky left-0 z-30 w-16 shrink-0 border-r border-slate-200 bg-slate-50">
+          <div className="sticky left-0 z-30 w-10 shrink-0 border-r border-slate-200 bg-slate-50 sm:w-16">
             <div className="relative" style={{ height: gridHeight }}>
               {timeLabels.map((m) => (
                 <div
                   key={m}
-                  className={`absolute right-1.5 text-xs ${
+                  className={`absolute right-1 text-[10px] sm:right-1.5 sm:text-xs ${
                     drag && drag.startMinutes === m
                       ? "font-bold text-lime-700"
                       : "text-slate-400"
@@ -1112,7 +1132,7 @@ export function JournalGrid({
                     else columnRefs.current.delete(s.id);
                   }}
                   className="relative cursor-pointer overflow-hidden"
-                  style={{ height: gridHeight, touchAction: "pan-y" }}
+                  style={{ height: gridHeight, touchAction: "manipulation" }}
                   onClickCapture={(e) => {
                     if (suppressClickRef.current) {
                       e.preventDefault();
@@ -1231,25 +1251,23 @@ export function JournalGrid({
                           };
                           setPointerStart(next);
                           if (touch) {
+                            // Долгое нажатие сразу переводит карточку в режим
+                            // перетаскивания: не нужно дополнительно двигать палец,
+                            // а браузер не успевает начать скролл.
                             touchArmTimerRef.current = window.setTimeout(() => {
                               touchArmTimerRef.current = null;
-                              setPointerStart((prev) => {
-                                if (!prev || prev.appt.id !== a.id) return prev;
-                                const next = { ...prev, armed: true };
-                                pointerStartRef.current = next;
-                                return next;
-                              });
+                              const pending = pointerStartRef.current;
+                              if (!pending || pending.appt.id !== a.id) return;
+                              if ("vibrate" in navigator) navigator.vibrate(30);
+                              beginDragFromPendingRef.current(pending);
                             }, TOUCH_DRAG_DELAY_MS);
                           }
                         }}
                         onDragStart={(e) => e.preventDefault()}
+                        onContextMenu={(e) => e.preventDefault()}
                         draggable={false}
-                        className={`absolute left-1 right-1 select-none overflow-hidden rounded px-1.5 py-1 text-[11px] leading-tight shadow-sm ${
-                          gestureActive ||
-                          (isPending &&
-                            (pointerStart?.armed || Boolean(resizePending)))
-                            ? "touch-none"
-                            : "touch-pan-y"
+                        className={`absolute left-1 right-1 select-none overflow-hidden rounded px-1.5 py-1 text-[11px] leading-tight shadow-sm [-webkit-touch-callout:none] ${
+                          gestureActive ? "touch-none" : "touch-manipulation"
                         } ${
                           isDragging
                             ? "z-20 cursor-grabbing opacity-25"
@@ -1298,7 +1316,11 @@ export function JournalGrid({
                         </div>
                         <div
                           data-resize-handle
-                          className="group/resize absolute inset-x-0 bottom-0 z-[2] flex h-3 max-h-[28%] touch-none items-end cursor-ns-resize hover:bg-sky-500/10"
+                          className={`group/resize absolute inset-x-0 bottom-0 z-[2] flex items-end cursor-ns-resize hover:bg-sky-500/10 ${
+                            isDesktop ? "h-3 max-h-[28%]" : "h-5 max-h-[45%]"
+                          } ${
+                            gestureActive ? "touch-none" : "touch-manipulation"
+                          }`}
                           title="Потяните для изменения длительности"
                           onPointerDown={(e) => {
                             if (e.button !== 0) return;
@@ -1336,12 +1358,10 @@ export function JournalGrid({
                             setResizePending(pendingResize);
                             touchArmTimerRef.current = window.setTimeout(() => {
                               touchArmTimerRef.current = null;
-                              setResizePending((prev) => {
-                                if (!prev) return prev;
-                                const next = { ...prev, armed: true };
-                                resizePendingRef.current = next;
-                                return next;
-                              });
+                              const pending = resizePendingRef.current;
+                              if (!pending) return;
+                              if ("vibrate" in navigator) navigator.vibrate(30);
+                              beginResizeFromPendingRef.current(pending);
                             }, TOUCH_DRAG_DELAY_MS);
                           }}
                         >
