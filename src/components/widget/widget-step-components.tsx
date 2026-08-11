@@ -228,8 +228,6 @@ export function WidgetDateTimeStep(props: {
   nextLoading?: boolean;
   nextLabel?: string;
   hideBack?: boolean;
-  /** Keep CTA outside the scroll area (shell footer) so it stays fully visible on mobile. */
-  hideSummary?: boolean;
   theme: WidgetSettings["theme"];
   slotMinutes?: number;
   bookingDurationMinutes?: number;
@@ -474,7 +472,7 @@ export function WidgetDateTimeStep(props: {
         </WidgetSummaryCard>
       )}
 
-      {props.kind === "sup" && selectedSupCount > 0 && !props.hideSummary && (
+      {props.kind === "sup" && selectedSupCount > 0 && (
         <WidgetPanel className="widget-booking-summary shrink-0 border-slate-200 bg-white">
           <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
             <p className="text-sm text-slate-700">
@@ -524,7 +522,7 @@ export function WidgetDateTimeStep(props: {
         </WidgetPanel>
       )}
 
-      {props.kind === "wake" && selectedWakeCount > 0 && !props.hideSummary && (
+      {props.kind === "wake" && selectedWakeCount > 0 && (
         <div className="widget-booking-summary shrink-0 space-y-2 rounded-xl border border-slate-200/80 bg-white px-3 py-2.5">
           <p className="text-sm leading-snug text-slate-700">
             Выбрано:{" "}

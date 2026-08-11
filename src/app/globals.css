@@ -187,44 +187,48 @@ body {
   padding-right: 2px;
 }
 
-/* Time step: grid fills leftover space; summary + Далее stay visible below */
-#waketeam-booking-root .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
-  height: auto !important;
-  max-height: none !important;
-  /* basis 0 so grid shrinks for the CTA instead of keeping content height */
-  flex: 1 1 0%;
-  min-height: 0;
-  margin-top: 0.35rem;
-  contain: none;
-}
-
-#waketeam-booking-root:has(.widget-booking-summary)
-  .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
-  min-height: clamp(4rem, 14dvh, 5.5rem);
-}
-
+/* Time step: only the slot grid scrolls; summary + Далее stay pinned under it */
 #waketeam-booking-root .widget-shell-scroll.widget-shell-scroll--time {
-  display: flex;
-  flex-direction: column;
-  overflow-y: hidden;
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 0% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
   overscroll-behavior: none;
   padding-bottom: 0.35rem;
 }
 
 #waketeam-booking-root .widget-shell-scroll.widget-shell-scroll--time > .widget-time-step {
   display: flex;
-  flex: 1 1 auto;
+  flex: 1 1 0%;
   min-height: 0;
   flex-direction: column;
+  overflow: hidden;
 }
 
 #waketeam-booking-root .widget-time-step-chrome {
   flex-shrink: 0;
 }
 
+#waketeam-booking-root .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
+  height: auto !important;
+  max-height: none !important;
+  flex: 1 1 0% !important;
+  min-height: 0 !important;
+  margin-top: 0.35rem;
+  contain: none;
+}
+
+#waketeam-booking-root:has(.widget-booking-summary)
+  .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
+  /* Leave room for CTA; still show ~2 rows on short phones */
+  min-height: clamp(3.75rem, 12dvh, 5rem) !important;
+}
+
 #waketeam-booking-root .widget-booking-summary {
-  flex-shrink: 0;
-  margin-top: 0;
+  flex: 0 0 auto !important;
+  margin-top: 0.4rem;
+  z-index: 2;
 }
 
 /* Short phones / short iframe: tighten chrome so CTA fits */
@@ -261,7 +265,7 @@ body {
 
   #waketeam-booking-root:has(.widget-booking-summary)
     .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
-    min-height: clamp(3.5rem, 12dvh, 4.5rem);
+    min-height: clamp(3.25rem, 10dvh, 4.25rem) !important;
   }
 }
 
