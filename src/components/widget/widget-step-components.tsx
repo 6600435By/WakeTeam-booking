@@ -228,6 +228,8 @@ export function WidgetDateTimeStep(props: {
   nextLoading?: boolean;
   nextLabel?: string;
   hideBack?: boolean;
+  /** Keep CTA outside the scroll area (shell footer) so it stays fully visible on mobile. */
+  hideSummary?: boolean;
   theme: WidgetSettings["theme"];
   slotMinutes?: number;
   bookingDurationMinutes?: number;
@@ -472,7 +474,7 @@ export function WidgetDateTimeStep(props: {
         </WidgetSummaryCard>
       )}
 
-      {props.kind === "sup" && selectedSupCount > 0 && (
+      {props.kind === "sup" && selectedSupCount > 0 && !props.hideSummary && (
         <WidgetPanel className="widget-booking-summary shrink-0 border-slate-200 bg-white">
           <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
             <p className="text-sm text-slate-700">
@@ -522,23 +524,21 @@ export function WidgetDateTimeStep(props: {
         </WidgetPanel>
       )}
 
-      {props.kind === "wake" && selectedWakeCount > 0 && (
-        <WidgetPanel className="widget-booking-summary shrink-0 border-slate-200 bg-white">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <p className="text-sm text-slate-700">
-              Выбрано:{" "}
-              <strong className="font-semibold">{selectedWakeCount}</strong>{" "}
-              интервалов ({selectedWakeCount * slotMinutes} мин)
-            </p>
-            {props.displayPrice != null && (
-              <p className="text-sm text-slate-700">
-                Стоимость:{" "}
+      {props.kind === "wake" && selectedWakeCount > 0 && !props.hideSummary && (
+        <div className="widget-booking-summary shrink-0 space-y-2 rounded-xl border border-slate-200/80 bg-white px-3 py-2.5">
+          <p className="text-sm leading-snug text-slate-700">
+            Выбрано:{" "}
+            <strong className="font-semibold">{selectedWakeCount}</strong>{" "}
+            интервалов ({selectedWakeCount * slotMinutes} мин)
+            {props.displayPrice != null ? (
+              <>
+                {" · "}
                 <strong className="font-semibold tabular-nums">
                   {props.displayPrice} Br
                 </strong>
-              </p>
-            )}
-          </div>
+              </>
+            ) : null}
+          </p>
           {props.onNext && (
             <WidgetPrimaryButton
               loading={props.nextLoading}
@@ -548,7 +548,7 @@ export function WidgetDateTimeStep(props: {
               {props.nextLabel ?? "Далее"}
             </WidgetPrimaryButton>
           )}
-        </WidgetPanel>
+        </div>
       )}
     </WidgetStepEnter>
   );

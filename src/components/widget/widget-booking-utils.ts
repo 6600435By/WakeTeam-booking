@@ -77,7 +77,7 @@ export function postHeight(height: number) {
   );
 }
 
-export function useEmbedHeight(active: boolean) {
+export function useEmbedHeight(active: boolean, ...layoutDeps: unknown[]) {
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -89,11 +89,15 @@ export function useEmbedHeight(active: boolean) {
       const root = el!;
       const chrome = root.querySelector(".widget-shell-chrome") as HTMLElement | null;
       const scroll = root.querySelector(".widget-shell-scroll") as HTMLElement | null;
+      const summary = root.querySelector(
+        ".widget-booking-summary",
+      ) as HTMLElement | null;
       const footer = root.querySelector(".widget-shell-footer") as HTMLElement | null;
-      if (chrome || scroll || footer) {
+      if (chrome || scroll || footer || summary) {
         const natural =
           (chrome?.offsetHeight ?? 0) +
           (scroll?.scrollHeight ?? 0) +
+          (summary?.offsetHeight ?? 0) +
           (footer?.offsetHeight ?? 0);
         return Math.ceil(Math.max(natural, root.getBoundingClientRect().height));
       }
@@ -119,12 +123,16 @@ export function useEmbedHeight(active: boolean) {
     ro.observe(el);
     const scroll = el.querySelector(".widget-shell-scroll");
     if (scroll) ro.observe(scroll);
+    const summary = el.querySelector(".widget-booking-summary");
+    if (summary) ro.observe(summary);
     window.addEventListener("load", report);
     return () => {
       ro.disconnect();
       window.removeEventListener("load", report);
     };
-  }, [active]);
+    // layoutDeps: re-bind when step / selection changes (CTA mount)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, ...layoutDeps]);
 
   return rootRef;
 }

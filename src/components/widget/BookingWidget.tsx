@@ -18,14 +18,17 @@ import {
   type WidgetSettings,
   widgetThemeVars,
 } from "@/lib/widget-settings";
+import { Label } from "@/components/ui/label";
 import { WidgetHelpBar } from "@/components/widget/WidgetHelpBar";
 import { WidgetPhotoCard } from "@/components/widget/WidgetPhotoCard";
 import {
   WidgetErrorState,
   WidgetBackButton,
+  WidgetChoiceButton,
   WidgetHeader,
   WidgetInlineError,
   WidgetLoadingSkeleton,
+  WidgetPrimaryButton,
   WidgetShell,
   WidgetShellChrome,
   WidgetShellFooter,
@@ -93,11 +96,14 @@ export function BookingWidget({
   prefill,
   copyMode = false,
   onCopyBookingDone,
+  fillViewport = false,
 }: {
   slug?: string;
   prefill?: WidgetPrefill | null;
   copyMode?: boolean;
   onCopyBookingDone?: () => void;
+  /** Stretch to parent height (embed iframe). */
+  fillViewport?: boolean;
 }) {
   const [config, setConfig] = useState<WidgetConfig | null>(null);
   const [step, setStep] = useState(0);
@@ -144,7 +150,12 @@ export function BookingWidget({
   const [availableOtherBranches, setAvailableOtherBranches] = useState<WidgetBranch[]>([]);
   const [checkingOtherBranches, setCheckingOtherBranches] = useState(false);
 
-  const embedRef = useEmbedHeight(!copyMode);
+  const embedRef = useEmbedHeight(
+    !copyMode,
+    step,
+    selectedWakeStarts.length,
+    selectedSupStarts.length,
+  );
   const prefillAppliedRef = useRef(false);
   const settings: WidgetSettings = config?.settings ?? DEFAULT_WIDGET_SETTINGS;
   const theme = settings.theme;
@@ -765,6 +776,11 @@ export function BookingWidget({
     <WidgetShell
       embedRef={embedRef}
       id="waketeam-booking-root"
+      className={
+        fillViewport
+          ? "max-h-full min-h-0 flex-1 rounded-none shadow-none ring-0"
+          : undefined
+      }
       style={{ background: theme.pageBackground, ...widgetThemeVars(theme) }}
     >
       <WidgetShellChrome>
@@ -891,6 +907,7 @@ export function BookingWidget({
             nextLoading={submitLoading}
             nextLabel={copyMode ? "Записать" : "Далее"}
             hideBack
+            hideSummary
             theme={theme}
             slotMinutes={service.durationMinutes}
             bookingDurationMinutes={supDurationMinutes}
@@ -928,6 +945,7 @@ export function BookingWidget({
           nextLoading={submitLoading}
           nextLabel={copyMode ? "Записать" : "Далее"}
           hideBack
+          hideSummary
           theme={theme}
           slotMinutes={service.durationMinutes}
         />
@@ -990,11 +1008,101 @@ export function BookingWidget({
       )}
       </WidgetShellScroll>
 
+      {step === 3 &&
+        isStaffPickActivity(activityKind) &&
+        selectedWakeStarts.length > 0 && (
+          <div className="widget-booking-summary shrink-0 space-y-2 border-t border-slate-200/70 bg-white px-3.5 py-2.5 sm:px-4">
+            <p className="text-sm leading-snug text-slate-700">
+              Выбрано:{" "}
+              <strong className="font-semibold">
+                {selectedWakeStarts.length}
+              </strong>{" "}
+              интервалов ({selectedWakeStarts.length * staffCellMinutes} мин)
+              {displayPrice != null ? (
+                <>
+                  {" · "}
+                  <strong className="font-semibold tabular-nums">
+                    {displayPrice} Br
+                  </strong>
+                </>
+              ) : null}
+            </p>
+            <WidgetPrimaryButton
+              loading={submitLoading}
+              onClick={handleTimeStepNext}
+              theme={theme}
+            >
+              {copyMode ? "Записать" : "Далее"}
+            </WidgetPrimaryButton>
+          </div>
+        )}
+
+      {step === 2 && activityKind === "sup" && selectedSupStarts.length > 0 && (
+        <div className="widget-booking-summary shrink-0 space-y-2 border-t border-slate-200/70 bg-white px-3.5 py-2.5 sm:px-4">
+          <p className="text-sm leading-snug text-slate-700">
+            Выбрано:{" "}
+            <strong className="font-semibold">{selectedSupStarts.length}</strong>{" "}
+            {selectedSupStarts.length === 1 ? "слот" : "слота"}
+            {supDurationMinutes > 0 ? ` по ${supDurationMinutes} мин` : ""}
+            {displayPrice != null ? (
+              <>
+                {" · "}
+                <strong className="font-semibold tabular-nums">
+                  {displayPrice} Br
+                </strong>
+              </>
+            ) : null}
+          </p>
+          <p className="text-xs text-slate-600">
+            Доступно сапов: {maxSupQuantity}
+            {selectedSupStarts.length > 1
+              ? " (минимум по выбранным слотам)"
+              : ""}
+          </p>
+          <div>
+            <Label className="text-xs font-medium text-slate-700">
+              {selectedSupStarts.length > 1
+                ? "Количество сапов на каждый слот"
+                : "Количество сапов"}
+            </Label>
+            <div className="mt-1.5 flex flex-wrap gap-2">
+              {Array.from({ length: maxSupQuantity }, (_, i) => i + 1).map(
+                (n) => (
+                  <WidgetChoiceButton
+                    key={n}
+                    selected={supQuantity === n}
+                    onClick={() => setSupQuantity(n)}
+                    theme={theme}
+                    className="min-w-10"
+                  >
+                    {n}
+                  </WidgetChoiceButton>
+                ),
+              )}
+            </div>
+          </div>
+          <WidgetPrimaryButton
+            disabled={!supQuantity}
+            loading={submitLoading}
+            onClick={handleTimeStepNext}
+            theme={theme}
+          >
+            {copyMode ? "Записать" : "Далее"}
+          </WidgetPrimaryButton>
+        </div>
+      )}
+
       <WidgetShellFooter>
         <WidgetHelpBar
           label={settings.texts.callAdminLabel}
           phone={settings.texts.callAdminPhone}
-          compact={step === 3 || copyMode}
+          compact={
+            step === 2 ||
+            step === 3 ||
+            copyMode ||
+            selectedWakeStarts.length > 0 ||
+            selectedSupStarts.length > 0
+          }
         />
       </WidgetShellFooter>
     </WidgetShell>

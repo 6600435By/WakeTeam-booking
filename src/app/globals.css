@@ -171,9 +171,9 @@ body {
 }
 
 #waketeam-booking-root .widget-slot-grid-scroll {
-  /* Fallback when not in fill layout */
-  height: clamp(10rem, 32dvh, 15rem) !important;
-  max-height: clamp(10rem, 32dvh, 15rem) !important;
+  /* Fallback when not in fill layout — scales with viewport */
+  height: clamp(8.5rem, 28dvh, 15rem) !important;
+  max-height: clamp(8.5rem, 28dvh, 15rem) !important;
   overflow-y: auto !important;
   overflow-x: hidden !important;
   overscroll-behavior: contain;
@@ -191,9 +191,16 @@ body {
 #waketeam-booking-root .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
   height: auto !important;
   max-height: none !important;
-  flex: 1 1 auto;
-  min-height: 8.5rem;
+  /* basis 0 so grid shrinks for the CTA instead of keeping content height */
+  flex: 1 1 0%;
+  min-height: 0;
   margin-top: 0.35rem;
+  contain: none;
+}
+
+#waketeam-booking-root:has(.widget-booking-summary)
+  .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
+  min-height: clamp(4rem, 14dvh, 5.5rem);
 }
 
 #waketeam-booking-root .widget-shell-scroll.widget-shell-scroll--time {
@@ -201,6 +208,7 @@ body {
   flex-direction: column;
   overflow-y: hidden;
   overscroll-behavior: none;
+  padding-bottom: 0.35rem;
 }
 
 #waketeam-booking-root .widget-shell-scroll.widget-shell-scroll--time > .widget-time-step {
@@ -210,8 +218,51 @@ body {
   flex-direction: column;
 }
 
+#waketeam-booking-root .widget-time-step-chrome {
+  flex-shrink: 0;
+}
+
 #waketeam-booking-root .widget-booking-summary {
-  margin-top: 0.5rem;
+  flex-shrink: 0;
+  margin-top: 0;
+}
+
+/* Short phones / short iframe: tighten chrome so CTA fits */
+@media (max-height: 700px) {
+  #waketeam-booking-root .widget-shell-chrome {
+    padding-top: 0.5rem;
+  }
+
+  #waketeam-booking-root .widget-shell-scroll {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+
+  #waketeam-booking-root .widget-shell-footer {
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
+  }
+
+  #waketeam-booking-root .widget-booking-summary {
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+  }
+}
+
+@media (max-height: 580px) {
+  #waketeam-booking-root .widget-shell-chrome {
+    padding-top: 0.35rem;
+  }
+
+  #waketeam-booking-root .widget-shell-scroll {
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
+  }
+
+  #waketeam-booking-root:has(.widget-booking-summary)
+    .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
+    min-height: clamp(3.5rem, 12dvh, 4.5rem);
+  }
 }
 
 @media (min-width: 640px) {

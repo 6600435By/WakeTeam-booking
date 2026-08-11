@@ -15,11 +15,11 @@ export default async function BookPage({
     <main
       className={
         isEmbed
-          ? "box-border min-h-0 h-[100dvh] overflow-hidden p-1 sm:p-2"
+          ? "box-border flex h-[100dvh] min-h-0 flex-col overflow-hidden p-0"
           : "mx-auto max-w-lg px-3 py-4 sm:max-w-xl sm:px-4 sm:py-6"
       }
     >
-      <BookingWidget slug={slug} />
+      <BookingWidget slug={slug} fillViewport={isEmbed} />
     </main>
   );
 }
