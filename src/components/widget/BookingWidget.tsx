@@ -792,7 +792,14 @@ export function BookingWidget({
         {error && <WidgetInlineError message={error} />}
       </WidgetShellChrome>
 
-      <WidgetShellScroll>
+      <WidgetShellScroll
+        className={
+          (step === 2 && activityKind === "sup") ||
+          (step === 3 && isStaffPickActivity(activityKind))
+            ? "widget-shell-scroll--time"
+            : undefined
+        }
+      >
       {step === 0 && (
         <WidgetStepEnter stepKey="branch" className="space-y-2.5">
           {config!.branches.map((b) => (
@@ -861,7 +868,6 @@ export function BookingWidget({
       )}
 
       {step === 2 && activityKind === "sup" && service && (
-        <WidgetStepEnter stepKey="sup-time">
           <WidgetDateTimeStep
             kind="sup"
             date={date}
@@ -896,7 +902,6 @@ export function BookingWidget({
             }}
             allowedDurations={supBookingDurations}
           />
-        </WidgetStepEnter>
       )}
 
       {step === 3 && isStaffPickActivity(activityKind) && service && (

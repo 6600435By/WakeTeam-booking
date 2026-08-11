@@ -295,7 +295,8 @@ export function WidgetDateTimeStep(props: {
   }, [selectedStarts, selectedCount]);
 
   return (
-    <WidgetStepEnter stepKey={`time-${props.kind}`} className="space-y-0">
+    <WidgetStepEnter stepKey={`time-${props.kind}`} className="widget-time-step min-h-0">
+      <div className="widget-time-step-chrome shrink-0">
       {!props.hideBack && props.onBack && (
         <WidgetBackButton onClick={props.onBack} />
       )}
@@ -393,10 +394,11 @@ export function WidgetDateTimeStep(props: {
           Длительность записи: {bookingMinutes} мин
         </p>
       )}
+      </div>
 
       <div
         ref={slotGridRef}
-        className={slotGridScrollClass}
+        className={cn(slotGridScrollClass, "widget-slot-grid-scroll--fill")}
         style={slotGridScrollStyle}
         aria-label={
           props.kind === "wake"
@@ -456,7 +458,7 @@ export function WidgetDateTimeStep(props: {
         slots.length === 0 &&
         !showBranchFallback &&
         props.kind === "wake" && (
-        <WidgetSummaryCard className="mt-2">
+        <WidgetSummaryCard className="mt-2 shrink-0">
           <p>Нет слотов на эту дату</p>
         </WidgetSummaryCard>
       )}
@@ -465,13 +467,13 @@ export function WidgetDateTimeStep(props: {
         slots.length === 0 &&
         !showBranchFallback &&
         props.kind === "sup" && (
-        <WidgetSummaryCard className="mt-2">
+        <WidgetSummaryCard className="mt-2 shrink-0">
           <p>Нет слотов на эту дату</p>
         </WidgetSummaryCard>
       )}
 
       {props.kind === "sup" && selectedSupCount > 0 && (
-        <WidgetPanel className="widget-booking-summary mt-3 shrink-0 border-slate-200 bg-white">
+        <WidgetPanel className="widget-booking-summary shrink-0 border-slate-200 bg-white">
           <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
             <p className="text-sm text-slate-700">
               Выбрано: <strong className="font-semibold">{selectedSupCount}</strong>{" "}
@@ -521,7 +523,7 @@ export function WidgetDateTimeStep(props: {
       )}
 
       {props.kind === "wake" && selectedWakeCount > 0 && (
-        <WidgetPanel className="widget-booking-summary mt-3 shrink-0 border-slate-200 bg-white">
+        <WidgetPanel className="widget-booking-summary shrink-0 border-slate-200 bg-white">
           <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
             <p className="text-sm text-slate-700">
               Выбрано:{" "}
@@ -667,17 +669,15 @@ export function WidgetContactsStep({
           </span>
         </label>
       </div>
-      <div className="sticky bottom-0 z-10 -mx-1 bg-[var(--widget-page-bg,#f8fafc)]/95 pt-2 pb-1 backdrop-blur-sm">
-        <WidgetPrimaryButton
-          onClick={onSubmit}
-          disabled={!canSubmit}
-          loading={loading}
-          loadingLabel="Отправка…"
-          theme={theme}
-        >
-          {submitLabel}
-        </WidgetPrimaryButton>
-      </div>
+      <WidgetPrimaryButton
+        onClick={onSubmit}
+        disabled={!canSubmit}
+        loading={loading}
+        loadingLabel="Отправка…"
+        theme={theme}
+      >
+        {submitLabel}
+      </WidgetPrimaryButton>
     </WidgetStepEnter>
   );
 }

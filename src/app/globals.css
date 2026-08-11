@@ -171,9 +171,9 @@ body {
 }
 
 #waketeam-booking-root .widget-slot-grid-scroll {
-  /* Extra height after removing time-step back row */
-  height: clamp(12rem, 40dvh, 18rem) !important;
-  max-height: clamp(12rem, 40dvh, 18rem) !important;
+  /* Fallback when not in fill layout */
+  height: clamp(10rem, 32dvh, 15rem) !important;
+  max-height: clamp(10rem, 32dvh, 15rem) !important;
   overflow-y: auto !important;
   overflow-x: hidden !important;
   overscroll-behavior: contain;
@@ -187,20 +187,37 @@ body {
   padding-right: 2px;
 }
 
-#waketeam-booking-root:has(.widget-booking-summary) .widget-slot-grid-scroll {
-  height: clamp(11rem, 34dvh, 16rem) !important;
-  max-height: clamp(11rem, 34dvh, 16rem) !important;
+/* Time step: grid fills leftover space; summary + Далее stay visible below */
+#waketeam-booking-root .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
+  height: auto !important;
+  max-height: none !important;
+  flex: 1 1 auto;
+  min-height: 8.5rem;
+  margin-top: 0.35rem;
+}
+
+#waketeam-booking-root .widget-shell-scroll.widget-shell-scroll--time {
+  display: flex;
+  flex-direction: column;
+  overflow-y: hidden;
+  overscroll-behavior: none;
+}
+
+#waketeam-booking-root .widget-shell-scroll.widget-shell-scroll--time > .widget-time-step {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+
+#waketeam-booking-root .widget-booking-summary {
+  margin-top: 0.5rem;
 }
 
 @media (min-width: 640px) {
-  #waketeam-booking-root .widget-slot-grid-scroll {
-    height: clamp(13rem, 42dvh, 19rem) !important;
-    max-height: clamp(13rem, 42dvh, 19rem) !important;
-  }
-
-  #waketeam-booking-root:has(.widget-booking-summary) .widget-slot-grid-scroll {
-    height: clamp(12rem, 36dvh, 17rem) !important;
-    max-height: clamp(12rem, 36dvh, 17rem) !important;
+  #waketeam-booking-root .widget-slot-grid-scroll:not(.widget-slot-grid-scroll--fill) {
+    height: clamp(11rem, 36dvh, 17rem) !important;
+    max-height: clamp(11rem, 36dvh, 17rem) !important;
   }
 }
 
