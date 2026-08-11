@@ -171,9 +171,9 @@ body {
 }
 
 #waketeam-booking-root .widget-slot-grid-scroll {
-  /* Fallback when not in fill layout — scales with viewport */
-  height: clamp(8.5rem, 28dvh, 15rem) !important;
-  max-height: clamp(8.5rem, 28dvh, 15rem) !important;
+  /* Hard cap so the CTA under the grid always stays on screen */
+  height: clamp(9rem, 32dvh, 14rem) !important;
+  max-height: clamp(9rem, 32dvh, 14rem) !important;
   overflow-y: auto !important;
   overflow-x: hidden !important;
   overscroll-behavior: contain;
@@ -187,51 +187,47 @@ body {
   padding-right: 2px;
 }
 
-/* Time step: only the slot grid scrolls; summary + Далее stay pinned under it */
-#waketeam-booking-root .widget-shell-scroll.widget-shell-scroll--time {
-  display: flex !important;
-  flex-direction: column !important;
-  flex: 1 1 0% !important;
+/* Same cap when "fill" class is present — never let the grid eat the CTA */
+#waketeam-booking-root .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
+  height: clamp(9rem, 32dvh, 14rem) !important;
+  max-height: clamp(9rem, 32dvh, 14rem) !important;
+  flex: 0 0 auto !important;
   min-height: 0 !important;
-  overflow: hidden !important;
-  overscroll-behavior: none;
-  padding-bottom: 0.35rem;
+  contain: layout;
 }
 
-#waketeam-booking-root .widget-shell-scroll.widget-shell-scroll--time > .widget-time-step {
-  display: flex;
-  flex: 1 1 0%;
-  min-height: 0;
-  flex-direction: column;
-  overflow: hidden;
+#waketeam-booking-root:has(.widget-booking-summary) .widget-slot-grid-scroll,
+#waketeam-booking-root:has(.widget-booking-summary)
+  .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
+  height: clamp(7.5rem, 26dvh, 12rem) !important;
+  max-height: clamp(7.5rem, 26dvh, 12rem) !important;
+}
+
+/* Time step: normal document flow; do NOT clip with overflow:hidden */
+#waketeam-booking-root .widget-shell-scroll.widget-shell-scroll--time {
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
 }
 
 #waketeam-booking-root .widget-time-step-chrome {
   flex-shrink: 0;
 }
 
-#waketeam-booking-root .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
-  height: auto !important;
-  max-height: none !important;
-  flex: 1 1 0% !important;
-  min-height: 0 !important;
-  margin-top: 0.35rem;
-  contain: none;
-}
-
-#waketeam-booking-root:has(.widget-booking-summary)
-  .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
-  /* Leave room for CTA; still show ~2 rows on short phones */
-  min-height: clamp(3.75rem, 12dvh, 5rem) !important;
-}
-
 #waketeam-booking-root .widget-booking-summary {
-  flex: 0 0 auto !important;
-  margin-top: 0.4rem;
-  z-index: 2;
+  flex: 0 0 auto;
+  margin-top: 0;
 }
 
-/* Short phones / short iframe: tighten chrome so CTA fits */
+/* CTA bar between scroll and help — always visible */
+#waketeam-booking-root .widget-time-cta {
+  flex: 0 0 auto;
+  border-top: 1px solid rgb(226 232 240 / 0.9);
+  background: #fff;
+  padding: 0.625rem 0.875rem 0.75rem;
+  box-shadow: 0 -6px 16px rgba(15, 23, 42, 0.06);
+  z-index: 5;
+}
+
 @media (max-height: 700px) {
   #waketeam-booking-root .widget-shell-chrome {
     padding-top: 0.5rem;
@@ -247,32 +243,32 @@ body {
     padding-bottom: 0.35rem;
   }
 
-  #waketeam-booking-root .widget-booking-summary {
-    padding-top: 0.5rem !important;
-    padding-bottom: 0.5rem !important;
-  }
-}
-
-@media (max-height: 580px) {
-  #waketeam-booking-root .widget-shell-chrome {
-    padding-top: 0.35rem;
+  #waketeam-booking-root .widget-slot-grid-scroll,
+  #waketeam-booking-root .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
+    height: clamp(7rem, 24dvh, 11rem) !important;
+    max-height: clamp(7rem, 24dvh, 11rem) !important;
   }
 
-  #waketeam-booking-root .widget-shell-scroll {
-    padding-top: 0.35rem;
-    padding-bottom: 0.35rem;
-  }
-
+  #waketeam-booking-root:has(.widget-booking-summary) .widget-slot-grid-scroll,
   #waketeam-booking-root:has(.widget-booking-summary)
     .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
-    min-height: clamp(3.25rem, 10dvh, 4.25rem) !important;
+    height: clamp(6rem, 20dvh, 9.5rem) !important;
+    max-height: clamp(6rem, 20dvh, 9.5rem) !important;
   }
 }
 
 @media (min-width: 640px) {
-  #waketeam-booking-root .widget-slot-grid-scroll:not(.widget-slot-grid-scroll--fill) {
-    height: clamp(11rem, 36dvh, 17rem) !important;
-    max-height: clamp(11rem, 36dvh, 17rem) !important;
+  #waketeam-booking-root .widget-slot-grid-scroll,
+  #waketeam-booking-root .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
+    height: clamp(10rem, 34dvh, 15rem) !important;
+    max-height: clamp(10rem, 34dvh, 15rem) !important;
+  }
+
+  #waketeam-booking-root:has(.widget-booking-summary) .widget-slot-grid-scroll,
+  #waketeam-booking-root:has(.widget-booking-summary)
+    .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
+    height: clamp(8.5rem, 28dvh, 13rem) !important;
+    max-height: clamp(8.5rem, 28dvh, 13rem) !important;
   }
 }
 

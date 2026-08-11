@@ -16,10 +16,10 @@ export default async function BookPage({
       className={
         isEmbed
           ? "box-border flex h-[100dvh] min-h-0 flex-col overflow-hidden p-0"
-          : "mx-auto max-w-lg px-3 py-4 sm:max-w-xl sm:px-4 sm:py-6"
+          : "mx-auto flex h-[100dvh] min-h-0 max-w-lg flex-col overflow-hidden px-3 py-3 sm:max-w-xl sm:px-4 sm:py-4"
       }
     >
-      <BookingWidget slug={slug} fillViewport={isEmbed} />
+      <BookingWidget slug={slug} fillViewport />
     </main>
   );
 }

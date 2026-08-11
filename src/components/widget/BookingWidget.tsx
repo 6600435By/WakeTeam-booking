@@ -18,14 +18,17 @@ import {
   type WidgetSettings,
   widgetThemeVars,
 } from "@/lib/widget-settings";
+import { Label } from "@/components/ui/label";
 import { WidgetHelpBar } from "@/components/widget/WidgetHelpBar";
 import { WidgetPhotoCard } from "@/components/widget/WidgetPhotoCard";
 import {
   WidgetErrorState,
   WidgetBackButton,
+  WidgetChoiceButton,
   WidgetHeader,
   WidgetInlineError,
   WidgetLoadingSkeleton,
+  WidgetPrimaryButton,
   WidgetShell,
   WidgetShellChrome,
   WidgetShellFooter,
@@ -809,7 +812,7 @@ export function BookingWidget({
         className={
           (step === 2 && activityKind === "sup") ||
           (step === 3 && isStaffPickActivity(activityKind))
-            ? "widget-shell-scroll--time overflow-y-hidden"
+            ? "widget-shell-scroll--time"
             : undefined
         }
       >
@@ -904,6 +907,7 @@ export function BookingWidget({
             nextLoading={submitLoading}
             nextLabel={copyMode ? "Записать" : "Далее"}
             hideBack
+            hideSummary
             theme={theme}
             slotMinutes={service.durationMinutes}
             bookingDurationMinutes={supDurationMinutes}
@@ -941,6 +945,7 @@ export function BookingWidget({
           nextLoading={submitLoading}
           nextLabel={copyMode ? "Записать" : "Далее"}
           hideBack
+          hideSummary
           theme={theme}
           slotMinutes={service.durationMinutes}
         />
@@ -1003,17 +1008,95 @@ export function BookingWidget({
       )}
       </WidgetShellScroll>
 
+      {step === 3 &&
+        isStaffPickActivity(activityKind) &&
+        selectedWakeStarts.length > 0 && (
+          <div className="widget-time-cta widget-booking-summary">
+            <p className="mb-2 text-sm leading-snug text-slate-700">
+              Выбрано:{" "}
+              <strong className="font-semibold">
+                {selectedWakeStarts.length}
+              </strong>{" "}
+              интервалов ({selectedWakeStarts.length * staffCellMinutes} мин)
+              {displayPrice != null ? (
+                <>
+                  {" · "}
+                  <strong className="font-semibold tabular-nums">
+                    {displayPrice} Br
+                  </strong>
+                </>
+              ) : null}
+            </p>
+            <WidgetPrimaryButton
+              loading={submitLoading}
+              onClick={handleTimeStepNext}
+              theme={theme}
+            >
+              {copyMode ? "Записать" : "Далее"}
+            </WidgetPrimaryButton>
+          </div>
+        )}
+
+      {step === 2 && activityKind === "sup" && selectedSupStarts.length > 0 && (
+        <div className="widget-time-cta widget-booking-summary space-y-2">
+          <p className="text-sm leading-snug text-slate-700">
+            Выбрано:{" "}
+            <strong className="font-semibold">{selectedSupStarts.length}</strong>{" "}
+            {selectedSupStarts.length === 1 ? "слот" : "слота"}
+            {supDurationMinutes > 0 ? ` по ${supDurationMinutes} мин` : ""}
+            {displayPrice != null ? (
+              <>
+                {" · "}
+                <strong className="font-semibold tabular-nums">
+                  {displayPrice} Br
+                </strong>
+              </>
+            ) : null}
+          </p>
+          <p className="text-xs text-slate-600">
+            Доступно сапов: {maxSupQuantity}
+            {selectedSupStarts.length > 1
+              ? " (минимум по выбранным слотам)"
+              : ""}
+          </p>
+          <div>
+            <Label className="text-xs font-medium text-slate-700">
+              {selectedSupStarts.length > 1
+                ? "Количество сапов на каждый слот"
+                : "Количество сапов"}
+            </Label>
+            <div className="mt-1.5 flex flex-wrap gap-2">
+              {Array.from({ length: maxSupQuantity }, (_, i) => i + 1).map(
+                (n) => (
+                  <WidgetChoiceButton
+                    key={n}
+                    selected={supQuantity === n}
+                    onClick={() => setSupQuantity(n)}
+                    theme={theme}
+                    className="min-w-10"
+                  >
+                    {n}
+                  </WidgetChoiceButton>
+                ),
+              )}
+            </div>
+          </div>
+          <WidgetPrimaryButton
+            disabled={!supQuantity}
+            loading={submitLoading}
+            onClick={handleTimeStepNext}
+            theme={theme}
+          >
+            {copyMode ? "Записать" : "Далее"}
+          </WidgetPrimaryButton>
+        </div>
+      )}
+
       <WidgetShellFooter>
         <WidgetHelpBar
           label={settings.texts.callAdminLabel}
           phone={settings.texts.callAdminPhone}
-          compact={
-            step === 2 ||
-            step === 3 ||
-            copyMode ||
-            selectedWakeStarts.length > 0 ||
-            selectedSupStarts.length > 0
-          }
+          compact={step === 2 || step === 3 || copyMode}
         />
       </WidgetShellFooter>
     </WidgetShell>
