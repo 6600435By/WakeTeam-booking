@@ -85,15 +85,37 @@ export function useEmbedHeight(active: boolean) {
     const el = rootRef.current;
     if (!el) return;
 
+    function measure(): number {
+      const root = el!;
+      const rootBox = root.getBoundingClientRect().height;
+      const doc = document.documentElement;
+      const body = document.body;
+      return Math.ceil(
+        Math.max(
+          rootBox,
+          root.scrollHeight,
+          body?.scrollHeight ?? 0,
+          doc?.scrollHeight ?? 0,
+        ),
+      );
+    }
+
     function report() {
-      const height = Math.ceil(el!.getBoundingClientRect().height);
-      postHeight(height);
+      postHeight(measure());
     }
 
     report();
-    const ro = new ResizeObserver(report);
+    const ro = new ResizeObserver(() => {
+      report();
+      // Second pass after sticky/summary layout settles.
+      requestAnimationFrame(report);
+    });
     ro.observe(el);
-    return () => ro.disconnect();
+    window.addEventListener("load", report);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("load", report);
+    };
   }, [active]);
 
   return rootRef;
@@ -223,9 +245,8 @@ export function supStepToVisibleIndex(step: number): number {
 
 export const SLOT_SCROLL_HEIGHT_PX = 208;
 
+/** Height is controlled by CSS clamp(dvh) in globals — keep overflow only here. */
 export const slotGridScrollStyle: React.CSSProperties = {
-  height: SLOT_SCROLL_HEIGHT_PX,
-  maxHeight: SLOT_SCROLL_HEIGHT_PX,
   overflowY: "auto",
   overflowX: "hidden",
   WebkitOverflowScrolling: "touch",

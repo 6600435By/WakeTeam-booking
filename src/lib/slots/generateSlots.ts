@@ -6,6 +6,7 @@ import type { DbClient } from "@/lib/db-types";
 import {
   parsePricesByDuration,
   resolveServicePrice,
+  resolveWakeCellsPrice,
 } from "@/lib/service-pricing";
 import {
   addMinutes,
@@ -869,7 +870,11 @@ async function createBatchBooking(
       ? input.durationMinutes
       : allowed[0] ?? service.durationMinutes
     : WAKE_CELL_MINUTES;
-  const cellMinutes = isSup ? supDuration : WAKE_CELL_MINUTES;
+  const cellMinutes = isSup
+    ? supDuration
+    : service.durationMinutes > 0
+      ? service.durationMinutes
+      : WAKE_CELL_MINUTES;
 
   if (!isSup && !input.staffId) throw new Error("STAFF_REQUIRED");
 
@@ -897,12 +902,12 @@ async function createBatchBooking(
     price: number;
   }[] = [];
 
-  for (const slot of sorted) {
-    const startAt = new Date(slot.startAt);
-    const endAt = addMinutes(startAt, cellMinutes);
-    const quantity = slot.quantity ?? 1;
+  if (isSup) {
+    for (const slot of sorted) {
+      const startAt = new Date(slot.startAt);
+      const endAt = addMinutes(startAt, cellMinutes);
+      const quantity = slot.quantity ?? 1;
 
-    if (isSup) {
       if (!opts?.skipSlotCheck) {
         const available = await countSupAvailableBoards(
           service.id,
@@ -955,7 +960,12 @@ async function createBatchBooking(
           price: i === 0 ? slotTotal : 0,
         });
       });
-    } else {
+    }
+  } else {
+    // Wake: validate cells, then price contiguous blocks as packages (30/60/…).
+    for (const slot of sorted) {
+      const startAt = new Date(slot.startAt);
+      const endAt = addMinutes(startAt, cellMinutes);
       if (opts?.skipSlotCheck) {
         await assertStaffIntervalFree({
           staffId: input.staffId!,
@@ -970,22 +980,34 @@ async function createBatchBooking(
         });
         if (!ok) throw new Error("SLOT_UNAVAILABLE");
       }
+    }
 
-      const price = resolveServicePrice(serviceDto, startAt, cellMinutes, {
-        pricingWeekday: await pricingWeekdayForBranch(
-          service.branchId,
-          formatDateKey(startAt),
-        ),
-      });
-      totalPrice += price;
+    const startAts = sorted.map((slot) => new Date(slot.startAt));
+    const weekdayByDate = new Map<string, number>();
+    for (const startAt of startAts) {
+      const dateStr = formatDateKey(startAt);
+      if (!weekdayByDate.has(dateStr)) {
+        weekdayByDate.set(
+          dateStr,
+          await pricingWeekdayForBranch(service.branchId, dateStr),
+        );
+      }
+    }
+    const priced = resolveWakeCellsPrice(serviceDto, startAts, cellMinutes, {
+      pricingWeekdayForStart: (startAt) =>
+        weekdayByDate.get(formatDateKey(startAt)) ??
+        weekdayMinsk(formatDateKey(startAt)),
+    });
+    totalPrice = priced.total;
+    startAts.forEach((startAt, i) => {
       rows.push({
         staffId: input.staffId!,
         startAt,
-        endAt,
+        endAt: addMinutes(startAt, cellMinutes),
         durationMinutes: cellMinutes,
-        price,
+        price: priced.prices[i] ?? 0,
       });
-    }
+    });
   }
 
   try {

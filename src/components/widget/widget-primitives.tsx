@@ -59,7 +59,7 @@ export function WidgetShell({
       ref={embedRef}
       id={id}
       className={cn(
-        "@container relative overflow-hidden rounded-2xl shadow-[0_1px_2px_rgba(15,23,42,0.06),0_8px_24px_rgba(15,23,42,0.04)] ring-1 ring-black/[0.06]",
+        "@container relative overflow-x-hidden rounded-2xl shadow-[0_1px_2px_rgba(15,23,42,0.06),0_8px_24px_rgba(15,23,42,0.04)] ring-1 ring-black/[0.06]",
         className,
       )}
       style={style}

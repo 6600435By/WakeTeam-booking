@@ -6,7 +6,8 @@
  */
 (function () {
   var CONTAINER_ID = "waketeam-booking";
-  var DEFAULT_HEIGHT = 520;
+  var DEFAULT_HEIGHT = 640;
+  var MIN_HEIGHT = 420;
 
   function init() {
     var el = document.getElementById(CONTAINER_ID);
@@ -28,22 +29,34 @@
     iframe.style.width = "100%";
     iframe.style.height = DEFAULT_HEIGHT + "px";
     iframe.style.border = "0";
+    iframe.style.display = "block";
     iframe.title = "Онлайн-запись WakeTeam";
     iframe.id = "waketeam-booking-iframe";
+    iframe.setAttribute("scrolling", "no");
 
     el.innerHTML = "";
     el.appendChild(iframe);
 
+    function applyHeight(raw) {
+      var next = Math.round(Number(raw));
+      if (!isFinite(next) || next <= 0) return;
+      iframe.style.height = Math.max(MIN_HEIGHT, next + 24) + "px";
+    }
+
     window.addEventListener("message", function (e) {
-      if (!e.data || typeof e.data !== "string") return;
-      if (e.data.indexOf("height") === -1) return;
-      try {
-        var t = JSON.parse(e.data);
-        if (t.type === "static" && t.height) {
-          iframe.style.height = Math.round(t.height) + 20 + "px";
+      if (!e.data) return;
+      var payload = e.data;
+      if (typeof payload === "string") {
+        if (payload.indexOf("height") === -1) return;
+        try {
+          payload = JSON.parse(payload);
+        } catch (err) {
+          return;
         }
-      } catch (err) {
-        /* ignore */
+      }
+      if (!payload || typeof payload !== "object") return;
+      if (payload.type === "static" && payload.height) {
+        applyHeight(payload.height);
       }
     });
   }

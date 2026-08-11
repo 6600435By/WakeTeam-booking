@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { resolveServicePrice } from "@/lib/service-pricing";
+import { resolveServicePrice, resolveWakeCellsPrice } from "@/lib/service-pricing";
 import { pricingWeekdayForDate } from "@/lib/branch-hours-constants";
 import {
   isCompletePhone,
@@ -181,21 +181,20 @@ export function BookingWidget({
       pricingWeekdayForDate(formatDateKey(new Date(startAt)), [...holidaySet]);
     if (isStaffPickActivity(activityKind)) {
       if (selectedWakeStarts.length === 0) return null;
-      return selectedWakeStarts.reduce((sum, startAt) => {
-        return (
-          sum +
-          resolveServicePrice(
-            {
-              price: service.price,
-              durationMinutes: service.durationMinutes,
-              priceRules: service.priceRules,
-            },
-            new Date(startAt),
-            staffCellMinutes,
-            { pricingWeekday: pricingWeekday(startAt) },
-          )
-        );
-      }, 0);
+      const serviceDto = {
+        price: service.price,
+        durationMinutes: service.durationMinutes,
+        priceRules: service.priceRules,
+      };
+      return resolveWakeCellsPrice(
+        serviceDto,
+        selectedWakeStarts.map((startAt) => new Date(startAt)),
+        staffCellMinutes,
+        {
+          pricingWeekdayForStart: (startAt) =>
+            pricingWeekdayForDate(formatDateKey(startAt), [...holidaySet]),
+        },
+      ).total;
     }
     if (!selectedSupStarts.length) return null;
     return selectedSupStarts.reduce((sum, startAt) => {

@@ -417,12 +417,22 @@ export function WidgetDateTimeStep(props: {
       )}
 
       {props.kind === "sup" && selectedSupCount > 0 && (
-        <WidgetPanel className="mt-3">
-          <p className="text-sm text-slate-700">
-            Выбрано: <strong className="font-semibold">{selectedSupCount}</strong>{" "}
-            {selectedSupCount === 1 ? "слот" : "слота"}
-            {bookingMinutes > 0 ? ` по ${bookingMinutes} мин` : ""}
-          </p>
+        <WidgetPanel className="widget-booking-summary sticky bottom-0 z-20 mt-3 border-slate-200 bg-white/95 shadow-[0_-10px_28px_rgba(15,23,42,0.08)] backdrop-blur-sm">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <p className="text-sm text-slate-700">
+              Выбрано: <strong className="font-semibold">{selectedSupCount}</strong>{" "}
+              {selectedSupCount === 1 ? "слот" : "слота"}
+              {bookingMinutes > 0 ? ` по ${bookingMinutes} мин` : ""}
+            </p>
+            {props.displayPrice != null && (
+              <p className="text-sm text-slate-700">
+                Стоимость:{" "}
+                <strong className="font-semibold tabular-nums">
+                  {props.displayPrice} Br
+                </strong>
+              </p>
+            )}
+          </div>
           <p className="text-sm font-medium text-slate-700">
             Доступно сапов: {maxQty}
             {selectedSupCount > 1 ? " (минимум по выбранным слотам)" : ""}
@@ -445,14 +455,6 @@ export function WidgetDateTimeStep(props: {
               </WidgetChoiceButton>
             ))}
           </div>
-          {props.displayPrice != null && (
-            <p className="text-sm text-slate-700">
-              Стоимость:{" "}
-              <strong className="font-semibold tabular-nums">
-                {props.displayPrice} Br
-              </strong>
-            </p>
-          )}
           <WidgetPrimaryButton
             disabled={!props.supQuantity}
             loading={props.nextLoading}
@@ -465,19 +467,22 @@ export function WidgetDateTimeStep(props: {
       )}
 
       {props.kind === "wake" && selectedWakeCount > 0 && (
-        <WidgetPanel className="mt-3">
-          <p className="text-sm text-slate-700">
-            Выбрано: <strong className="font-semibold">{selectedWakeCount}</strong>{" "}
-            интервалов ({selectedWakeCount * slotMinutes} мин)
-          </p>
-          {props.displayPrice != null && (
+        <WidgetPanel className="widget-booking-summary sticky bottom-0 z-20 mt-3 border-slate-200 bg-white/95 shadow-[0_-10px_28px_rgba(15,23,42,0.08)] backdrop-blur-sm">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
             <p className="text-sm text-slate-700">
-              Стоимость:{" "}
-              <strong className="font-semibold tabular-nums">
-                {props.displayPrice} Br
-              </strong>
+              Выбрано:{" "}
+              <strong className="font-semibold">{selectedWakeCount}</strong>{" "}
+              интервалов ({selectedWakeCount * slotMinutes} мин)
             </p>
-          )}
+            {props.displayPrice != null && (
+              <p className="text-sm text-slate-700">
+                Стоимость:{" "}
+                <strong className="font-semibold tabular-nums">
+                  {props.displayPrice} Br
+                </strong>
+              </p>
+            )}
+          </div>
           {props.onNext && (
             <WidgetPrimaryButton
               loading={props.nextLoading}
