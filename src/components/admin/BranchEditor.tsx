@@ -12,6 +12,7 @@ import {
   hydratePriceRules,
   mapPriceRuleToApi,
 } from "@/lib/price-rules";
+import { invalidateAppointmentServicesCache } from "@/lib/admin/appointment-services-cache";
 import {
   normalizeAllowedDurationsForSlot,
   parseAllowedDurations,
@@ -263,6 +264,7 @@ export function BranchEditor({ branchId }: Props) {
     }));
     if (res.ok && data && typeof data === "object" && "service" in data) {
       const payload = data as { service: ServiceRow };
+      invalidateAppointmentServicesCache(branchId);
       setBranch((b) => {
         if (!b) return b;
         const merged = {
@@ -317,6 +319,7 @@ export function BranchEditor({ branchId }: Props) {
     }));
     if (res.ok && data && typeof data === "object" && "service" in data) {
       const payload = data as { service: ServiceRow };
+      invalidateAppointmentServicesCache(branchId);
       setBranch((b) => {
         if (!b) return b;
         const merged = {
@@ -329,9 +332,7 @@ export function BranchEditor({ branchId }: Props) {
         return {
           ...b,
           staff: applyServiceScheduleToLinkedStaff(b.staff, merged),
-          services: b.services.map((s) =>
-            s.id === service.id ? { ...s, ...payload.service, staff: payload.service.staff } : s,
-          ),
+          services: b.services.map((s) => (s.id === service.id ? merged : s)),
         };
       });
     }
@@ -355,7 +356,7 @@ export function BranchEditor({ branchId }: Props) {
     );
   }
 
-  function updateService(id: string, patch: Partial<ServiceRow>) {
+  const updateService = useCallback((id: string, patch: Partial<ServiceRow>) => {
     setBranch((b) => {
       if (!b) return b;
       const current = b.services.find((s) => s.id === id);
@@ -373,9 +374,9 @@ export function BranchEditor({ branchId }: Props) {
         services: b.services.map((s) => (s.id === id ? updated : s)),
       };
     });
-  }
+  }, []);
 
-  function toggleServiceStaff(serviceId: string, staffId: string) {
+  const toggleServiceStaff = useCallback((serviceId: string, staffId: string) => {
     setBranch((b) => {
       if (!b) return b;
       const service = b.services.find((s) => s.id === serviceId);
@@ -404,7 +405,7 @@ export function BranchEditor({ branchId }: Props) {
         ),
       };
     });
-  }
+  }, []);
 
   async function saveStaffMeta(staff: StaffRow) {
     setStaffMsg((m) => ({ ...m, [staff.id]: "" }));
@@ -426,7 +427,7 @@ export function BranchEditor({ branchId }: Props) {
     }));
   }
 
-  function updateStaff(id: string, patch: Partial<StaffRow>) {
+  const updateStaff = useCallback((id: string, patch: Partial<StaffRow>) => {
     setBranch((b) => {
       if (!b) return b;
       return {
@@ -434,7 +435,7 @@ export function BranchEditor({ branchId }: Props) {
         staff: b.staff.map((s) => (s.id === id ? { ...s, ...patch } : s)),
       };
     });
-  }
+  }, []);
 
   async function deleteStaff(staff: StaffRow) {
     if (
@@ -464,7 +465,18 @@ export function BranchEditor({ branchId }: Props) {
     if (expandedStaff === staff.id) {
       setExpandedStaff(null);
     }
-    load();
+    setBranch((b) => {
+      if (!b) return b;
+      return {
+        ...b,
+        staff: b.staff.filter((s) => s.id !== staff.id),
+        services: b.services.map((s) => ({
+          ...s,
+          staff: s.staff.filter((link) => link.staff.id !== staff.id),
+        })),
+      };
+    });
+    invalidateAppointmentServicesCache(branchId);
   }
 
   async function deleteService(service: ServiceRow) {
@@ -495,7 +507,28 @@ export function BranchEditor({ branchId }: Props) {
     if (activeServiceId === service.id) {
       setActiveServiceId(null);
     }
-    load();
+    setBranch((b) => {
+      if (!b) return b;
+      const exclusiveStaffIds =
+        service.kind === "custom"
+          ? new Set(
+              service.staff
+                .map((link) => link.staff.id)
+                .filter((id) => {
+                  const links = catalogServices(b.services).filter((s) =>
+                    s.staff.some((x) => x.staff.id === id),
+                  );
+                  return links.length === 1 && links[0]?.id === service.id;
+                }),
+            )
+          : new Set<string>();
+      return {
+        ...b,
+        services: b.services.filter((s) => s.id !== service.id),
+        staff: b.staff.filter((st) => !exclusiveStaffIds.has(st.id)),
+      };
+    });
+    invalidateAppointmentServicesCache(branchId);
   }
 
   async function addStaff(kind: "revers" | "sup", serviceId?: string) {
@@ -519,8 +552,43 @@ export function BranchEditor({ branchId }: Props) {
           ? "Реверс добавлен"
           : "Сапборд добавлен",
     );
-    load();
-    if (data.staff?.id) setExpandedStaff(data.staff.id);
+    const created = data.staff as StaffRow | undefined;
+    if (created?.id) {
+      const newStaff: StaffRow = {
+        id: created.id,
+        name: created.name,
+        kind: created.kind,
+        description: created.description ?? null,
+        photoUrl: created.photoUrl ?? null,
+        isActive: created.isActive ?? true,
+        isVisible: created.isVisible ?? true,
+        sortOrder: created.sortOrder ?? 0,
+        schedules: created.schedules ?? [],
+      };
+      setBranch((b) => {
+        if (!b) return b;
+        const link = { staff: { id: newStaff.id, name: newStaff.name } };
+        const targetServiceId =
+          serviceId ??
+          catalogServices(b.services).find(
+            (s) => s.kind === (kind === "revers" ? "wake" : "sup"),
+          )?.id;
+        return {
+          ...b,
+          staff: [...b.staff, newStaff],
+          services: targetServiceId
+            ? b.services.map((s) =>
+                s.id === targetServiceId &&
+                !s.staff.some((x) => x.staff.id === newStaff.id)
+                  ? { ...s, staff: [...s.staff, link] }
+                  : s,
+              )
+            : b.services,
+        };
+      });
+      setExpandedStaff(created.id);
+      invalidateAppointmentServicesCache(branchId);
+    }
   }
 
   async function addService(kind: PresetServiceKind) {
@@ -538,8 +606,20 @@ export function BranchEditor({ branchId }: Props) {
       return;
     }
     setAddMsg(kind === "wake" ? "Услуга вейка добавлена" : "Услуга сапов добавлена");
-    load();
-    if (data.service?.id) setActiveServiceId(data.service.id);
+    const created = data.service as ServiceRow | undefined;
+    if (created?.id) {
+      const nextService: ServiceRow = {
+        ...created,
+        priceRules: hydratePriceRules(created.priceRules),
+      };
+      setBranch((b) => {
+        if (!b) return b;
+        if (b.services.some((s) => s.id === nextService.id)) return b;
+        return { ...b, services: [...b.services, nextService] };
+      });
+      setActiveServiceId(created.id);
+      invalidateAppointmentServicesCache(branchId);
+    }
   }
 
   async function addCustomService(name: string) {
@@ -559,8 +639,20 @@ export function BranchEditor({ branchId }: Props) {
     setNewServiceName("");
     setAddServiceOpen(false);
     setAddMsg(`Услуга «${name}» создана`);
-    load();
-    if (data.service?.id) setActiveServiceId(data.service.id);
+    const created = data.service as ServiceRow | undefined;
+    if (created?.id) {
+      const nextService: ServiceRow = {
+        ...created,
+        priceRules: hydratePriceRules(created.priceRules),
+      };
+      setBranch((b) => {
+        if (!b) return b;
+        if (b.services.some((s) => s.id === nextService.id)) return b;
+        return { ...b, services: [...b.services, nextService] };
+      });
+      setActiveServiceId(created.id);
+      invalidateAppointmentServicesCache(branchId);
+    }
   }
 
   const catalog = branch ? catalogServices(branch.services) : [];

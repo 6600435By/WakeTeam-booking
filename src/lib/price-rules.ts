@@ -15,6 +15,19 @@ export type PriceRuleRow = {
   sortOrder: number;
 };
 
+function normalizePricesByDuration(
+  value: string | Record<number, number> | Record<string, number> | null | undefined,
+): Record<number, number> | undefined {
+  if (value == null) return undefined;
+  if (typeof value === "string") return parsePricesByDuration(value);
+  const out: Record<number, number> = {};
+  for (const [k, v] of Object.entries(value)) {
+    const n = parseInt(k, 10);
+    if (!Number.isNaN(n) && typeof v === "number" && v >= 0) out[n] = v;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
 export function hydratePriceRules(
   rules:
     | Array<{
@@ -29,29 +42,15 @@ export function hydratePriceRules(
     | undefined,
 ): PriceRuleRow[] {
   if (!rules) return [];
-  return rules.map((r) => {
-    if (typeof r.pricesByDuration === "object" && r.pricesByDuration !== null) {
-      return {
-        id: r.id,
-        weekdays: r.weekdays,
-        timeFrom: r.timeFrom,
-        timeTo: r.timeTo,
-        price: r.price,
-        sortOrder: r.sortOrder,
-        pricesByDuration: r.pricesByDuration,
-      };
-    }
-    return mapPriceRuleFromDb({
-      id: r.id,
-      weekdays: r.weekdays,
-      timeFrom: r.timeFrom,
-      timeTo: r.timeTo,
-      price: r.price,
-      sortOrder: r.sortOrder,
-      pricesByDuration:
-        typeof r.pricesByDuration === "string" ? r.pricesByDuration : null,
-    });
-  });
+  return rules.map((r) => ({
+    id: r.id,
+    weekdays: r.weekdays,
+    timeFrom: r.timeFrom,
+    timeTo: r.timeTo,
+    price: r.price,
+    sortOrder: r.sortOrder,
+    pricesByDuration: normalizePricesByDuration(r.pricesByDuration),
+  }));
 }
 
 export function mapPriceRuleFromDb(rule: {

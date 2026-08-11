@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { catalogStaffByKind } from "@/lib/admin/staff-catalog";
 import {
   isStaffBasedService,
@@ -73,7 +74,7 @@ type Props = {
   deleteMessage?: string;
 };
 
-export function ServiceEditor({
+export const ServiceEditor = memo(function ServiceEditor({
   service,
   staff,
   branchStaff = [],
@@ -352,4 +353,4 @@ export function ServiceEditor({
       )}
     </div>
   );
-}
+});

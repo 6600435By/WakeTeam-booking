@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, memo } from "react";
 import { defaultPricesByDuration, type PriceRuleRow } from "@/lib/price-rules";
 
 export type { PriceRuleRow };
@@ -9,6 +9,20 @@ const inputClass =
   "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900";
 
 const WEEKDAY_LABELS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс", "Празд."];
+
+const PRICE_DRAFT_RE = /^\d*[.,]?\d*$/;
+
+function priceDraftKey(ruleId: string, minutes: number) {
+  return `${ruleId}:${minutes}`;
+}
+
+function parsePriceInput(raw: string): number | null {
+  const normalized = raw.trim().replace(",", ".");
+  if (normalized === "" || normalized === ".") return null;
+  const n = parseFloat(normalized);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
 
 function parseWeekdays(s: string): Set<number> {
   return new Set(
@@ -95,7 +109,7 @@ type Props = {
   embedded?: boolean;
 };
 
-export function ServicePriceRulesEditor({
+export const ServicePriceRulesEditor = memo(function ServicePriceRulesEditor({
   priceRules,
   basePrice,
   durationMinutes,
@@ -108,6 +122,7 @@ export function ServicePriceRulesEditor({
 }: Props) {
   const durations =
     bookingDurations.length > 0 ? bookingDurations : [durationMinutes];
+  const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
 
   function updateRule(idx: number, patch: Partial<PriceRuleRow>) {
     const rules = [...priceRules];
@@ -131,6 +146,31 @@ export function ServicePriceRulesEditor({
     return rule.pricesByDuration?.[minutes] ?? rule.price;
   }
 
+  function durationPriceValue(rule: PriceRuleRow, minutes: number): string {
+    const key = priceDraftKey(rule.id, minutes);
+    if (Object.prototype.hasOwnProperty.call(priceDrafts, key)) {
+      return priceDrafts[key];
+    }
+    return String(rulePrice(rule, minutes));
+  }
+
+  function setDurationPriceDraft(ruleId: string, minutes: number, raw: string) {
+    setPriceDrafts((prev) => ({
+      ...prev,
+      [priceDraftKey(ruleId, minutes)]: raw,
+    }));
+  }
+
+  function clearDurationPriceDraft(ruleId: string, minutes: number) {
+    const key = priceDraftKey(ruleId, minutes);
+    setPriceDrafts((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, key)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
+
   function addRule() {
     const pricesByDuration = defaultPricesByDuration(
       basePrice,
@@ -152,6 +192,16 @@ export function ServicePriceRulesEditor({
   }
 
   function removeRule(idx: number) {
+    const rule = priceRules[idx];
+    if (rule) {
+      setPriceDrafts((prev) => {
+        const next = { ...prev };
+        for (const minutes of durations) {
+          delete next[priceDraftKey(rule.id, minutes)];
+        }
+        return next;
+      });
+    }
     const rules = [...priceRules];
     rules.splice(idx, 1);
     onChange(rules);
@@ -231,16 +281,24 @@ export function ServicePriceRulesEditor({
                       {minutes} мин, Br
                     </span>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="decimal"
                       className={inputClass}
-                      value={rulePrice(rule, minutes)}
-                      onChange={(e) =>
-                        updateRuleDurationPrice(
-                          idx,
-                          minutes,
-                          parseFloat(e.target.value) || 0,
-                        )
-                      }
+                      value={durationPriceValue(rule, minutes)}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (raw !== "" && !PRICE_DRAFT_RE.test(raw)) return;
+                        // Local draft only — avoid re-rendering the whole branch editor on each keystroke.
+                        setDurationPriceDraft(rule.id, minutes, raw);
+                      }}
+                      onBlur={() => {
+                        const key = priceDraftKey(rule.id, minutes);
+                        const raw = priceDrafts[key];
+                        clearDurationPriceDraft(rule.id, minutes);
+                        if (raw === undefined) return;
+                        const parsed = parsePriceInput(raw);
+                        updateRuleDurationPrice(idx, minutes, parsed ?? 0);
+                      }}
                     />
                   </label>
                 ))}
@@ -259,4 +317,4 @@ export function ServicePriceRulesEditor({
       </button>
     </div>
   );
-}
+});

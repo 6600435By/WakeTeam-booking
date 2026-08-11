@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { PhotoUploadField } from "./PhotoUploadField";
 import { ScheduleEditor, type ScheduleRow } from "./ScheduleEditor";
 
@@ -31,7 +32,7 @@ type Props = {
   deleteMessage?: string;
 };
 
-export function StaffResourceEditor({
+export const StaffResourceEditor = memo(function StaffResourceEditor({
   staff,
   schedules,
   open,
@@ -151,4 +152,4 @@ export function StaffResourceEditor({
       )}
     </div>
   );
-}
+});

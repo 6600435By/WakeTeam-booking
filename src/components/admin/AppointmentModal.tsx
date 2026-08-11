@@ -32,6 +32,10 @@ import {
   type GroupApptRef,
 } from "@/lib/admin/appointment-group-client";
 import { formatAdminError } from "@/lib/admin/format-admin-error";
+import {
+  getCachedAppointmentServices,
+  setCachedAppointmentServices,
+} from "@/lib/admin/appointment-services-cache";
 import { AdminErrorBanner, adminErrorFromUnknown } from "@/components/admin/AdminErrorBanner";
 import { adminFetch } from "@/lib/admin-fetch";
 import {
@@ -69,6 +73,41 @@ type Service = {
   priceRules: ServicePriceRuleDto[];
   staff: { id: string; name: string }[];
 };
+
+function mapAdminServicesPayload(d: {
+  services?: Array<{
+    id: string;
+    name: string;
+    kind: string;
+    durationMinutes: number;
+    allowedDurations: string;
+    price: number;
+    priceRules: Array<{
+      id: string;
+      weekdays: string;
+      timeFrom: string;
+      timeTo: string;
+      price: number;
+      sortOrder: number;
+      pricesByDuration?: string | null;
+    }>;
+    staff: { staff: { id: string; name: string } }[];
+  }>;
+}): Service[] {
+  return (d.services ?? []).map((s) => ({
+    id: s.id,
+    name: s.name,
+    kind: s.kind,
+    durationMinutes: s.durationMinutes,
+    allowedDurations: s.allowedDurations,
+    price: s.price,
+    priceRules: hydratePriceRules(s.priceRules).map((r) =>
+      priceRuleDtoFromRow(r, s.durationMinutes),
+    ),
+    staff: s.staff.map((x) => x.staff),
+  }));
+}
+
 type Staff = { id: string; name: string };
 type OperatorOption = { memberId: string; name: string };
 type MembershipOption = {
@@ -449,44 +488,28 @@ export function AppointmentModal({
 
   useEffect(() => {
     if (!branchId || !open || !needsFullData) return;
-    setServicesLoading(true);
+    const cached = getCachedAppointmentServices(branchId);
+    if (cached) {
+      setServices(cached);
+      setServicesLoading(false);
+    } else {
+      setServicesLoading(true);
+    }
+    let cancelled = false;
     adminFetch(`/api/admin/services?branchId=${branchId}`)
       .then((r) => r.json())
       .then((d) => {
-        const mapped: Service[] = (d.services ?? []).map(
-          (s: {
-            id: string;
-            name: string;
-            kind: string;
-            durationMinutes: number;
-            allowedDurations: string;
-            price: number;
-            priceRules: Array<{
-              id: string;
-              weekdays: string;
-              timeFrom: string;
-              timeTo: string;
-              price: number;
-              sortOrder: number;
-              pricesByDuration?: string | null;
-            }>;
-            staff: { staff: { id: string; name: string } }[];
-          }) => ({
-            id: s.id,
-            name: s.name,
-            kind: s.kind,
-            durationMinutes: s.durationMinutes,
-            allowedDurations: s.allowedDurations,
-            price: s.price,
-            priceRules: hydratePriceRules(s.priceRules).map((r) =>
-              priceRuleDtoFromRow(r, s.durationMinutes),
-            ),
-            staff: s.staff.map((x) => x.staff),
-          }),
-        );
+        if (cancelled) return;
+        const mapped = mapAdminServicesPayload(d);
+        setCachedAppointmentServices(branchId, mapped);
         setServices(mapped);
       })
-      .finally(() => setServicesLoading(false));
+      .finally(() => {
+        if (!cancelled) setServicesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [branchId, open, needsFullData]);
 
   useEffect(() => {
