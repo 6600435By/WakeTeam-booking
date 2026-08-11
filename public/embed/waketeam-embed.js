@@ -2,15 +2,16 @@
  * WakeTeam booking embed — замена Rubitime на waketeam.by
  *
  * <div id="waketeam-booking" data-booking-url="https://booking.waketeam.by/book/waketeam"></div>
- * <script src="https://booking.waketeam.by/embed/waketeam-embed.js?v=4" async></script>
+ * <script src="https://booking.waketeam.by/embed/waketeam-embed.js?v=5" async></script>
  *
- * v4: fixed iframe height (no viewport shrinking) so the Next button stays visible.
+ * v5: taller max height so the contacts form fits without inner scrolling
+ * (inner scroll + overscroll trapped page scrolling on mobile portrait).
  */
 (function () {
   var CONTAINER_ID = "waketeam-booking";
   var DEFAULT_HEIGHT = 720;
   var MIN_HEIGHT = 560;
-  var MAX_HEIGHT = 900;
+  var MAX_HEIGHT = 1200;
 
   function init() {
     var el = document.getElementById(CONTAINER_ID);

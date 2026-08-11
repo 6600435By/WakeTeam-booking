@@ -203,10 +203,10 @@ body {
   max-height: clamp(9rem, 31dvh, 14rem) !important;
 }
 
-/* Time step: normal document flow; do NOT clip with overflow:hidden */
+/* Time step: normal document flow; do NOT clip with overflow:hidden.
+   overscroll-behavior оставляем auto — contain запирал скролл страницы. */
 #waketeam-booking-root .widget-shell-scroll.widget-shell-scroll--time {
   overflow-y: auto !important;
-  overscroll-behavior: contain;
 }
 
 #waketeam-booking-root .widget-time-step-chrome {

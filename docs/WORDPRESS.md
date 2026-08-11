@@ -22,11 +22,16 @@
 2. Вставьте HTML-блок:
 
 ```html
-<div id="waketeam-booking" data-booking-url="https://booking.waketeam.by/book/waketeam"></div>
-<script src="https://booking.waketeam.by/embed/waketeam-embed.js" async></script>
+<div id="waketeam-booking" data-booking-url="https://booking-crm-fawn.vercel.app/book/waketeam"></div>
+<script src="https://booking-crm-fawn.vercel.app/embed/waketeam-embed.js?v=5" async></script>
 ```
 
+   `?v=5` — версия для сброса кэша браузера/NitroPack: при обновлении
+   embed-скрипта увеличьте номер. Если подключён домен
+   `booking.waketeam.by`, замените на него хост в обеих строках.
+
 3. Кнопку «Записаться» направьте на якорь `#waketeam-booking`.
+4. После изменения HTML обязательно сделайте **Purge Cache** в NitroPack.
 
 ## Админка
 

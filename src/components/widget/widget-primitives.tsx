@@ -104,7 +104,9 @@ export function WidgetShellScroll({
   return (
     <div
       className={cn(
-        "widget-shell-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3.5 py-3 sm:px-4 sm:py-3.5 [-webkit-overflow-scrolling:touch]",
+        // overscroll-contain намеренно НЕ ставим: на мобильном он запирает
+        // прокрутку родительской страницы, когда внутренний скролл кончился.
+        "widget-shell-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3.5 py-3 sm:px-4 sm:py-3.5 [-webkit-overflow-scrolling:touch]",
         className,
       )}
     >
