@@ -169,9 +169,17 @@ describe("resolveWakeCellsPrice", () => {
     assert.equal(resolveWakeCellsPrice(wakeService, starts, 10).total, 112.5);
   });
 
-  it("prices non-contiguous blocks separately", () => {
+  it("prices non-contiguous selection by total minutes (60 package)", () => {
     const a = startsFrom("2026-08-12T10:00:00+03:00", 3);
     const b = startsFrom("2026-08-12T12:00:00+03:00", 3);
-    assert.equal(resolveWakeCellsPrice(wakeService, [...a, ...b], 10).total, 90);
+    assert.equal(resolveWakeCellsPrice(wakeService, [...a, ...b], 10).total, 75);
+  });
+
+  it("applies 60 package when six cells have gaps (not 6×10)", () => {
+    const base = new Date("2026-08-12T10:00:00+03:00").getTime();
+    const starts = [0, 10, 20, 30, 50, 90].map(
+      (min) => new Date(base + min * 60_000),
+    );
+    assert.equal(resolveWakeCellsPrice(wakeService, starts, 10).total, 75);
   });
 });

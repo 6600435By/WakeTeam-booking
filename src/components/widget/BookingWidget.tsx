@@ -27,6 +27,9 @@ import {
   WidgetInlineError,
   WidgetLoadingSkeleton,
   WidgetShell,
+  WidgetShellChrome,
+  WidgetShellFooter,
+  WidgetShellScroll,
   WidgetStepEnter,
   WidgetStepProgress,
   WidgetSuccessScreen,
@@ -114,7 +117,7 @@ export function BookingWidget({
   const [submitLoading, setSubmitLoading] = useState(false);
   const [configError, setConfigError] = useState("");
   const [error, setError] = useState("");
-  const [tariffsOpen, setTariffsOpen] = useState(false);
+  const [tariffsOpenId, setTariffsOpenId] = useState<string | null>(null);
   const [done, setDone] = useState<{
     publicNumber: number;
     price: number;
@@ -131,6 +134,7 @@ export function BookingWidget({
   const [phone, setPhone] = useState(WIDGET_DEFAULT_PHONE);
   const [email, setEmail] = useState("");
   const [comment, setComment] = useState("");
+  const [privacyConsent, setPrivacyConsent] = useState(false);
 
   const userPickedDateRef = useRef(false);
   const [alternateStaff, setAlternateStaff] = useState<{ id: string; name: string }[]>(
@@ -272,7 +276,8 @@ export function BookingWidget({
     setSupSlots([]);
     setAlternateStaff([]);
     setAvailableOtherBranches([]);
-    setTariffsOpen(false);
+    setTariffsOpenId(null);
+    setPrivacyConsent(false);
     userPickedDateRef.current = false;
     setDate(todayStr());
     if (config && config.branches.length === 1) {
@@ -565,6 +570,7 @@ export function BookingWidget({
 
   const submit = useCallback(async () => {
     if (!serviceId || activityKind === null) return;
+    if (!firstName.trim() || !isCompletePhone(phone) || !privacyConsent) return;
 
     const slots = isStaffPickActivity(activityKind)
       ? selectedWakeStarts.map((startAt) => ({ startAt }))
@@ -644,6 +650,7 @@ export function BookingWidget({
     phone,
     email,
     comment,
+    privacyConsent,
     slug,
     copyMode,
     onCopyBookingDone,
@@ -760,32 +767,34 @@ export function BookingWidget({
       id="waketeam-booking-root"
       style={{ background: theme.pageBackground, ...widgetThemeVars(theme) }}
     >
-      {!copyMode ? (
-        <>
-          <WidgetHeader
-            title={settings.texts.title}
-            subtitle={settings.texts.subtitle}
-          />
-          <WidgetStepProgress
-            steps={visibleSteps}
-            activeIndex={stepIndicatorIndex}
-            theme={theme}
-            onStepClick={goToVisibleStep}
-            canNavigateTo={canNavigateToVisibleIndex}
-          />
-        </>
-      ) : (
-        <p className="text-sm text-slate-600">
-          {[branch?.name, service?.name, staffOptions.find((s) => s.id === staffId)?.name]
-            .filter(Boolean)
-            .join(" · ")}
-        </p>
-      )}
+      <WidgetShellChrome>
+        {!copyMode ? (
+          <>
+            <WidgetHeader
+              title={settings.texts.title}
+              subtitle={settings.texts.subtitle}
+            />
+            <WidgetStepProgress
+              steps={visibleSteps}
+              activeIndex={stepIndicatorIndex}
+              theme={theme}
+              onStepClick={goToVisibleStep}
+              canNavigateTo={canNavigateToVisibleIndex}
+            />
+          </>
+        ) : (
+          <p className="text-sm text-slate-600">
+            {[branch?.name, service?.name, staffOptions.find((s) => s.id === staffId)?.name]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+        )}
+        {error && <WidgetInlineError message={error} />}
+      </WidgetShellChrome>
 
-      {error && <WidgetInlineError message={error} />}
-
+      <WidgetShellScroll>
       {step === 0 && (
-        <WidgetStepEnter stepKey="branch" className="mt-3 space-y-2.5">
+        <WidgetStepEnter stepKey="branch" className="space-y-2.5">
           {config!.branches.map((b) => (
             <WidgetActivityCard
               key={b.id}
@@ -800,7 +809,7 @@ export function BookingWidget({
       )}
 
       {step === 1 && (
-        <WidgetStepEnter stepKey="activity" className="mt-2.5 space-y-2.5">
+        <WidgetStepEnter stepKey="activity" className="space-y-2.5">
           <WidgetBackButton onClick={() => setStep(0)} />
           {bookableServices.map((svc) => (
             <WidgetActivityCard
@@ -814,8 +823,12 @@ export function BookingWidget({
               {settings.behavior.showTariffsExpandable &&
                 shouldShowWidgetTariffs(svc) && (
                   <TariffsBlock
-                    open={tariffsOpen}
-                    onToggle={() => setTariffsOpen((v) => !v)}
+                    open={tariffsOpenId === svc.id}
+                    onToggle={() =>
+                      setTariffsOpenId((current) =>
+                        current === svc.id ? null : svc.id,
+                      )
+                    }
                     rules={widgetTariffRulesForService(svc)}
                     durationMinutes={svc.durationMinutes}
                     bookingDurations={serviceBookingDurations(svc)}
@@ -828,7 +841,7 @@ export function BookingWidget({
       )}
 
       {step === 2 && isStaffPickActivity(activityKind) && service && (
-        <WidgetStepEnter stepKey="staff" className="mt-2 space-y-2.5">
+        <WidgetStepEnter stepKey="staff" className="space-y-2.5">
           <WidgetBackButton onClick={() => setStep(1)} />
           <p className="text-sm text-slate-500">{branch?.name}</p>
           {staffOptions.map((st) => (
@@ -848,7 +861,7 @@ export function BookingWidget({
       )}
 
       {step === 2 && activityKind === "sup" && service && (
-        <WidgetStepEnter stepKey="sup-time" className="mt-2">
+        <WidgetStepEnter stepKey="sup-time">
           <WidgetBackButton onClick={() => setStep(1)} />
           <WidgetDateTimeStep
             kind="sup"
@@ -934,6 +947,9 @@ export function BookingWidget({
           setEmail={setEmail}
           comment={comment}
           setComment={setComment}
+          privacyConsent={privacyConsent}
+          setPrivacyConsent={setPrivacyConsent}
+          privacyConsentLabel={settings.texts.privacyConsentLabel}
           submitLabel={settings.texts.submitButton}
           loading={submitLoading}
           onBack={() => setStep(2)}
@@ -959,6 +975,9 @@ export function BookingWidget({
           setEmail={setEmail}
           comment={comment}
           setComment={setComment}
+          privacyConsent={privacyConsent}
+          setPrivacyConsent={setPrivacyConsent}
+          privacyConsentLabel={settings.texts.privacyConsentLabel}
           submitLabel={settings.texts.submitButton}
           loading={submitLoading}
           onBack={() => setStep(3)}
@@ -966,12 +985,15 @@ export function BookingWidget({
           theme={theme}
         />
       )}
+      </WidgetShellScroll>
 
-      <WidgetHelpBar
-        label={settings.texts.callAdminLabel}
-        phone={settings.texts.callAdminPhone}
-        compact={step === 3 || copyMode}
-      />
+      <WidgetShellFooter>
+        <WidgetHelpBar
+          label={settings.texts.callAdminLabel}
+          phone={settings.texts.callAdminPhone}
+          compact={step === 3 || copyMode}
+        />
+      </WidgetShellFooter>
     </WidgetShell>
   );
 }

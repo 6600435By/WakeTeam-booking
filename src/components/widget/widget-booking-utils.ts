@@ -87,15 +87,22 @@ export function useEmbedHeight(active: boolean) {
 
     function measure(): number {
       const root = el!;
-      const rootBox = root.getBoundingClientRect().height;
-      const doc = document.documentElement;
-      const body = document.body;
+      const chrome = root.querySelector(".widget-shell-chrome") as HTMLElement | null;
+      const scroll = root.querySelector(".widget-shell-scroll") as HTMLElement | null;
+      const footer = root.querySelector(".widget-shell-footer") as HTMLElement | null;
+      if (chrome || scroll || footer) {
+        const natural =
+          (chrome?.offsetHeight ?? 0) +
+          (scroll?.scrollHeight ?? 0) +
+          (footer?.offsetHeight ?? 0);
+        return Math.ceil(Math.max(natural, root.getBoundingClientRect().height));
+      }
       return Math.ceil(
         Math.max(
-          rootBox,
+          root.getBoundingClientRect().height,
           root.scrollHeight,
-          body?.scrollHeight ?? 0,
-          doc?.scrollHeight ?? 0,
+          document.body?.scrollHeight ?? 0,
+          document.documentElement?.scrollHeight ?? 0,
         ),
       );
     }
@@ -107,10 +114,11 @@ export function useEmbedHeight(active: boolean) {
     report();
     const ro = new ResizeObserver(() => {
       report();
-      // Second pass after sticky/summary layout settles.
       requestAnimationFrame(report);
     });
     ro.observe(el);
+    const scroll = el.querySelector(".widget-shell-scroll");
+    if (scroll) ro.observe(scroll);
     window.addEventListener("load", report);
     return () => {
       ro.disconnect();

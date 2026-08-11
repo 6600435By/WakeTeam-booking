@@ -511,6 +511,9 @@ export function WidgetContactsStep({
   setEmail,
   comment,
   setComment,
+  privacyConsent,
+  setPrivacyConsent,
+  privacyConsentLabel,
   submitLabel,
   loading,
   onBack,
@@ -529,14 +532,20 @@ export function WidgetContactsStep({
   setEmail: (v: string) => void;
   comment: string;
   setComment: (v: string) => void;
+  privacyConsent: boolean;
+  setPrivacyConsent: (v: boolean) => void;
+  privacyConsentLabel: string;
   submitLabel: string;
   loading: boolean;
   onBack: () => void;
   onSubmit: () => void;
   theme: WidgetSettings["theme"];
 }) {
+  const canSubmit =
+    firstName.trim().length > 0 && isCompletePhone(phone) && privacyConsent;
+
   return (
-    <WidgetStepEnter stepKey="contacts" className="mt-3 space-y-3">
+    <WidgetStepEnter stepKey="contacts" className="space-y-3">
       <WidgetBackButton onClick={onBack} />
       <WidgetSummaryCard>{summary}</WidgetSummaryCard>
       {displayPrice != null && (
@@ -584,19 +593,37 @@ export function WidgetContactsStep({
             id="widget-comment"
             value={comment}
             onChange={(e) => setComment(e.target.value)}
-            rows={3}
+            rows={2}
           />
         </WidgetField>
+        <label
+          htmlFor="widget-privacy-consent"
+          className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 text-sm leading-snug text-slate-700"
+        >
+          <input
+            id="widget-privacy-consent"
+            type="checkbox"
+            checked={privacyConsent}
+            onChange={(e) => setPrivacyConsent(e.target.checked)}
+            className="mt-0.5 size-4 shrink-0 rounded border-slate-300 accent-[var(--widget-primary,#c0c100)]"
+          />
+          <span>
+            {privacyConsentLabel}
+            <span className="text-destructive"> *</span>
+          </span>
+        </label>
       </div>
-      <WidgetPrimaryButton
-        onClick={onSubmit}
-        disabled={!firstName || !isCompletePhone(phone)}
-        loading={loading}
-        loadingLabel="Отправка…"
-        theme={theme}
-      >
-        {submitLabel}
-      </WidgetPrimaryButton>
+      <div className="sticky bottom-0 z-10 -mx-1 bg-[var(--widget-page-bg,#f8fafc)]/95 pt-2 pb-1 backdrop-blur-sm">
+        <WidgetPrimaryButton
+          onClick={onSubmit}
+          disabled={!canSubmit}
+          loading={loading}
+          loadingLabel="Отправка…"
+          theme={theme}
+        >
+          {submitLabel}
+        </WidgetPrimaryButton>
+      </div>
     </WidgetStepEnter>
   );
 }

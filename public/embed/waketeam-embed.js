@@ -30,9 +30,11 @@
     iframe.style.height = DEFAULT_HEIGHT + "px";
     iframe.style.border = "0";
     iframe.style.display = "block";
+    iframe.style.maxHeight = "none";
     iframe.title = "Онлайн-запись WakeTeam";
     iframe.id = "waketeam-booking-iframe";
-    iframe.setAttribute("scrolling", "no");
+    // Prefer auto-resize; keep auto as fallback if parent clips height.
+    iframe.setAttribute("scrolling", "auto");
 
     el.innerHTML = "";
     el.appendChild(iframe);

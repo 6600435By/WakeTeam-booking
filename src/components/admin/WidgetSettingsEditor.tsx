@@ -109,6 +109,7 @@ export function WidgetSettingsEditor() {
                 ["successTitle", "Успех — заголовок"],
                 ["successMessage", "Успех — текст"],
                 ["successCancelReminder", "Успех — отмена записи"],
+                ["privacyConsentLabel", "Согласие на персональные данные"],
               ] as const
             ).map(([key, label]) => (
               <label key={key} className="block text-sm">

@@ -148,8 +148,9 @@ export function groupContiguousStarts(
 }
 
 /**
- * Wake multi-cell pricing: contiguous blocks use package duration (30/60/…),
- * not N × 10-min rate. Returns total and per-cell prices aligned to input order.
+ * Wake multi-cell pricing: total selected minutes determine the package
+ * (30/60/…), including gaps between cells. Tariff band comes from the
+ * earliest selected start. Returns total and per-cell prices aligned to input order.
  */
 export function resolveWakeCellsPrice(
   service: ServicePriceInput,
@@ -161,32 +162,32 @@ export function resolveWakeCellsPrice(
   },
 ): { total: number; prices: number[] } {
   if (startAts.length === 0) return { total: 0, prices: [] };
-  const priceByTs = new Map<number, number>();
-  const groups = groupContiguousStarts(startAts, cellMinutes);
 
-  for (const group of groups) {
-    const durationMinutes = group.length * cellMinutes;
-    const startAt = group[0];
-    const weekdayOpts =
-      options?.pricingWeekdayForStart != null
-        ? { pricingWeekday: options.pricingWeekdayForStart(startAt) }
-        : options?.pricingWeekday != null
-          ? { pricingWeekday: options.pricingWeekday }
-          : undefined;
-    const blockTotal = resolveServicePrice(
-      service,
-      startAt,
-      durationMinutes,
-      weekdayOpts,
-    );
-    const parts = distributeTotalPrice(blockTotal, group.length);
-    group.forEach((d, i) => priceByTs.set(d.getTime(), parts[i] ?? 0));
-  }
+  const sorted = [...startAts].sort((a, b) => a.getTime() - b.getTime());
+  const durationMinutes = sorted.length * cellMinutes;
+  const startAt = sorted[0];
+  const weekdayOpts =
+    options?.pricingWeekdayForStart != null
+      ? { pricingWeekday: options.pricingWeekdayForStart(startAt) }
+      : options?.pricingWeekday != null
+        ? { pricingWeekday: options.pricingWeekday }
+        : undefined;
+
+  const total = resolveServicePrice(
+    service,
+    startAt,
+    durationMinutes,
+    weekdayOpts,
+  );
+  const parts = distributeTotalPrice(total, sorted.length);
+  const priceByTs = new Map<number, number>();
+  sorted.forEach((d, i) => priceByTs.set(d.getTime(), parts[i] ?? 0));
 
   const prices = startAts.map((d) => priceByTs.get(d.getTime()) ?? 0);
-  const total =
-    Math.round(prices.reduce((sum, p) => sum + p, 0) * 100) / 100;
-  return { total, prices };
+  return {
+    total: Math.round(prices.reduce((sum, p) => sum + p, 0) * 100) / 100,
+    prices,
+  };
 }
 
 export function minPriceFromRules(service: {

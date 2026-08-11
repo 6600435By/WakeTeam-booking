@@ -24,6 +24,7 @@ export type WidgetTexts = {
   successTitle: string;
   successMessage: string;
   successCancelReminder: string;
+  privacyConsentLabel: string;
 };
 
 export type WidgetBehavior = {
@@ -62,6 +63,8 @@ export const DEFAULT_WIDGET_SETTINGS: WidgetSettings = {
     successMessage: "Ждём вас на вейк-парке WakeTeam!",
     successCancelReminder:
       "Не сможете приехать? Позвоните администратору и отмените запись:",
+    privacyConsentLabel:
+      "Согласен(на) на обработку персональных данных",
   },
   behavior: {
     hideBranchStep: false,
@@ -81,6 +84,9 @@ export function parseWidgetSettings(raw: string | null | undefined): WidgetSetti
         successCancelReminder:
           parsed.texts?.successCancelReminder?.trim() ||
           DEFAULT_WIDGET_SETTINGS.texts.successCancelReminder,
+        privacyConsentLabel:
+          parsed.texts?.privacyConsentLabel?.trim() ||
+          DEFAULT_WIDGET_SETTINGS.texts.privacyConsentLabel,
       },
       behavior: { ...DEFAULT_WIDGET_SETTINGS.behavior, ...parsed.behavior },
     };

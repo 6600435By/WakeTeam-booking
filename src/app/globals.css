@@ -204,6 +204,12 @@ body {
   }
 }
 
+#waketeam-booking-root .widget-shell-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(203 213 225) transparent;
+  -webkit-overflow-scrolling: touch;
+}
+
 #waketeam-booking-root .widget-slot-grid-scroll button {
   touch-action: pan-y;
 }

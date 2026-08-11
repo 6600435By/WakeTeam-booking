@@ -59,12 +59,69 @@ export function WidgetShell({
       ref={embedRef}
       id={id}
       className={cn(
-        "@container relative overflow-x-hidden rounded-2xl shadow-[0_1px_2px_rgba(15,23,42,0.06),0_8px_24px_rgba(15,23,42,0.04)] ring-1 ring-black/[0.06]",
+        "widget-shell @container relative flex h-full max-h-[100dvh] flex-col overflow-hidden rounded-2xl shadow-[0_1px_2px_rgba(15,23,42,0.06),0_8px_24px_rgba(15,23,42,0.04)] ring-1 ring-black/[0.06]",
         className,
       )}
       style={style}
     >
-      <div className="px-3.5 py-3 sm:px-4 sm:py-3.5">{children}</div>
+      {children}
+    </div>
+  );
+}
+
+export function WidgetShellChrome({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "widget-shell-chrome shrink-0 px-3.5 pt-3 sm:px-4 sm:pt-3.5",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+export function WidgetShellScroll({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "widget-shell-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3.5 py-3 sm:px-4 sm:py-3.5 [-webkit-overflow-scrolling:touch]",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+export function WidgetShellFooter({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "widget-shell-footer shrink-0 border-t border-slate-200/70 px-3.5 py-2 sm:px-4",
+        className,
+      )}
+    >
+      {children}
     </div>
   );
 }
@@ -438,15 +495,17 @@ export function WidgetTextArea(props: React.ComponentProps<typeof Textarea>) {
 export function WidgetLoadingSkeleton() {
   return (
     <WidgetShell className="bg-white">
-      <Skeleton className="h-7 w-48" />
-      <Skeleton className="mt-2 h-4 w-64 max-w-full" />
-      <div className="mt-5 flex justify-between gap-2">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Skeleton key={i} className="size-9 rounded-full" />
-        ))}
+      <div className="px-3.5 py-3 sm:px-4 sm:py-3.5">
+        <Skeleton className="h-7 w-48" />
+        <Skeleton className="mt-2 h-4 w-64 max-w-full" />
+        <div className="mt-5 flex justify-between gap-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="size-9 rounded-full" />
+          ))}
+        </div>
+        <Skeleton className="mt-6 h-28 w-full rounded-xl" />
+        <Skeleton className="mt-3 h-28 w-full rounded-xl" />
       </div>
-      <Skeleton className="mt-6 h-28 w-full rounded-xl" />
-      <Skeleton className="mt-3 h-28 w-full rounded-xl" />
     </WidgetShell>
   );
 }
@@ -547,7 +606,7 @@ export function WidgetSuccessScreen({
       style={{ background: theme.cardBackground }}
       className="widget-step-enter bg-white text-center sm:text-left"
     >
-      <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start sm:gap-4">
+      <div className="flex flex-col items-center gap-3 px-3.5 py-3 sm:flex-row sm:items-start sm:gap-4 sm:px-4 sm:py-3.5">
         <div
           className="flex size-12 shrink-0 items-center justify-center rounded-full"
           style={{ background: `${theme.primaryColor}22` }}
