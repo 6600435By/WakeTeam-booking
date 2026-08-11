@@ -1008,16 +1008,45 @@ export function BookingWidget({
       )}
       </WidgetShellScroll>
 
-      {step === 3 &&
-        isStaffPickActivity(activityKind) &&
-        selectedWakeStarts.length > 0 && (
-          <div className="widget-time-cta widget-booking-summary">
-            <p className="mb-2 text-sm leading-snug text-slate-700">
+      <WidgetShellFooter className="!border-t-0 !p-0">
+        {step === 3 &&
+          isStaffPickActivity(activityKind) &&
+          selectedWakeStarts.length > 0 && (
+            <div className="widget-time-cta widget-booking-summary">
+              <p className="mb-2 text-sm leading-snug text-slate-700">
+                Выбрано:{" "}
+                <strong className="font-semibold">
+                  {selectedWakeStarts.length}
+                </strong>{" "}
+                интервалов ({selectedWakeStarts.length * staffCellMinutes} мин)
+                {displayPrice != null ? (
+                  <>
+                    {" · "}
+                    <strong className="font-semibold tabular-nums">
+                      {displayPrice} Br
+                    </strong>
+                  </>
+                ) : null}
+              </p>
+              <WidgetPrimaryButton
+                loading={submitLoading}
+                onClick={handleTimeStepNext}
+                theme={theme}
+              >
+                {copyMode ? "Записать" : "Далее"}
+              </WidgetPrimaryButton>
+            </div>
+          )}
+
+        {step === 2 && activityKind === "sup" && selectedSupStarts.length > 0 && (
+          <div className="widget-time-cta widget-booking-summary space-y-2">
+            <p className="text-sm leading-snug text-slate-700">
               Выбрано:{" "}
               <strong className="font-semibold">
-                {selectedWakeStarts.length}
+                {selectedSupStarts.length}
               </strong>{" "}
-              интервалов ({selectedWakeStarts.length * staffCellMinutes} мин)
+              {selectedSupStarts.length === 1 ? "слот" : "слота"}
+              {supDurationMinutes > 0 ? ` по ${supDurationMinutes} мин` : ""}
               {displayPrice != null ? (
                 <>
                   {" · "}
@@ -1027,7 +1056,36 @@ export function BookingWidget({
                 </>
               ) : null}
             </p>
+            <p className="text-xs text-slate-600">
+              Доступно сапов: {maxSupQuantity}
+              {selectedSupStarts.length > 1
+                ? " (минимум по выбранным слотам)"
+                : ""}
+            </p>
+            <div>
+              <Label className="text-xs font-medium text-slate-700">
+                {selectedSupStarts.length > 1
+                  ? "Количество сапов на каждый слот"
+                  : "Количество сапов"}
+              </Label>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {Array.from({ length: maxSupQuantity }, (_, i) => i + 1).map(
+                  (n) => (
+                    <WidgetChoiceButton
+                      key={n}
+                      selected={supQuantity === n}
+                      onClick={() => setSupQuantity(n)}
+                      theme={theme}
+                      className="min-w-10"
+                    >
+                      {n}
+                    </WidgetChoiceButton>
+                  ),
+                )}
+              </div>
+            </div>
             <WidgetPrimaryButton
+              disabled={!supQuantity}
               loading={submitLoading}
               onClick={handleTimeStepNext}
               theme={theme}
@@ -1037,67 +1095,13 @@ export function BookingWidget({
           </div>
         )}
 
-      {step === 2 && activityKind === "sup" && selectedSupStarts.length > 0 && (
-        <div className="widget-time-cta widget-booking-summary space-y-2">
-          <p className="text-sm leading-snug text-slate-700">
-            Выбрано:{" "}
-            <strong className="font-semibold">{selectedSupStarts.length}</strong>{" "}
-            {selectedSupStarts.length === 1 ? "слот" : "слота"}
-            {supDurationMinutes > 0 ? ` по ${supDurationMinutes} мин` : ""}
-            {displayPrice != null ? (
-              <>
-                {" · "}
-                <strong className="font-semibold tabular-nums">
-                  {displayPrice} Br
-                </strong>
-              </>
-            ) : null}
-          </p>
-          <p className="text-xs text-slate-600">
-            Доступно сапов: {maxSupQuantity}
-            {selectedSupStarts.length > 1
-              ? " (минимум по выбранным слотам)"
-              : ""}
-          </p>
-          <div>
-            <Label className="text-xs font-medium text-slate-700">
-              {selectedSupStarts.length > 1
-                ? "Количество сапов на каждый слот"
-                : "Количество сапов"}
-            </Label>
-            <div className="mt-1.5 flex flex-wrap gap-2">
-              {Array.from({ length: maxSupQuantity }, (_, i) => i + 1).map(
-                (n) => (
-                  <WidgetChoiceButton
-                    key={n}
-                    selected={supQuantity === n}
-                    onClick={() => setSupQuantity(n)}
-                    theme={theme}
-                    className="min-w-10"
-                  >
-                    {n}
-                  </WidgetChoiceButton>
-                ),
-              )}
-            </div>
-          </div>
-          <WidgetPrimaryButton
-            disabled={!supQuantity}
-            loading={submitLoading}
-            onClick={handleTimeStepNext}
-            theme={theme}
-          >
-            {copyMode ? "Записать" : "Далее"}
-          </WidgetPrimaryButton>
+        <div className="border-t border-slate-200/70 px-3.5 py-2 sm:px-4">
+          <WidgetHelpBar
+            label={settings.texts.callAdminLabel}
+            phone={settings.texts.callAdminPhone}
+            compact={step === 2 || step === 3 || copyMode}
+          />
         </div>
-      )}
-
-      <WidgetShellFooter>
-        <WidgetHelpBar
-          label={settings.texts.callAdminLabel}
-          phone={settings.texts.callAdminPhone}
-          compact={step === 2 || step === 3 || copyMode}
-        />
       </WidgetShellFooter>
     </WidgetShell>
   );

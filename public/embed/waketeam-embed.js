@@ -2,25 +2,15 @@
  * WakeTeam booking embed — замена Rubitime на waketeam.by
  *
  * <div id="waketeam-booking" data-booking-url="https://booking.waketeam.by/book/waketeam"></div>
- * <script src="https://booking.waketeam.by/embed/waketeam-embed.js" async></script>
+ * <script src="https://booking.waketeam.by/embed/waketeam-embed.js?v=4" async></script>
+ *
+ * v4: fixed iframe height (no viewport shrinking) so the Next button stays visible.
  */
 (function () {
   var CONTAINER_ID = "waketeam-booking";
-  var MIN_HEIGHT = 420;
-  var MAX_HEIGHT = 760;
-
-  function viewportHeight() {
-    var vv = window.visualViewport;
-    if (vv && vv.height) return vv.height;
-    return window.innerHeight || document.documentElement.clientHeight || 640;
-  }
-
-  /** Leave room for host header / bottom nav; scale with phone height. */
-  function targetHeight() {
-    var vh = viewportHeight();
-    var reserved = Math.round(Math.min(220, Math.max(140, vh * 0.22)));
-    return Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, Math.round(vh - reserved)));
-  }
+  var DEFAULT_HEIGHT = 720;
+  var MIN_HEIGHT = 560;
+  var MAX_HEIGHT = 900;
 
   function init() {
     var el = document.getElementById(CONTAINER_ID);
@@ -40,34 +30,26 @@
     var iframe = document.createElement("iframe");
     iframe.src = base.indexOf("?") >= 0 ? base + "&embed=1" : base + "?embed=1";
     iframe.style.width = "100%";
-    iframe.style.height = targetHeight() + "px";
+    iframe.style.height = DEFAULT_HEIGHT + "px";
     iframe.style.border = "0";
     iframe.style.display = "block";
     iframe.style.maxHeight = "none";
     iframe.title = "Онлайн-запись WakeTeam";
     iframe.id = "waketeam-booking-iframe";
-    iframe.setAttribute("scrolling", "no");
+    iframe.setAttribute("scrolling", "auto");
 
     el.innerHTML = "";
     el.appendChild(iframe);
 
-    var lastApplied = 0;
+    var lastApplied = DEFAULT_HEIGHT;
 
     function applyHeight(raw) {
-      var reported = Math.round(Number(raw));
-      var cap = targetHeight();
-      var next = cap;
-      if (isFinite(reported) && reported > 0) {
-        // Prefer viewport fit; allow a bit more only if content asks and still under cap.
-        next = Math.max(MIN_HEIGHT, Math.min(cap, reported + 16));
-      }
-      if (Math.abs(next - lastApplied) < 8) return;
+      var next = Math.round(Number(raw));
+      if (!isFinite(next) || next <= 0) return;
+      next = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, next + 24));
+      if (Math.abs(next - lastApplied) < 12) return;
       lastApplied = next;
       iframe.style.height = next + "px";
-    }
-
-    function syncToViewport() {
-      applyHeight(targetHeight());
     }
 
     window.addEventListener("message", function (e) {
@@ -86,12 +68,6 @@
         applyHeight(payload.height);
       }
     });
-
-    window.addEventListener("resize", syncToViewport);
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener("resize", syncToViewport);
-    }
-    syncToViewport();
   }
 
   if (document.readyState === "loading") {

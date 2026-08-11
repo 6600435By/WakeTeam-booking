@@ -89,28 +89,26 @@ export function useEmbedHeight(active: boolean, ...layoutDeps: unknown[]) {
       const root = el!;
       const chrome = root.querySelector(".widget-shell-chrome") as HTMLElement | null;
       const scroll = root.querySelector(".widget-shell-scroll") as HTMLElement | null;
+      const cta = root.querySelector(".widget-time-cta") as HTMLElement | null;
       const footer = root.querySelector(".widget-shell-footer") as HTMLElement | null;
-      const isTimeStep = scroll?.classList.contains("widget-shell-scroll--time");
 
-      // Time step uses internal flex layout — never report inflated slot scrollHeight
-      // (that caused endless host-page growth / missing CTA).
-      if (isTimeStep) {
-        return Math.ceil(root.getBoundingClientRect().height);
-      }
-
-      if (chrome || scroll || footer) {
+      // Prefer laid-out sections. For time step the slot grid is hard-capped,
+      // so scroll.scrollHeight stays modest and includes date + grid only.
+      if (chrome || scroll || footer || cta) {
         const natural =
           (chrome?.offsetHeight ?? 0) +
           (scroll?.scrollHeight ?? 0) +
+          (cta?.offsetHeight ?? 0) +
           (footer?.offsetHeight ?? 0);
-        return Math.ceil(Math.max(natural, root.getBoundingClientRect().height));
+        return Math.ceil(
+          Math.max(natural, root.getBoundingClientRect().height, 640),
+        );
       }
       return Math.ceil(
         Math.max(
           root.getBoundingClientRect().height,
           root.scrollHeight,
-          document.body?.scrollHeight ?? 0,
-          document.documentElement?.scrollHeight ?? 0,
+          640,
         ),
       );
     }
@@ -127,6 +125,8 @@ export function useEmbedHeight(active: boolean, ...layoutDeps: unknown[]) {
     ro.observe(el);
     const scroll = el.querySelector(".widget-shell-scroll");
     if (scroll) ro.observe(scroll);
+    const cta = el.querySelector(".widget-time-cta");
+    if (cta) ro.observe(cta);
     window.addEventListener("load", report);
     return () => {
       ro.disconnect();
