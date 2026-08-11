@@ -9,7 +9,13 @@ import {
   Loader2,
   Phone,
 } from "lucide-react";
-import type { CSSProperties, ReactNode } from "react";
+import {
+  useState,
+  type ButtonHTMLAttributes,
+  type CSSProperties,
+  type ReactNode,
+  type SyntheticEvent,
+} from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -318,6 +324,7 @@ export function WidgetChoiceButton({
   theme,
   className,
   "aria-pressed": ariaPressed,
+  ...rest
 }: {
   children: ReactNode;
   selected?: boolean;
@@ -326,7 +333,10 @@ export function WidgetChoiceButton({
   theme: WidgetTheme;
   className?: string;
   "aria-pressed"?: boolean;
-}) {
+} & Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  "children" | "disabled" | "onClick" | "className" | "type" | "aria-pressed"
+>) {
   return (
     <button
       type="button"
@@ -347,6 +357,7 @@ export function WidgetChoiceButton({
             ? { background: "#f1f5f9", color: "#94a3b8", borderColor: "#e2e8f0" }
             : widgetOutlineStyle(theme)
       }
+      {...rest}
     >
       {children}
     </button>
@@ -450,6 +461,15 @@ export function WidgetTextInput(props: React.ComponentProps<typeof Input>) {
   );
 }
 
+/** Unlock before focus so iOS/Android show the keyboard (readonly blocks it). */
+function unlockPhoneInput(
+  e: SyntheticEvent<HTMLInputElement>,
+  setLocked: (locked: boolean) => void,
+) {
+  e.currentTarget.readOnly = false;
+  setLocked(false);
+}
+
 export function WidgetPhoneInput({
   id,
   value,
@@ -459,14 +479,20 @@ export function WidgetPhoneInput({
   value: string;
   onChange: (value: string) => void;
 }) {
+  // Start read-only to reduce password-manager autofill; unlock on first tap
+  // (must happen on touch/mouse before focus, not only in onFocus).
+  const [locked, setLocked] = useState(true);
+
   return (
     <WidgetTextInput
       id={id}
       name="waketeam-booking-phone"
       type="tel"
       value={value}
-      readOnly
-      onFocus={(e) => e.currentTarget.removeAttribute("readonly")}
+      readOnly={locked}
+      onTouchStart={(e) => unlockPhoneInput(e, setLocked)}
+      onMouseDown={(e) => unlockPhoneInput(e, setLocked)}
+      onFocus={(e) => unlockPhoneInput(e, setLocked)}
       onChange={(e) => onChange(sanitizeWidgetPhoneInput(e.target.value))}
       autoComplete="off"
       autoCorrect="off"

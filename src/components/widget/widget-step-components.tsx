@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { isCompletePhone } from "@/lib/phone";
@@ -40,6 +40,23 @@ import type {
   WidgetPriceRule,
 } from "./widget-types";
 
+function latestSelectedStart(starts: string[] | undefined): string | null {
+  if (!starts?.length) return null;
+  return [...starts].sort().at(-1) ?? null;
+}
+
+/** Scroll only inside the slot grid — avoid jumping the host page / iframe. */
+function scrollSlotIntoGrid(container: HTMLElement, slot: HTMLElement) {
+  const cRect = container.getBoundingClientRect();
+  const sRect = slot.getBoundingClientRect();
+  const offsetTop = sRect.top - cRect.top + container.scrollTop;
+  const target = offsetTop - container.clientHeight / 2 + sRect.height / 2;
+  const max = Math.max(0, container.scrollHeight - container.clientHeight);
+  container.scrollTo({
+    top: Math.min(max, Math.max(0, target)),
+    behavior: "smooth",
+  });
+}
 export function WidgetStepBackButton({ onClick }: { onClick: () => void }) {
   return <WidgetBackButton onClick={onClick} />;
 }
@@ -243,8 +260,42 @@ export function WidgetDateTimeStep(props: {
         (wakeList.length === 0 || wakeAllBusy) &&
         (props.alternateStaff?.length ?? 0) === 0);
 
+  const slotGridRef = useRef<HTMLDivElement>(null);
+  const selectedStarts =
+    props.kind === "wake" ? props.selectedWakeStarts : props.selectedSupStarts;
+  const selectedCount =
+    props.kind === "wake" ? selectedWakeCount : selectedSupCount;
+
+  // Keep the latest selected cell visible above the summary bar.
+  useLayoutEffect(() => {
+    const start = latestSelectedStart(selectedStarts);
+    const root = slotGridRef.current;
+    if (!start || !root) return;
+
+    let cancelled = false;
+    const run = () => {
+      if (cancelled) return;
+      const escaped =
+        typeof CSS !== "undefined" && typeof CSS.escape === "function"
+          ? CSS.escape(start)
+          : start.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      const el = root.querySelector<HTMLElement>(
+        `[data-slot-start="${escaped}"]`,
+      );
+      if (el) scrollSlotIntoGrid(root, el);
+    };
+    // Double rAF: wait until summary mount + grid height clamp settle.
+    const outer = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(run);
+    });
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(outer);
+    };
+  }, [selectedStarts, selectedCount]);
+
   return (
-    <WidgetStepEnter stepKey={`time-${props.kind}`} className="mt-2">
+    <WidgetStepEnter stepKey={`time-${props.kind}`} className="space-y-0">
       {!props.hideBack && props.onBack && (
         <WidgetBackButton onClick={props.onBack} />
       )}
@@ -344,6 +395,7 @@ export function WidgetDateTimeStep(props: {
       )}
 
       <div
+        ref={slotGridRef}
         className={slotGridScrollClass}
         style={slotGridScrollStyle}
         aria-label={
@@ -361,6 +413,7 @@ export function WidgetDateTimeStep(props: {
             return (
               <WidgetChoiceButton
                 key={sl.startAt}
+                data-slot-start={sl.startAt}
                 disabled={!free}
                 selected={selected}
                 aria-pressed={selected}
@@ -382,6 +435,7 @@ export function WidgetDateTimeStep(props: {
             return (
               <WidgetChoiceButton
                 key={sl.startAt}
+                data-slot-start={sl.startAt}
                 selected={selected}
                 aria-pressed={selected}
                 onClick={() => props.onToggleSupStart?.(sl.startAt)}
@@ -417,7 +471,7 @@ export function WidgetDateTimeStep(props: {
       )}
 
       {props.kind === "sup" && selectedSupCount > 0 && (
-        <WidgetPanel className="widget-booking-summary sticky bottom-0 z-20 mt-3 border-slate-200 bg-white/95 shadow-[0_-10px_28px_rgba(15,23,42,0.08)] backdrop-blur-sm">
+        <WidgetPanel className="widget-booking-summary mt-3 shrink-0 border-slate-200 bg-white">
           <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
             <p className="text-sm text-slate-700">
               Выбрано: <strong className="font-semibold">{selectedSupCount}</strong>{" "}
@@ -467,7 +521,7 @@ export function WidgetDateTimeStep(props: {
       )}
 
       {props.kind === "wake" && selectedWakeCount > 0 && (
-        <WidgetPanel className="widget-booking-summary sticky bottom-0 z-20 mt-3 border-slate-200 bg-white/95 shadow-[0_-10px_28px_rgba(15,23,42,0.08)] backdrop-blur-sm">
+        <WidgetPanel className="widget-booking-summary mt-3 shrink-0 border-slate-200 bg-white">
           <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
             <p className="text-sm text-slate-700">
               Выбрано:{" "}

@@ -862,7 +862,6 @@ export function BookingWidget({
 
       {step === 2 && activityKind === "sup" && service && (
         <WidgetStepEnter stepKey="sup-time">
-          <WidgetBackButton onClick={() => setStep(1)} />
           <WidgetDateTimeStep
             kind="sup"
             date={date}
@@ -920,11 +919,10 @@ export function BookingWidget({
           checkingAlternateStaff={checkingAlternateStaff}
           onSwitchStaff={switchWakeStaff}
           onPickOtherBranch={goToBranchSelect}
-          onBack={() => setStep(2)}
           onNext={handleTimeStepNext}
           nextLoading={submitLoading}
           nextLabel={copyMode ? "Записать" : "Далее"}
-          hideBack={copyMode}
+          hideBack
           theme={theme}
           slotMinutes={service.durationMinutes}
         />
