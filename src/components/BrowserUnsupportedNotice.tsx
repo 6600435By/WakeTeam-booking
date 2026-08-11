@@ -110,13 +110,22 @@ export function BrowserUnsupportedNotice() {
             }}
           >
             Адрес этой страницы:{" "}
-            <span style={{ wordBreak: "break-all" }} id="browser-unsupported-url" />
+            {/* Заполняется inline-скриптом, только если заглушка показана */}
+            <span
+              style={{ wordBreak: "break-all" }}
+              id="browser-unsupported-url"
+              suppressHydrationWarning
+            />
           </p>
         </div>
       </div>
-      <script
+      {/* Скрипт отдаётся строкой внутри div: React-элемент <script> вызывает
+          предупреждение при гидрации, а из raw-HTML он выполняется парсером
+          даже в браузерах, где основной бандл не загрузится. */}
+      <div
+        hidden
         dangerouslySetInnerHTML={{
-          __html: `try{var u=document.getElementById("browser-unsupported-url");if(u)u.textContent=window.location.href;}catch(e){}${BROWSER_UNSUPPORTED_INLINE_SCRIPT}`,
+          __html: `<script>${BROWSER_UNSUPPORTED_INLINE_SCRIPT}</script>`,
         }}
       />
     </>

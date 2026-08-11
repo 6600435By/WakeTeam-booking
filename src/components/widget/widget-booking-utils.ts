@@ -85,32 +85,42 @@ export function useEmbedHeight(active: boolean, ...layoutDeps: unknown[]) {
     const el = rootRef.current;
     if (!el) return;
 
+    /**
+     * Natural content height of a container that may be stretched by
+     * flex-1 / 100dvh: sum of children heights + own vertical padding.
+     * Using scrollHeight here would echo the stretched layout back to the
+     * iframe and inflate it to the max cap with dead space at the bottom.
+     */
+    function contentHeight(box: HTMLElement): number {
+      const styles = window.getComputedStyle(box);
+      const children = Array.from(box.children) as HTMLElement[];
+      const inner = children.reduce(
+        (sum, child) => sum + child.getBoundingClientRect().height,
+        0,
+      );
+      return (
+        inner +
+        (parseFloat(styles.paddingTop) || 0) +
+        (parseFloat(styles.paddingBottom) || 0)
+      );
+    }
+
     function measure(): number {
       const root = el!;
       const chrome = root.querySelector(".widget-shell-chrome") as HTMLElement | null;
       const scroll = root.querySelector(".widget-shell-scroll") as HTMLElement | null;
-      const cta = root.querySelector(".widget-time-cta") as HTMLElement | null;
       const footer = root.querySelector(".widget-shell-footer") as HTMLElement | null;
 
-      // Prefer laid-out sections. For time step the slot grid is hard-capped,
-      // so scroll.scrollHeight stays modest and includes date + grid only.
-      if (chrome || scroll || footer || cta) {
+      // The slot grid inside `scroll` is hard-capped by CSS, so the content
+      // height stays modest. The footer already contains the time-step CTA.
+      if (chrome || scroll || footer) {
         const natural =
           (chrome?.offsetHeight ?? 0) +
-          (scroll?.scrollHeight ?? 0) +
-          (cta?.offsetHeight ?? 0) +
+          (scroll ? contentHeight(scroll) : 0) +
           (footer?.offsetHeight ?? 0);
-        return Math.ceil(
-          Math.max(natural, root.getBoundingClientRect().height, 640),
-        );
+        return Math.ceil(Math.max(natural, 560));
       }
-      return Math.ceil(
-        Math.max(
-          root.getBoundingClientRect().height,
-          root.scrollHeight,
-          640,
-        ),
-      );
+      return Math.ceil(Math.max(contentHeight(root), 560));
     }
 
     function report() {
@@ -123,10 +133,14 @@ export function useEmbedHeight(active: boolean, ...layoutDeps: unknown[]) {
       requestAnimationFrame(report);
     });
     ro.observe(el);
-    const scroll = el.querySelector(".widget-shell-scroll");
-    if (scroll) ro.observe(scroll);
-    const cta = el.querySelector(".widget-time-cta");
-    if (cta) ro.observe(cta);
+    for (const selector of [
+      ".widget-shell-scroll",
+      ".widget-shell-footer",
+      ".widget-time-cta",
+    ]) {
+      const section = el.querySelector(selector);
+      if (section) ro.observe(section);
+    }
     window.addEventListener("load", report);
     return () => {
       ro.disconnect();

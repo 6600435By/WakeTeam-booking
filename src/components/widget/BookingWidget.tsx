@@ -778,7 +778,7 @@ export function BookingWidget({
       id="waketeam-booking-root"
       className={
         fillViewport
-          ? "max-h-full min-h-0 flex-1 rounded-none shadow-none ring-0"
+          ? "widget-embed max-h-full min-h-0 flex-1 rounded-none shadow-none ring-0"
           : undefined
       }
       style={{ background: theme.pageBackground, ...widgetThemeVars(theme) }}
@@ -841,7 +841,6 @@ export function BookingWidget({
               priceHint={`от ${svc.priceFrom} Br`}
               onClick={() => pickService(svc)}
               theme={theme}
-              photoUrl={svc.kind === "wake" ? "/images/services/wakeboarding.png" : svc.kind === "sup" ? "/images/services/supboard.png" : null}
             >
               {settings.behavior.showTariffsExpandable &&
                 shouldShowWidgetTariffs(svc) && (

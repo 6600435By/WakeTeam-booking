@@ -20,7 +20,9 @@ describe("photo-url", () => {
 
   it("sanitizes local paths in production", () => {
     const prev = process.env.NODE_ENV;
-    process.env.NODE_ENV = "production";
+    // NODE_ENV типизирован как read-only; в тесте подменяем через env-объект.
+    const env = process.env as Record<string, string | undefined>;
+    env.NODE_ENV = "production";
     try {
       assert.equal(
         sanitizePhotoUrlForClient("/uploads/branch/a.jpg"),
@@ -31,7 +33,7 @@ describe("photo-url", () => {
         "https://cdn.example/a.jpg",
       );
     } finally {
-      process.env.NODE_ENV = prev;
+      env.NODE_ENV = prev;
     }
   });
 });

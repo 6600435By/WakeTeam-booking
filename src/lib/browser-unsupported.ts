@@ -48,6 +48,10 @@ export const BROWSER_UNSUPPORTED_INLINE_SCRIPT = `(function(){
   if(!isOldSafari(navigator.userAgent)&&!lacksModernFeatures()) return;
   var el=document.getElementById("browser-unsupported");
   if(!el) return;
+  try{
+    var u=document.getElementById("browser-unsupported-url");
+    if(u)u.textContent=window.location.href;
+  }catch(e){}
   el.style.display="flex";
   document.documentElement.style.overflow="hidden";
 })();`;

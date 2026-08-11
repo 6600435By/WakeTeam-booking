@@ -172,8 +172,8 @@ body {
 
 #waketeam-booking-root .widget-slot-grid-scroll {
   /* Hard cap so the CTA under the grid always stays on screen */
-  height: clamp(9rem, 32dvh, 14rem) !important;
-  max-height: clamp(9rem, 32dvh, 14rem) !important;
+  height: clamp(10rem, 36dvh, 16rem) !important;
+  max-height: clamp(10rem, 36dvh, 16rem) !important;
   overflow-y: auto !important;
   overflow-x: hidden !important;
   overscroll-behavior: contain;
@@ -189,8 +189,8 @@ body {
 
 /* Same cap when "fill" class is present — never let the grid eat the CTA */
 #waketeam-booking-root .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
-  height: clamp(9rem, 32dvh, 14rem) !important;
-  max-height: clamp(9rem, 32dvh, 14rem) !important;
+  height: clamp(10rem, 36dvh, 16rem) !important;
+  max-height: clamp(10rem, 36dvh, 16rem) !important;
   flex: 0 0 auto !important;
   min-height: 0 !important;
   contain: layout;
@@ -199,8 +199,8 @@ body {
 #waketeam-booking-root:has(.widget-booking-summary) .widget-slot-grid-scroll,
 #waketeam-booking-root:has(.widget-booking-summary)
   .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
-  height: clamp(7.5rem, 26dvh, 12rem) !important;
-  max-height: clamp(7.5rem, 26dvh, 12rem) !important;
+  height: clamp(9rem, 31dvh, 14rem) !important;
+  max-height: clamp(9rem, 31dvh, 14rem) !important;
 }
 
 /* Time step: normal document flow; do NOT clip with overflow:hidden */
@@ -245,31 +245,49 @@ body {
 
   #waketeam-booking-root .widget-slot-grid-scroll,
   #waketeam-booking-root .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
-    height: clamp(7rem, 24dvh, 11rem) !important;
-    max-height: clamp(7rem, 24dvh, 11rem) !important;
+    height: clamp(7.5rem, 26dvh, 12rem) !important;
+    max-height: clamp(7.5rem, 26dvh, 12rem) !important;
   }
 
   #waketeam-booking-root:has(.widget-booking-summary) .widget-slot-grid-scroll,
   #waketeam-booking-root:has(.widget-booking-summary)
     .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
-    height: clamp(6rem, 20dvh, 9.5rem) !important;
-    max-height: clamp(6rem, 20dvh, 9.5rem) !important;
+    height: clamp(6.5rem, 22dvh, 10.5rem) !important;
+    max-height: clamp(6.5rem, 22dvh, 10.5rem) !important;
   }
 }
 
 @media (min-width: 640px) {
   #waketeam-booking-root .widget-slot-grid-scroll,
   #waketeam-booking-root .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
-    height: clamp(10rem, 34dvh, 15rem) !important;
-    max-height: clamp(10rem, 34dvh, 15rem) !important;
+    height: clamp(11rem, 36dvh, 17rem) !important;
+    max-height: clamp(11rem, 36dvh, 17rem) !important;
   }
 
   #waketeam-booking-root:has(.widget-booking-summary) .widget-slot-grid-scroll,
   #waketeam-booking-root:has(.widget-booking-summary)
     .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
-    height: clamp(8.5rem, 28dvh, 13rem) !important;
-    max-height: clamp(8.5rem, 28dvh, 13rem) !important;
+    height: clamp(9.5rem, 30dvh, 14rem) !important;
+    max-height: clamp(9.5rem, 30dvh, 14rem) !important;
   }
+}
+
+/* Embed (iframe): высота iframe выводится из высоты контента, поэтому
+   dvh-капы и @media (max-height) внутри iframe самоссылочны и зажимают
+   сетку. В embed используем фиксированные rem-капы (см. widget-embed). */
+#waketeam-booking-root.widget-embed .widget-slot-grid-scroll,
+#waketeam-booking-root.widget-embed
+  .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
+  height: 14rem !important;
+  max-height: 14rem !important;
+}
+
+#waketeam-booking-root.widget-embed:has(.widget-booking-summary)
+  .widget-slot-grid-scroll,
+#waketeam-booking-root.widget-embed:has(.widget-booking-summary)
+  .widget-slot-grid-scroll.widget-slot-grid-scroll--fill {
+  height: 12rem !important;
+  max-height: 12rem !important;
 }
 
 #waketeam-booking-root .widget-shell-scroll {
