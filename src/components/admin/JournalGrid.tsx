@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MessageCircle } from "lucide-react";
 import { StaffDayScheduleModal } from "./StaffDayScheduleModal";
 import {
   formatMinutesLabel,
@@ -176,6 +177,8 @@ type Props = {
   onScheduleSaved?: () => void;
   onSlotClick: (initial: ModalInitial) => void;
   onAppointmentClick: (appt: Appointment, group: Appointment[]) => void;
+  /** Открыть карточку сразу (без double-tap), например по значку комментария. */
+  onCommentIconClick?: (appt: Appointment, group: Appointment[]) => void;
   onOptimisticMove?: (
     group: Appointment[],
     staffId: string,
@@ -224,6 +227,133 @@ function resizeStepForGroup(
   }
   return gridStep;
 }
+
+function blockCommentText(group: Appointment[]): string | null {
+  const parts: string[] = [];
+  const seen = new Set<string>();
+  for (const appt of group) {
+    const text = appt.comment?.trim();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    parts.push(text);
+  }
+  return parts.length ? parts.join("\n") : null;
+}
+
+type CommentTipPos = {
+  text: string;
+  x: number;
+  y: number;
+  showAbove: boolean;
+};
+
+function commentTipFromRect(text: string, rect: DOMRect): CommentTipPos {
+  const showAbove = window.innerHeight - rect.bottom < 96;
+  return {
+    text,
+    x: rect.right,
+    y: showAbove ? rect.top : rect.bottom,
+    showAbove,
+  };
+}
+
+const AppointmentCommentHint = memo(function AppointmentCommentHint({
+  comment,
+  isDesktop,
+  appt,
+  group,
+  onOpen,
+}: {
+  comment: string;
+  isDesktop: boolean;
+  appt: Appointment;
+  group: Appointment[];
+  onOpen?: (appt: Appointment, group: Appointment[]) => void;
+}) {
+  const [tip, setTip] = useState<CommentTipPos | null>(null);
+
+  useEffect(() => {
+    if (!tip) return;
+    function onScrollOrResize() {
+      setTip(null);
+    }
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+    if (!isDesktop) {
+      window.addEventListener("pointerdown", onScrollOrResize);
+    }
+    return () => {
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+      window.removeEventListener("pointerdown", onScrollOrResize);
+    };
+  }, [tip, isDesktop]);
+
+  return (
+    <>
+      <button
+        type="button"
+        data-comment-hint
+        title=""
+        aria-label="Комментарий к записи"
+        className={`absolute right-px top-px z-[3] flex cursor-pointer items-center justify-center rounded-full bg-white/80 text-slate-600 shadow-sm ring-1 ring-black/10 touch-manipulation ${
+          isDesktop ? "h-3.5 w-3.5" : "h-4 w-4"
+        }`}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          if (onOpen) {
+            setTip(null);
+            onOpen(appt, group);
+            return;
+          }
+          if (!isDesktop) {
+            setTip((prev) =>
+              prev
+                ? null
+                : commentTipFromRect(
+                    comment,
+                    e.currentTarget.getBoundingClientRect(),
+                  ),
+            );
+          }
+        }}
+        onPointerEnter={(e) => {
+          if (!isDesktop || e.pointerType !== "mouse") return;
+          setTip(
+            commentTipFromRect(comment, e.currentTarget.getBoundingClientRect()),
+          );
+        }}
+        onPointerLeave={() => {
+          if (isDesktop) setTip(null);
+        }}
+      >
+        <MessageCircle
+          className="h-2.5 w-2.5"
+          strokeWidth={2.5}
+          aria-hidden
+        />
+      </button>
+      {tip && (
+        <div
+          role="tooltip"
+          className="pointer-events-none fixed z-[80] max-h-32 max-w-[16rem] overflow-hidden whitespace-pre-wrap break-words rounded-md bg-slate-900 px-2 py-1.5 text-[11px] leading-snug text-white shadow-lg"
+          style={{
+            right: Math.max(8, window.innerWidth - tip.x),
+            ...(tip.showAbove
+              ? { bottom: window.innerHeight - tip.y + 4 }
+              : { top: tip.y + 4 }),
+          }}
+        >
+          {tip.text}
+        </div>
+      )}
+    </>
+  );
+});
 
 function collapsedStaffLabel(name: string): string {
   const label = journalStaffDisplayName(name);
@@ -274,6 +404,7 @@ export function JournalGrid({
   onScheduleSaved,
   onSlotClick,
   onAppointmentClick,
+  onCommentIconClick,
   onOptimisticMove,
   onOptimisticResize,
   onOptimisticRollback,
@@ -1187,6 +1318,7 @@ export function JournalGrid({
                     );
                     if (!layout) return null;
                     const name = apptName(a);
+                    const commentText = blockCommentText(block.appointments);
                     const showStatus = layout.height >= slotHeightPx * 1.65;
                     const isDragging =
                       drag?.group.some((g) =>
@@ -1228,7 +1360,11 @@ export function JournalGrid({
                         onPointerDown={(e) => {
                           if (e.button !== 0) return;
                           if (isMutatingRef.current) return;
-                          if ((e.target as HTMLElement).closest("[data-resize-handle]")) {
+                          if (
+                            (e.target as HTMLElement).closest(
+                              "[data-resize-handle], [data-comment-hint]",
+                            )
+                          ) {
                             return;
                           }
                           e.stopPropagation();
@@ -1297,7 +1433,7 @@ export function JournalGrid({
                             />
                           );
                         })}
-                        <div className="relative z-[1]">
+                        <div className={`relative z-[1] ${commentText ? "pr-3.5" : ""}`}>
                         <div className="flex items-center gap-1">
                           <span
                             className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClass(a.status)}`}
@@ -1314,6 +1450,15 @@ export function JournalGrid({
                           </span>
                         )}
                         </div>
+                        {commentText && (
+                          <AppointmentCommentHint
+                            comment={commentText}
+                            isDesktop={isDesktop}
+                            appt={a}
+                            group={block.appointments}
+                            onOpen={onCommentIconClick}
+                          />
+                        )}
                         <div
                           data-resize-handle
                           className={`group/resize absolute inset-x-0 bottom-0 z-[2] flex items-end cursor-ns-resize hover:bg-sky-500/10 ${

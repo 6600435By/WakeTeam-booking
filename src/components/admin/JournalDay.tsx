@@ -1248,6 +1248,7 @@ export function JournalDay({ initial }: { initial?: JournalDayInitial }) {
                     : openEdit
                   : () => {}
               }
+              onCommentIconClick={canEditAppointments ? openEdit : undefined}
               onOptimisticMove={applyOptimisticMove}
               onOptimisticResize={applyOptimisticResize}
               onOptimisticRollback={rollbackOptimistic}
