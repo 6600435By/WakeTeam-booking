@@ -1,7 +1,6 @@
 import { prisma } from "@/lib/db";
 import type { DbClient } from "@/lib/db-types";
 import type { PrismaClient } from "@prisma/client";
-import { effectiveRemainingMinutes } from "./effective";
 
 const DEDUCT_STATUSES = new Set(["in_service", "completed"]);
 
@@ -9,12 +8,12 @@ export function statusTriggersDeduction(status: string): boolean {
   return DEDUCT_STATUSES.has(status);
 }
 
+/** Остаток для проверки — из синхронизированной таблицы, без вычета локальных списаний. */
 export function hasSufficientMembershipMinutes(
   sheetRemainingMinutes: number,
-  localDeductedMinutes: number,
   minutes: number,
 ): boolean {
-  return minutes <= effectiveRemainingMinutes(sheetRemainingMinutes, localDeductedMinutes);
+  return minutes <= sheetRemainingMinutes;
 }
 
 function isRootClient(db: DbClient): db is PrismaClient {
@@ -26,11 +25,12 @@ async function atomicIncrementDeduction(
   membershipId: string,
   minutes: number,
 ): Promise<void> {
+  // Баланс — sheetRemainingMinutes; localDeductedMinutes только учёт CRM (инфо).
   const updated = await db.$executeRaw`
     UPDATE "Membership"
     SET "localDeductedMinutes" = "localDeductedMinutes" + ${minutes}
     WHERE id = ${membershipId}
-      AND ("sheetRemainingMinutes" - "localDeductedMinutes") >= ${minutes}
+      AND "sheetRemainingMinutes" >= ${minutes}
   `;
   if (Number(updated) === 0) {
     throw new Error("MEMBERSHIP_INSUFFICIENT_MINUTES");

@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     );
     const withEffective = memberships.map(toMembershipDto);
     const suggestion =
-      withEffective.find((m) => m.effectiveRemainingMinutes > 0) ?? null;
+      withEffective.find((m) => m.sheetRemainingMinutes > 0) ?? null;
     return NextResponse.json({ suggestion });
   } catch (e) {
     const handled = handleAdminError(e);

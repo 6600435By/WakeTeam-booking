@@ -77,6 +77,20 @@ export type SyncMembershipsResult = {
   skipped: number;
 };
 
+/**
+ * Когда остаток в таблице снизился, считаем что списание уже отражено в листе
+ * и уменьшаем pending localDeducted, чтобы инфо-колонка не «двойно» учитывала то же списание.
+ * Рост листа (пополнение) локальный счётчик не меняет.
+ */
+export function reconcileLocalDeductedOnSheetChange(
+  oldSheet: number,
+  newSheet: number,
+  localDeductedMinutes: number,
+): number {
+  if (newSheet >= oldSheet) return localDeductedMinutes;
+  return Math.max(0, localDeductedMinutes - (oldSheet - newSheet));
+}
+
 export async function syncMembershipsFromSheet(
   organizationId: string,
 ): Promise<SyncMembershipsResult> {
@@ -116,15 +130,11 @@ export async function syncMembershipsFromSheet(
     });
 
     if (existing) {
-      const newSheet = data.sheetRemainingMinutes;
-      const oldSheet = existing.sheetRemainingMinutes;
-      let localDeductedMinutes = existing.localDeductedMinutes;
-      if (newSheet > oldSheet) {
-        localDeductedMinutes = Math.max(
-          0,
-          localDeductedMinutes - (newSheet - oldSheet),
-        );
-      }
+      const localDeductedMinutes = reconcileLocalDeductedOnSheetChange(
+        existing.sheetRemainingMinutes,
+        data.sheetRemainingMinutes,
+        existing.localDeductedMinutes,
+      );
       await prisma.membership.update({
         where: { id: existing.id },
         data: { ...data, localDeductedMinutes },

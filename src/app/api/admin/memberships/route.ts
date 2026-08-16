@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
 
     let dtos = memberships.map(toMembershipDto);
     if (hideEmptyForPhone) {
-      dtos = dtos.filter((m) => m.effectiveRemainingMinutes > 0);
+      dtos = dtos.filter((m) => m.sheetRemainingMinutes > 0);
     }
     if (includeId && !dtos.some((m) => m.id === includeId)) {
       const extra = await prisma.membership.findFirst({

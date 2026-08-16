@@ -1,3 +1,8 @@
+/**
+ * Расчётный остаток после локальных списаний CRM.
+ * Для UI «доступно / остаток» ориентируемся на sheetRemainingMinutes (синхронизация с таблицей);
+ * эта величина и localDeductedMinutes — справочные.
+ */
 export function effectiveRemainingMinutes(
   sheetRemainingMinutes: number,
   localDeductedMinutes: number,

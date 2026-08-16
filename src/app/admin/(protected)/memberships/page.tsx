@@ -350,7 +350,7 @@ export default function MembershipsPage() {
                   </th>
                   <th className="pr-2">
                     <SortHeader
-                      label="Остаток (лист)"
+                      label="Остаток"
                       active={sortKey === "sheetRemaining"}
                       dir={sortDir}
                       onClick={() => handleSort("sheetRemaining")}
@@ -366,7 +366,7 @@ export default function MembershipsPage() {
                   </th>
                   <th className="pr-2">
                     <SortHeader
-                      label="Доступно"
+                      label="После лок. списаний"
                       active={sortKey === "available"}
                       dir={sortDir}
                       onClick={() => handleSort("available")}
@@ -400,9 +400,9 @@ export default function MembershipsPage() {
                       <td className="pr-2">{m.phone}</td>
                       <td className="pr-2">{m.category ?? "—"}</td>
                       <td className="pr-2">{formatPricePerMinute(m.pricePerMinute)}</td>
-                      <td className="pr-2">{m.sheetRemainingMinutes}</td>
+                      <td className="pr-2 font-medium">{m.sheetRemainingMinutes}</td>
                       <td className="pr-2">{m.localDeductedMinutes}</td>
-                      <td className="pr-2 font-medium">{m.effectiveRemainingMinutes}</td>
+                      <td className="pr-2 text-slate-500">{m.effectiveRemainingMinutes}</td>
                       <td className="pr-2 text-xs text-slate-500 whitespace-nowrap">
                         {formatSyncedAt(m.syncedAt)}
                       </td>

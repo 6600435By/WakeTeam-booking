@@ -13,9 +13,11 @@ describe("membership deduct helpers", () => {
     assert.equal(statusTriggersDeduction("cancelled"), false);
   });
 
-  it("hasSufficientMembershipMinutes uses effective balance", () => {
-    assert.equal(hasSufficientMembershipMinutes(100, 20, 80), true);
-    assert.equal(hasSufficientMembershipMinutes(100, 20, 81), false);
-    assert.equal(hasSufficientMembershipMinutes(50, 60, 1), false);
+  it("hasSufficientMembershipMinutes uses sheet balance only", () => {
+    assert.equal(hasSufficientMembershipMinutes(100, 80), true);
+    assert.equal(hasSufficientMembershipMinutes(100, 101), false);
+    // Local write-offs are informational and must not reduce the sheet gate.
+    assert.equal(hasSufficientMembershipMinutes(50, 50), true);
+    assert.equal(hasSufficientMembershipMinutes(0, 1), false);
   });
 });

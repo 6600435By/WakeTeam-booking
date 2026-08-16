@@ -115,7 +115,8 @@ type MembershipOption = {
   externalCode: string;
   category: string | null;
   ownerName: string | null;
-  effectiveRemainingMinutes: number;
+  sheetRemainingMinutes: number;
+  localDeductedMinutes: number;
   pricePerMinute: number | null;
 };
 
@@ -696,7 +697,8 @@ export function AppointmentModal({
               externalCode: m.externalCode,
               category: m.category,
               ownerName: m.ownerName,
-              effectiveRemainingMinutes: m.effectiveRemainingMinutes,
+              sheetRemainingMinutes: m.sheetRemainingMinutes,
+              localDeductedMinutes: m.localDeductedMinutes ?? 0,
               pricePerMinute: m.pricePerMinute ?? null,
             }),
           );
@@ -707,7 +709,7 @@ export function AppointmentModal({
             !membershipId &&
             suggestion &&
             membershipMatchesServiceKind(suggestion.category, serviceKind) &&
-            suggestion.effectiveRemainingMinutes > 0
+            suggestion.sheetRemainingMinutes > 0
           ) {
             setMembershipId(suggestion.id);
           }
@@ -780,7 +782,8 @@ export function AppointmentModal({
         externalCode: data.membership.externalCode,
         category: data.membership.category,
         ownerName: data.membership.ownerName,
-        effectiveRemainingMinutes: data.membership.effectiveRemainingMinutes,
+        sheetRemainingMinutes: data.membership.sheetRemainingMinutes,
+        localDeductedMinutes: data.membership.localDeductedMinutes ?? 0,
         pricePerMinute: data.membership.pricePerMinute ?? null,
       };
       const serviceKind = selectedService?.kind ?? "wake";
@@ -954,10 +957,10 @@ export function AppointmentModal({
       !isQuick &&
       membershipId &&
       selectedMembership &&
-      selectedMembership.effectiveRemainingMinutes < durationMinutes
+      selectedMembership.sheetRemainingMinutes < durationMinutes
     ) {
       setError(
-        `Недостаточно минут на абонементе (остаток ${selectedMembership.effectiveRemainingMinutes} мин, нужно ${durationMinutes}). Разделите запись или уменьшите длительность / выберите другой абонемент.`,
+        `Недостаточно минут на абонементе (остаток ${selectedMembership.sheetRemainingMinutes} мин, нужно ${durationMinutes}). Разделите запись или уменьшите длительность / выберите другой абонемент.`,
       );
       return;
     }
@@ -1663,7 +1666,7 @@ export function AppointmentModal({
                   {[m.externalCode, m.category, m.ownerName]
                     .filter(Boolean)
                     .join(" · ")}{" "}
-                  — {m.effectiveRemainingMinutes} мин
+                  — {m.sheetRemainingMinutes} мин
                 </option>
               ))}
             </select>
@@ -1699,13 +1702,16 @@ export function AppointmentModal({
             {selectedMembership && (
               <p
                 className={`mt-0.5 text-[10px] ${
-                  selectedMembership.effectiveRemainingMinutes < durationMinutes
+                  selectedMembership.sheetRemainingMinutes < durationMinutes
                     ? "font-medium text-amber-700"
                     : "text-slate-600"
                 }`}
               >
-                Остаток: {selectedMembership.effectiveRemainingMinutes} мин
-                {selectedMembership.effectiveRemainingMinutes < durationMinutes && (
+                Остаток: {selectedMembership.sheetRemainingMinutes} мин
+                {selectedMembership.localDeductedMinutes > 0 && (
+                  <> · списано локально: {selectedMembership.localDeductedMinutes} мин</>
+                )}
+                {selectedMembership.sheetRemainingMinutes < durationMinutes && (
                   <> — не хватает для {durationMinutes} мин. Разделите запись или оплатите остаток.</>
                 )}
               </p>
