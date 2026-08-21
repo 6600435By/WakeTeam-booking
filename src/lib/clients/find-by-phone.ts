@@ -1,8 +1,9 @@
 import { prisma } from "@/lib/db";
 import {
+  belarusNationalDigits,
   isCompletePhone,
   isSearchablePhone,
-  nationalPhoneDigits,
+  phoneDigitsOnly,
   phoneMatchesSearch,
   phoneStoredVariants,
 } from "@/lib/phone";
@@ -50,9 +51,11 @@ export async function findClientByPhone(
     if (found) return found;
   }
 
-  // Indexed suffix match — never scan the whole organization.
-  const national = nationalPhoneDigits(phoneRaw);
-  if (national.length < 9) return null;
+  // BY only: indexed suffix on national 9 digits. Skip for foreign — last-9
+  // endsWith would collide across country codes.
+  const national = belarusNationalDigits(phoneRaw);
+  if (!national || national.length < 9) return null;
+
   const candidates = await prisma.client.findMany({
     where: {
       organizationId,
@@ -61,7 +64,9 @@ export async function findClientByPhone(
     select: clientSelect,
     take: 10,
   });
-  return candidates.find((c) => nationalPhoneDigits(c.phone) === national) ?? null;
+  return (
+    candidates.find((c) => belarusNationalDigits(c.phone) === national) ?? null
+  );
 }
 
 /** Поиск клиентов по полному номеру или по последним 7+ цифрам */
@@ -76,7 +81,7 @@ export async function findClientsByPhoneSearch(
     return one ? [one] : [];
   }
 
-  const digits = phoneRaw.replace(/\D/g, "");
+  const digits = phoneDigitsOnly(phoneRaw);
   const suffix = digits.slice(-Math.min(digits.length, 9));
   if (suffix.length < 7) return [];
 

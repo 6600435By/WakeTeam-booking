@@ -1217,7 +1217,7 @@ export function AppointmentModal({
                 </label>
                 <input
                   id="quick-client-phone"
-                  placeholder="+375 …"
+                  placeholder="+375… или +7…"
                   name="quick-client-phone"
                   type="tel"
                   inputMode="tel"
@@ -1587,7 +1587,7 @@ export function AppointmentModal({
             </label>
             <input
               id="client-phone"
-              placeholder="+375 …"
+              placeholder="+375… или +7…"
               name="client-phone"
               type="tel"
               inputMode="tel"

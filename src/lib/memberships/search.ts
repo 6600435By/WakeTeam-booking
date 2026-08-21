@@ -1,8 +1,8 @@
 import { prisma } from "@/lib/db";
 import {
+  belarusNationalDigits,
   isCompletePhone,
   isSearchablePhone,
-  nationalPhoneDigits,
   phoneDigitsOnly,
   phoneMatchesSearch,
   phoneStoredVariants,
@@ -26,12 +26,17 @@ export async function findMembershipsByPhone(
     });
     if (byVariant.length > 0) return byVariant;
 
-    const national = nationalPhoneDigits(phoneRaw);
+    // BY only — foreign numbers must not match via last-9 national suffix.
+    const national = belarusNationalDigits(phoneRaw);
+    if (!national || national.length < 9) return [];
+
     const memberships = await prisma.membership.findMany({
       where: { organizationId },
       orderBy: [{ saleDate: "desc" }, { syncedAt: "desc" }],
     });
-    return memberships.filter((m) => nationalPhoneDigits(m.phone) === national);
+    return memberships.filter(
+      (m) => belarusNationalDigits(m.phone) === national,
+    );
   }
 
   const memberships = await prisma.membership.findMany({

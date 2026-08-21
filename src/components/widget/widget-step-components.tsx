@@ -633,6 +633,9 @@ export function WidgetContactsStep({
             value={phone}
             onChange={setPhone}
           />
+          <p className="mt-1 text-[11px] leading-snug text-slate-500">
+            Беларусь: +375… · другой код страны можно ввести вместо 375
+          </p>
         </WidgetField>
         <WidgetField id="widget-email" label="Email">
           <WidgetTextInput
