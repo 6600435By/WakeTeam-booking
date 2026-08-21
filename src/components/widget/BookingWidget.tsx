@@ -39,13 +39,13 @@ import {
 } from "@/components/widget/widget-primitives";
 import {
   branchHasFreeSlots,
+  fetchFirstFreeDate,
   fetchSupSlots,
   fetchWakeSlots,
   formatSessionStart,
   formatSlotTime,
   MAX_AUTO_DATE_SCAN_DAYS,
   serviceBookingDurations,
-  shiftDateStr,
   shouldShowWidgetTariffs,
   supHasFree,
   supStepToVisibleIndex,
@@ -376,38 +376,25 @@ export function BookingWidget({
 
     void (async () => {
       const manualPick = userPickedDateRef.current;
-      let tryDate = date < todayStr() ? todayStr() : date;
-      const attempts = manualPick ? 1 : MAX_AUTO_DATE_SCAN_DAYS;
+      const startDate = date < todayStr() ? todayStr() : date;
 
-      for (let i = 0; i < attempts; i++) {
+      let targetDate = startDate;
+      if (!manualPick) {
+        const firstFree = await fetchFirstFreeDate({
+          serviceId,
+          staffId,
+          from: startDate,
+          days: MAX_AUTO_DATE_SCAN_DAYS,
+        });
         if (cancelled) return;
-        const slots = await fetchWakeSlots(serviceId, staffId, tryDate);
-        if (cancelled) return;
-
-        const hasGrid = slots.length > 0;
-        const hasFree = wakeHasFree(slots);
-
-        if (hasFree) {
-          if (tryDate !== date) setDate(tryDate);
-          setWakeSlots(slots);
-          setSelectedWakeStarts([]);
-          setSlotsLoading(false);
-          return;
-        }
-
-        if (!manualPick && !hasGrid) {
-          tryDate = shiftDateStr(tryDate, 1);
-          continue;
-        }
-
-        if (tryDate !== date) setDate(tryDate);
-        setWakeSlots(slots);
-        setSelectedWakeStarts([]);
-        setSlotsLoading(false);
-        return;
+        if (firstFree) targetDate = firstFree;
       }
 
-      setWakeSlots([]);
+      const slots = await fetchWakeSlots(serviceId, staffId, targetDate);
+      if (cancelled) return;
+
+      if (targetDate !== date) setDate(targetDate);
+      setWakeSlots(slots);
       setSelectedWakeStarts([]);
       setSlotsLoading(false);
     })();
@@ -424,40 +411,25 @@ export function BookingWidget({
 
     void (async () => {
       const manualPick = userPickedDateRef.current;
-      let tryDate = date < todayStr() ? todayStr() : date;
-      const attempts = manualPick ? 1 : MAX_AUTO_DATE_SCAN_DAYS;
+      const startDate = date < todayStr() ? todayStr() : date;
 
-      for (let i = 0; i < attempts; i++) {
+      let targetDate = startDate;
+      if (!manualPick) {
+        const firstFree = await fetchFirstFreeDate({
+          serviceId,
+          from: startDate,
+          days: MAX_AUTO_DATE_SCAN_DAYS,
+          durationMinutes: supDurationMinutes,
+        });
         if (cancelled) return;
-        const slots = await fetchSupSlots(serviceId, tryDate, supDurationMinutes);
-        if (cancelled) return;
-
-        const hasGrid = slots.length > 0;
-        const hasFree = supHasFree(slots);
-
-        if (hasFree) {
-          if (tryDate !== date) setDate(tryDate);
-          setSupSlots(slots);
-          setSelectedSupStarts([]);
-          setSupQuantity(1);
-          setSlotsLoading(false);
-          return;
-        }
-
-        if (!manualPick && !hasGrid) {
-          tryDate = shiftDateStr(tryDate, 1);
-          continue;
-        }
-
-        if (tryDate !== date) setDate(tryDate);
-        setSupSlots(slots);
-        setSelectedSupStarts([]);
-        setSupQuantity(1);
-        setSlotsLoading(false);
-        return;
+        if (firstFree) targetDate = firstFree;
       }
 
-      setSupSlots([]);
+      const slots = await fetchSupSlots(serviceId, targetDate, supDurationMinutes);
+      if (cancelled) return;
+
+      if (targetDate !== date) setDate(targetDate);
+      setSupSlots(slots);
       setSelectedSupStarts([]);
       setSupQuantity(1);
       setSlotsLoading(false);

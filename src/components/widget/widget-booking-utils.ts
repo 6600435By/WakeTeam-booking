@@ -9,7 +9,31 @@ import type { ActivityKind, SupSlot, WakeSlot, WidgetConfig, WidgetService } fro
 import { isStaffPickActivity } from "./widget-types";
 
 export const WAKE_CELL_MINUTES = 10;
-export const MAX_AUTO_DATE_SCAN_DAYS = 45;
+/** How far ahead the widget may auto-jump to the next free day. */
+export const MAX_AUTO_DATE_SCAN_DAYS = 10;
+/** Client cache for public slot probes / grids — cuts repeat CPU on reopen. */
+const PUBLIC_SLOTS_CACHE_TTL_MS = 20_000;
+
+type CacheEntry = { at: number; data: unknown };
+const publicSlotsCache = new Map<string, CacheEntry>();
+
+function readPublicSlotsCache<T>(key: string): { hit: true; data: T } | { hit: false } {
+  const entry = publicSlotsCache.get(key);
+  if (!entry) return { hit: false };
+  if (Date.now() - entry.at > PUBLIC_SLOTS_CACHE_TTL_MS) {
+    publicSlotsCache.delete(key);
+    return { hit: false };
+  }
+  return { hit: true, data: entry.data as T };
+}
+
+function writePublicSlotsCache(key: string, data: unknown) {
+  publicSlotsCache.set(key, { at: Date.now(), data });
+  if (publicSlotsCache.size > 80) {
+    const oldest = publicSlotsCache.keys().next().value;
+    if (oldest) publicSlotsCache.delete(oldest);
+  }
+}
 
 export function serviceBookingDurations(service: {
   allowedDurations: string;
@@ -227,10 +251,16 @@ export function supHasFree(slots: SupSlot[]) {
 }
 
 export async function fetchWakeSlots(serviceId: string, staffId: string, date: string) {
+  const key = `wake:${serviceId}:${staffId}:${date}`;
+  const cached = readPublicSlotsCache<WakeSlot[]>(key);
+  if (cached.hit) return cached.data;
+
   const q = new URLSearchParams({ serviceId, staffId, date });
   const r = await fetch(`/api/public/slots?${q}`);
   const d = await r.json();
-  return (d.slots ?? []) as WakeSlot[];
+  const slots = (d.slots ?? []) as WakeSlot[];
+  writePublicSlotsCache(key, slots);
+  return slots;
 }
 
 export async function fetchSupSlots(
@@ -238,28 +268,72 @@ export async function fetchSupSlots(
   date: string,
   durationMinutes?: number,
 ) {
+  const key = `sup:${serviceId}:${date}:${durationMinutes ?? ""}`;
+  const cached = readPublicSlotsCache<SupSlot[]>(key);
+  if (cached.hit) return cached.data;
+
   const q = new URLSearchParams({ serviceId, date });
   if (durationMinutes != null) {
     q.set("durationMinutes", String(durationMinutes));
   }
   const r = await fetch(`/api/public/slots?${q}`);
   const d = await r.json();
-  return (d.slots ?? []) as SupSlot[];
+  const slots = (d.slots ?? []) as SupSlot[];
+  writePublicSlotsCache(key, slots);
+  return slots;
+}
+
+/** One light request: first free date in [from, from+days), or null. */
+export async function fetchFirstFreeDate(params: {
+  serviceId: string;
+  staffId?: string;
+  from: string;
+  days?: number;
+  durationMinutes?: number;
+}): Promise<string | null> {
+  const days = params.days ?? MAX_AUTO_DATE_SCAN_DAYS;
+  const key = `first-free:${params.serviceId}:${params.staffId ?? ""}:${params.from}:${days}:${params.durationMinutes ?? ""}`;
+  const cached = readPublicSlotsCache<string | null>(key);
+  if (cached.hit) return cached.data;
+
+  const q = new URLSearchParams({
+    serviceId: params.serviceId,
+    from: params.from,
+    days: String(days),
+  });
+  if (params.staffId) q.set("staffId", params.staffId);
+  if (params.durationMinutes != null) {
+    q.set("durationMinutes", String(params.durationMinutes));
+  }
+  const r = await fetch(`/api/public/slots/first-free?${q}`);
+  const d = (await r.json()) as { firstFreeDate?: string | null };
+  const first = d.firstFreeDate ?? null;
+  writePublicSlotsCache(key, first);
+  return first;
 }
 
 export async function branchHasFreeSlots(
-  config: WidgetConfig,
-  targetBranchId: string,
+  _config: WidgetConfig,
+  _targetBranchId: string,
   service: Pick<WidgetService, "id" | "kind" | "staff">,
   date: string,
 ): Promise<boolean> {
   if (service.kind === "sup") {
-    const slots = await fetchSupSlots(service.id, date);
-    return supHasFree(slots);
+    const first = await fetchFirstFreeDate({
+      serviceId: service.id,
+      from: date,
+      days: 1,
+    });
+    return first === date;
   }
   for (const st of service.staff) {
-    const slots = await fetchWakeSlots(service.id, st.id, date);
-    if (wakeHasFree(slots)) return true;
+    const first = await fetchFirstFreeDate({
+      serviceId: service.id,
+      staffId: st.id,
+      from: date,
+      days: 1,
+    });
+    if (first === date) return true;
   }
   return false;
 }

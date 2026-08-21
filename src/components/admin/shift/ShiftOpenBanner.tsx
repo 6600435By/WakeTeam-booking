@@ -7,7 +7,8 @@ import { formatBranchOpenLabel, type BranchShiftStatus } from "@/lib/payroll/bra
 import { formatTimeMinsk } from "@/lib/time";
 
 const DISMISS_KEY = "shift-open-banner-dismiss";
-const POLL_MS = 60_000;
+/** Rare poll — banner is not time-critical; saves Fluid CPU on Hobby. */
+const POLL_MS = 4 * 60_000;
 
 type WorkShiftsTodayResponse = {
   today?: { shift?: { status?: string; panelOnly?: boolean } } | null;
@@ -47,14 +48,36 @@ export function ShiftOpenBanner() {
 
   useEffect(() => {
     void check();
+
+    let timer: number | null = null;
+    function stopPoll() {
+      if (timer != null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+    }
+    function startPoll() {
+      stopPoll();
+      timer = window.setInterval(() => {
+        if (document.visibilityState === "visible") void check();
+      }, POLL_MS);
+    }
+
     const onVis = () => {
-      if (document.visibilityState === "visible") void check();
+      if (document.visibilityState === "visible") {
+        void check();
+        startPoll();
+      } else {
+        stopPoll();
+      }
     };
+
     document.addEventListener("visibilitychange", onVis);
-    const timer = window.setInterval(() => void check(), POLL_MS);
+    if (document.visibilityState === "visible") startPoll();
+
     return () => {
       document.removeEventListener("visibilitychange", onVis);
-      window.clearInterval(timer);
+      stopPoll();
     };
   }, [check]);
 
