@@ -111,7 +111,7 @@ export async function GET(req: NextRequest) {
     const mineParam = searchParams.get("mine");
     const lite = searchParams.get("lite") === "1";
 
-    // Lightweight payload for ShiftOpenBanner (polled globally) — no SHIFT_INCLUDE / enrich.
+    // Lightweight payload for shift status (no SHIFT_INCLUDE / enrich).
     if (lite) {
       const today = formatDateKey(new Date());
       const myShift = ctx.memberId

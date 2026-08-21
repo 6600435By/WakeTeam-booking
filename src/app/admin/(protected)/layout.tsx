@@ -7,7 +7,6 @@ import {
   SuperAdminBranchBar,
   SuperAdminBranchProvider,
 } from "@/components/admin/SuperAdminBranchProvider";
-import { ShiftOpenBanner } from "@/components/admin/shift/ShiftOpenBanner";
 import { getAdminContext } from "@/lib/admin-access";
 
 export default async function AdminProtectedLayout({
@@ -42,7 +41,6 @@ export default async function AdminProtectedLayout({
         <SuperAdminBranchBar />
         <AdminPageGuard role={ctx.role}>
           <AdminOnboardingShell>
-            <ShiftOpenBanner />
             <main className="admin-main block overflow-visible">{children}</main>
           </AdminOnboardingShell>
         </AdminPageGuard>
